@@ -19,7 +19,7 @@
 - [Chapter 3: Create Your Own Branch](#chapter-3-create-your-own-branch)
 - [Chapter 4: Save Your Work](#chapter-4-save-your-work)
 - [Chapter 5: Push Your Branch](#chapter-5-push-your-branch)
-- [Chapter 6: Bring Approved Work Into Main](#chapter-6-bring-approved-work-into-main)
+- [Chapter 6: Open a Pull Request](#chapter-6-open-a-pull-request)
 - [Chapter 7: Daily Git Commands](#chapter-7-daily-git-commands)
 - [Project Mission](#project-mission)
 
@@ -177,45 +177,117 @@ After that, you can usually push with:
 git push
 ```
 
-## Chapter 6: Bring Approved Work Into Main
+## Chapter 6: Open a Pull Request
 
-Only bring work into `main` after the group approves it.
+A pull request, or PR, is how you ask the group to review your branch before it becomes part of `main`.
 
-### Option A: Pull request
+Use a pull request when your prototype, notes, data work, or code is ready for the group to see.
 
-This is the recommended way.
+### 1. Make sure your branch is pushed
 
-1. Push your branch to GitHub.
-2. Open the repository on GitHub.
-3. Click **Compare & pull request**.
-4. Ask the group to review it.
-5. Merge it into `main` after approval.
+If this is your first time pushing the branch:
 
-### Option B: Merge from Terminal
+```bash
+git push -u origin your-name/your-feature
+```
 
-Use this only when the group agrees.
+If you already pushed this branch before:
 
-Switch to `main`:
+```bash
+git push
+```
+
+### 2. Open GitHub
+
+Go to:
+
+```text
+https://github.com/CatFatOw/Rice-To-Meet-You
+```
+
+GitHub may show a yellow box with a **Compare & pull request** button. Click it.
+
+If you do not see that button:
+
+1. Click the **Pull requests** tab.
+2. Click **New pull request**.
+3. Set **base** to `main`.
+4. Set **compare** to your branch, such as `michael/heat-map-prototype`.
+
+### 3. Write a clear PR title
+
+Good titles:
+
+- `Add heat map prototype`
+- `Add transit gap analysis notes`
+- `Create demo dashboard draft`
+
+### 4. Write a short PR description
+
+Use this format:
+
+```markdown
+## What changed
+
+- Explain the files, prototype, data, or notes you added.
+
+## Why it matters
+
+- Explain how this helps the hackathon project.
+
+## AI usage
+
+- Say how AI helped, if you used it.
+
+## Questions for the group
+
+- Ask anything you want reviewers to check.
+```
+
+### 5. Ask for review
+
+Send the PR link to the group. Do not merge it until the group approves it.
+
+Reviewers should check:
+
+- Does this help the project?
+- Is the idea clear?
+- Are the files in the right place?
+- Is the work ready for `main`?
+
+### 6. Merge after approval
+
+After the group approves:
+
+1. Click **Merge pull request**.
+2. Click **Confirm merge**.
+3. Delete the branch on GitHub if the work is finished.
+
+### 7. Update your computer after the PR merges
+
+After your PR is merged, update your local `main`:
 
 ```bash
 git checkout main
-```
-
-Get the newest version:
-
-```bash
 git pull origin main
 ```
 
-Merge your branch:
+You can delete your old local branch if you are done with it:
 
 ```bash
-git merge your-name/your-feature
+git branch -d your-name/your-feature
 ```
 
-Push the updated `main`:
+If Git says the branch is not fully merged, ask the group before deleting it.
+
+### Emergency option: merge from Terminal
+
+Only do this if the group agrees and you understand what you are merging.
 
 ```bash
+git checkout main
+git pull origin main
+git merge your-name/your-feature
 git push origin main
 ```
 
