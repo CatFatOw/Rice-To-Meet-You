@@ -2,7 +2,7 @@
 
 2026 Rice University FIFA Summer Hackathon project.
 
-Rice-To-Meet-You is a FIFA 2026 host-city decision-support project focused on visitor surges, transportation pressure, climate and heat risk, sustainability, and future growth opportunities.
+Rice-To-Meet-You is building a FIFA HeatSafe AI prototype: an online decision-support tool that helps visitors and city professionals predict heat, dehydration, weather, energy-use, and crowd-overlap danger zones around FIFA 2026 host cities.
 
 ## Table of Contents
 
@@ -10,6 +10,8 @@ Rice-To-Meet-You is a FIFA 2026 host-city decision-support project focused on vi
 |---|---|
 | [Project Mission](#project-mission) | What the project is trying to accomplish |
 | [Quick Start](#quick-start) | First steps for new contributors |
+| [Project Idea](#project-idea) | Current product direction from team planning |
+| [Meeting Notes](#meeting-notes) | Team notes and action items |
 | [Git Workflow](#git-workflow) | Branches, commits, pushes, PRs, and cleanup after merge |
 | [App Guide](#app-guide) | App structure, setup, checks, and key files |
 | [App Folder README](app/README.md) | More detailed map of files inside `app/` |
@@ -18,7 +20,67 @@ Rice-To-Meet-You is a FIFA 2026 host-city decision-support project focused on vi
 
 ## Project Mission
 
-Build a useful, credible, and polished FIFA 2026 decision-support platform that helps host cities prepare for visitor surges, transportation pressure, sustainability demands, climate risk, and future growth opportunities.
+Build a useful, credible, and polished FIFA 2026 HeatSafe platform that helps host cities and visitors understand where heat risk, dehydration risk, crowd activity, weather conditions, and energy pressure may overlap.
+
+The goal is to turn Rice-provided datasets into clear maps, timelines, risk scores, and planning simulations that help cities prepare safer routes, cooling zones, shade structures, medical staffing, and other heat-resilience interventions.
+
+## Project Idea
+
+The current prototype direction is **FIFA HeatSafe AI**.
+
+| Feature | Purpose |
+|---|---|
+| Heat mapping | Show red, orange, and green risk zones across a selected city or state |
+| Visitor mapping | Estimate where visitor and business activity may concentrate |
+| Risk score mapping | Combine heat, weather, and visitor activity into an easy-to-read risk score |
+| Future timeline | Extend predictions forward using historical weather and activity data |
+| Simulation platform | Let planners test interventions such as shade structures and cooling zones |
+| Planning recommendations | Help identify where hydration, cooling, shade, transit, and medical support may matter most |
+
+Key datasets for the first version:
+
+| Dataset | Why It Matters |
+|---|---|
+| Daily Weather | Climate, weather, and energy-risk prediction |
+| Core POI Geometry | Locations, points of interest, business areas, and possible visitor activity |
+| Urban Heat Index | Relative urban heat intensity across locations |
+| Store Visits | Business traffic and possible crowd/activity signals |
+
+## Meeting Notes
+
+### June 24 Meeting
+
+Source: `Rice Hack FIFA.pdf`
+
+Main direction:
+
+- Build an online FIFA HeatSafe AI prototype for both visitors and city professionals.
+- Predict danger zones for heat, dehydration, weather, energy usage, and crowd overlap.
+- Start with an aggregate map/timeline for a selected state or city.
+- Use red, orange, and green cells to communicate average heat, warning level, and overall risk.
+- Combine heat mapping, visitor mapping, and risk score mapping.
+- Explore future prediction windows from a few days to a few months forward.
+- Add a simulation layer where urban planners can test solutions such as shade structures and cooling zones.
+
+Technology direction:
+
+| Area | Notes |
+|---|---|
+| Frontend | React and TypeScript |
+| Backend | FastAPI, SQLAlchemy, Pydantic, Postgres, Alembic |
+| Hosting | Neon Postgres, Render backend, Vercel frontend |
+| Modeling | XGBoost, linear regression, random forest, and heat-risk score formulas |
+| Database | Tables based on the provided datasets, plus future prediction tables for grid cells, metrics, colors, and dates |
+
+Action items before the Friday, June 26 meeting:
+
+| Person / Team | Task |
+|---|---|
+| Everyone | Review the datasets and presentation materials in detail |
+| Michael | Create the online PostgreSQL database and basic app schemas |
+| Phat | Map out the tech stack and decide technologies for each part |
+| Preston | Research and test statistical models for heat prediction/inference on one CSV file |
+| Zach / Gorden | Analyze datasets in depth, including statistics, graphs, columns, and topic relevance |
 
 ## Quick Start
 
