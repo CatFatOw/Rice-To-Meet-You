@@ -1,93 +1,59 @@
 # Rice-To-Meet-You
 
-2026 Rice University FIFA Summer Hackathon Group
+2026 Rice University FIFA Summer Hackathon project.
 
-## Branch Rule
-
-> **`main` = production**
->
-> The `main` branch should only contain work that the group has approved for the final demo or submission.
-
-> **Your branch = brainstorming and prototypes**
->
-> Use your own Git branch for experiments, AI-assisted work, notes, prototypes, and rough ideas.
+Rice-To-Meet-You is a FIFA 2026 host-city decision-support project focused on visitor surges, transportation pressure, climate and heat risk, sustainability, and future growth opportunities.
 
 ## Table of Contents
 
-- [Chapter 1: Clone This Project](#chapter-1-clone-this-project)
-- [Chapter 2: Understand the Branch Workflow](#chapter-2-understand-the-branch-workflow)
-- [Chapter 3: Create Your Own Branch](#chapter-3-create-your-own-branch)
-- [Chapter 4: Save Your Work](#chapter-4-save-your-work)
-- [Chapter 5: Push Your Branch](#chapter-5-push-your-branch)
-- [Chapter 6: Open a Pull Request](#chapter-6-open-a-pull-request)
-- [Chapter 7: Daily Git Commands](#chapter-7-daily-git-commands)
-- [Project Mission](#project-mission)
+| Go To | What It Contains |
+|---|---|
+| [Project Mission](#project-mission) | What the project is trying to accomplish |
+| [Quick Start](#quick-start) | First steps for new contributors |
+| [Git Workflow](#git-workflow) | Branches, commits, pushes, PRs, and cleanup after merge |
+| [App Guide](#app-guide) | App structure, setup, checks, and key files |
+| [App Folder README](app/README.md) | More detailed map of files inside `app/` |
+| [Markdown Reference Guides](app/markdown_reference_guides/README.md) | Dataset/model documentation landing page |
+| [Project Rules](#project-rules) | Team expectations for keeping `main` stable |
 
-## Chapter 1: Clone This Project
+## Project Mission
 
-If this is your first time working on the project, copy it from GitHub to your computer.
+Build a useful, credible, and polished FIFA 2026 decision-support platform that helps host cities prepare for visitor surges, transportation pressure, sustainability demands, climate risk, and future growth opportunities.
 
-### 1. Open Terminal
+## Quick Start
 
-On Mac, open the **Terminal** app.
+| Task | Link |
+|---|---|
+| Clone this repository | [Clone the repo](#clone-the-repo) |
+| Make your own branch | [Create a branch](#create-a-branch) |
+| Save your work | [Commit changes](#commit-changes) |
+| Push your work | [Push your branch](#push-your-branch) |
+| Ask the team to review | [Open a pull request](#open-a-pull-request) |
+| Clean up after merge | [After your PR is merged](#after-your-pr-is-merged) |
+| Understand the app folder | [App Folder README](app/README.md) |
+| Read dataset/model docs | [Markdown Reference Guides](app/markdown_reference_guides/README.md) |
 
-### 2. Go to the folder where you want the project
+## Git Workflow
 
-Example:
-
-```bash
-cd Desktop
-```
-
-You can also use another folder:
-
-```bash
-cd Documents
-```
-
-### 3. Clone the repository
-
-Run:
+### Clone the Repo
 
 ```bash
 git clone https://github.com/CatFatOw/Rice-To-Meet-You.git
-```
-
-This creates a folder called `Rice-To-Meet-You` on your computer.
-
-### 4. Enter the project folder
-
-Run:
-
-```bash
 cd Rice-To-Meet-You
-```
-
-### 5. Confirm it worked
-
-Run:
-
-```bash
 git status
 ```
 
-If it worked, Git should say you are on the `main` branch.
+### Create a Branch
 
-## Chapter 2: Understand the Branch Workflow
+Use `main` only for approved demo/submission work. Use your own branch for experiments, features, notes, and unfinished work.
 
-Branches let everyone work without breaking the final version.
-
-- Use **`main`** for approved production work only.
-- Use a **personal or feature branch** for brainstorming, prototypes, AI-assisted experiments, and unfinished work.
-- When the group approves your work, bring it into **`main`**.
-
-Recommended branch names:
-
-```text
-name/short-description
+```bash
+git checkout main
+git pull origin main
+git checkout -b your-name/short-description
 ```
 
-Examples:
+Example branch names:
 
 ```text
 michael/heat-map-prototype
@@ -95,232 +61,112 @@ zac/transit-gap-analysis
 sarah/demo-dashboard
 ```
 
-## Chapter 3: Create Your Own Branch
-
-Before creating a branch, make sure your local `main` branch is updated.
-
-```bash
-git checkout main
-git pull origin main
-```
-
-Create your own branch:
-
-```bash
-git checkout -b your-name/your-feature
-```
-
-Example:
-
-```bash
-git checkout -b michael/heat-map-prototype
-```
-
-Check which branch you are on:
-
-```bash
-git branch
-```
-
-The branch with the `*` next to it is your current branch.
-
-## Chapter 4: Save Your Work
-
-After editing files, check what changed:
+### Commit Changes
 
 ```bash
 git status
-```
-
-Add one file:
-
-```bash
 git add path/to/file
-```
-
-Add everything you changed:
-
-```bash
-git add .
-```
-
-Commit your changes with a clear message:
-
-```bash
-git commit -m "Add heat map prototype"
-```
-
-Good commit messages:
-
-- `Add transit gap analysis notes`
-- `Create visitor flow dashboard`
-- `Clean venue dataset`
-- `Update prototype README`
-
-## Chapter 5: Push Your Branch
-
-The first time you push your branch, run:
-
-```bash
-git push -u origin your-name/your-feature
-```
-
-Example:
-
-```bash
-git push -u origin michael/heat-map-prototype
-```
-
-After that, you can usually push with:
-
-```bash
-git push
-```
-
-## Chapter 6: Open a Pull Request
-
-A pull request, or PR, is how you ask the group to review your branch before it becomes part of `main`.
-
-Use a pull request when your prototype, notes, data work, or code is ready for the group to see.
-
-### 1. Make sure your branch is pushed
-
-If this is your first time pushing the branch:
-
-```bash
-git push -u origin your-name/your-feature
-```
-
-If you already pushed this branch before:
-
-```bash
-git push
-```
-
-### 2. Open GitHub
-
-Go to:
-
-```text
-https://github.com/CatFatOw/Rice-To-Meet-You
-```
-
-GitHub may show a yellow box with a **Compare & pull request** button. Click it.
-
-If you do not see that button:
-
-1. Click the **Pull requests** tab.
-2. Click **New pull request**.
-3. Set **base** to `main`.
-4. Set **compare** to your branch, such as `michael/heat-map-prototype`.
-
-### 3. Write a clear PR title
-
-Good titles:
-
-- `Add heat map prototype`
-- `Add transit gap analysis notes`
-- `Create demo dashboard draft`
-
-### 4. Write a short PR description
-
-Use this format:
-
-```markdown
-## What changed
-
-- Explain the files, prototype, data, or notes you added.
-
-## Why it matters
-
-- Explain how this helps the hackathon project.
-
-## AI usage
-
-- Say how AI helped, if you used it.
-
-## Questions for the group
-
-- Ask anything you want reviewers to check.
-```
-
-### 5. Ask for review
-
-Send the PR link to the group. Do not merge it until the group approves it.
-
-Reviewers should check:
-
-- Does this help the project?
-- Is the idea clear?
-- Are the files in the right place?
-- Is the work ready for `main`?
-
-### 6. Merge after approval
-
-After the group approves:
-
-1. Click **Merge pull request**.
-2. Click **Confirm merge**.
-3. Delete the branch on GitHub if the work is finished.
-
-### 7. Update your computer after the PR merges
-
-After your PR is merged, update your local `main`:
-
-```bash
-git checkout main
-git pull origin main
-```
-
-You can delete your old local branch if you are done with it:
-
-```bash
-git branch -d your-name/your-feature
-```
-
-If Git says the branch is not fully merged, ask the group before deleting it.
-
-### Emergency option: merge from Terminal
-
-Only do this if the group agrees and you understand what you are merging.
-
-```bash
-git checkout main
-git pull origin main
-git merge your-name/your-feature
-git push origin main
-```
-
-## Chapter 7: Daily Git Commands
-
-Use this flow whenever you start working:
-
-```bash
-git checkout main
-git pull origin main
-git checkout -b your-name/your-feature
-```
-
-Use this flow while working:
-
-```bash
-git status
-git add .
 git commit -m "Describe your change"
+```
+
+### Push Your Branch
+
+First push:
+
+```bash
+git push -u origin your-name/short-description
+```
+
+Later pushes:
+
+```bash
 git push
 ```
 
-Use this flow when returning to an existing branch:
+### Open a Pull Request
+
+1. Push your branch.
+2. Open `https://github.com/CatFatOw/Rice-To-Meet-You`.
+3. Click **Compare & pull request**, or go to **Pull requests** -> **New pull request**.
+4. Set **base** to `main`.
+5. Set **compare** to your branch.
+6. Write what changed, why it matters, whether AI helped, and what reviewers should check.
+
+Do not merge into `main` until the group approves the pull request.
+
+### After Your PR Is Merged
+
+After GitHub says your PR has been merged:
 
 ```bash
-git checkout your-name/your-feature
-git pull
+git checkout main
+git pull origin main
 ```
 
-If Git shows a conflict or confusing message, stop and ask the group before forcing anything. Do not use commands like `git reset --hard` unless everyone agrees.
+Delete the old local branch if you are finished with it:
 
-## Project Mission
+```bash
+git branch -d your-name/short-description
+```
 
-Build a useful, credible, and polished FIFA 2026 decision-support platform that helps host cities prepare for visitor surges, transportation pressure, sustainability demands, climate risk, and future growth opportunities.
+Delete the old remote branch if GitHub did not already delete it:
 
-Our goal is not only to make something that works. Our goal is to make something judges can understand quickly, trust as data-informed, and remember after the demo.
+```bash
+git push origin --delete your-name/short-description
+```
+
+If Git says the branch is not fully merged, stop and ask the group before deleting it.
+
+## App Guide
+
+| File or Folder | Purpose |
+|---|---|
+| [`app/README.md`](app/README.md) | App-folder overview and file map |
+| [`app/main.py`](app/main.py) | FastAPI app entrypoint |
+| [`app/database.py`](app/database.py) | SQLAlchemy engine, session, and base model setup |
+| [`app/models/dataset_models.py`](app/models/dataset_models.py) | SQLAlchemy models for Rice-provided datasets |
+| [`app/alembic/`](app/alembic/) | Database migration setup |
+| [`app/markdown_reference_guides/`](app/markdown_reference_guides/README.md) | Human-readable model and dataset reference docs |
+| [`requirements.txt`](requirements.txt) | Python dependencies for the current backend app |
+
+### Environment Setup
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Set `DATABASE_URL` before importing or running the app:
+
+```bash
+export DATABASE_URL="sqlite:///./local.db"
+```
+
+For Postgres:
+
+```bash
+export DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
+```
+
+### Run Checks
+
+```bash
+python3 -m compileall -q app
+```
+
+```bash
+DATABASE_URL="sqlite:///./local.db" python3 - <<'PY'
+import sys
+sys.path.insert(0, "app")
+import main
+PY
+```
+
+## Project Rules
+
+- Keep `main` stable for approved final-demo or submission work.
+- Do active development on personal or feature branches.
+- Prefer small, clear commits with descriptive messages.
+- Keep dataset/model documentation updated when schemas change.
+- Ask the group before forcing Git commands or deleting branches that Git says are not merged.
