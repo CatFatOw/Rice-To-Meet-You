@@ -1,4 +1,4 @@
-# Rice-To-Meet-You
+# Rice-To-Meet-You: FIFA HeatSafe AI
 
 2026 Rice University FIFA Summer Hackathon project.
 
