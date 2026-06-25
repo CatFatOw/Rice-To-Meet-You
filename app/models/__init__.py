@@ -1,4 +1,4 @@
-from .dataset_models import (
+from .dataset_tables import (
     CorePoiGeometry,
     DailySpendBrandState,
     DailyWeatherRice,
@@ -6,6 +6,7 @@ from .dataset_models import (
     StoreVisits,
     UrbanHeatIndex,
 )
+from .prediction_tables import PredictionTable
 
 __all__ = [
     "CorePoiGeometry",
@@ -14,4 +15,5 @@ __all__ = [
     "SpendPatternsRice",
     "StoreVisits",
     "UrbanHeatIndex",
+    "PredictionTable",
 ]
