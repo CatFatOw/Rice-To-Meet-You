@@ -38,7 +38,8 @@ This folder contains human-readable documentation for the app's dataset models. 
 
 | Source | Purpose |
 |---|---|
-| [`../models/dataset_models.py`](../models/dataset_models.py) | SQLAlchemy table definitions |
+| [`../models/dataset_tables.py`](../models/dataset_tables.py) | SQLAlchemy dataset table definitions |
+| [`../models/prediction_tables.py`](../models/prediction_tables.py) | SQLAlchemy prediction table definitions |
 | [`../models/__init__.py`](../models/__init__.py) | Exports the model classes so `import models` registers metadata |
 | [`../database.py`](../database.py) | Database engine, session, and declarative base |
 | [`../alembic/`](../alembic/) | Migration setup |
@@ -56,7 +57,7 @@ This folder contains human-readable documentation for the app's dataset models. 
 
 ## Adding a New Guide
 
-1. Add or update the SQLAlchemy model in [`../models/dataset_models.py`](../models/dataset_models.py).
+1. Add or update the SQLAlchemy model in [`../models/dataset_tables.py`](../models/dataset_tables.py).
 2. Create a new markdown file in [`dataset_models_reference/`](dataset_models_reference/).
 3. Include overview, useful columns, column reference, relationships, possible uses, and limitations.
 4. Add the new guide to [Dataset Model Guides](#dataset-model-guides).

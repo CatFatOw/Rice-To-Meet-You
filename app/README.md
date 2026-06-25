@@ -24,7 +24,7 @@ This folder contains the current backend app, database setup, SQLAlchemy dataset
 
 | Folder | Purpose |
 |---|---|
-| [`models/`](models/) | SQLAlchemy model definitions. Current dataset tables are defined in [`models/dataset_models.py`](models/dataset_models.py). |
+| [`models/`](models/) | SQLAlchemy model definitions. Current dataset tables are defined in [`models/dataset_tables.py`](models/dataset_tables.py), and prediction outputs are defined in [`models/prediction_tables.py`](models/prediction_tables.py). |
 | [`alembic/`](alembic/) | Alembic migration environment and migration scripts. Use this when database schemas change. |
 | [`markdown_reference_guides/`](markdown_reference_guides/README.md) | Human-readable dataset/model reference docs with clickable links into each dataset guide. |
 | [`routers/`](routers/) | Placeholder for future FastAPI route modules. Add route files here as the API grows. |
@@ -61,4 +61,4 @@ Postgres example:
 export DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
 ```
 
-The model classes live in [`models/dataset_models.py`](models/dataset_models.py). The `models/__init__.py` file exports those classes so `import models` registers the table metadata with SQLAlchemy and Alembic.
+The dataset table classes live in [`models/dataset_tables.py`](models/dataset_tables.py). Prediction table classes live in [`models/prediction_tables.py`](models/prediction_tables.py). The `models/__init__.py` file exports those classes so `import models` registers the table metadata with SQLAlchemy and Alembic.

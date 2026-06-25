@@ -3,6 +3,7 @@ from sqlalchemy import Integer, Text, TIMESTAMP, Column, JSON, Boolean, Float, D
 from datetime import datetime, timedelta
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql.expression import text
 
 
 # ----------------------------CORE DATASETS TABLES OF INTEREST (PROVIDED By RICE) ----------------------------
@@ -71,6 +72,7 @@ class CorePoiGeometry(Base):
     tracking_closed_since = Column(Date, nullable=True)
     website = Column(Text, nullable=True)
     wkt_area_sq_meters = Column(Float, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
 
 class DailySpendBrandState(Base):
@@ -105,6 +107,7 @@ class DailySpendBrandState(Base):
 
     # Dataset release/version
     version = Column(Text, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
 
 
@@ -139,6 +142,7 @@ class DailyWeatherRice(Base):
     # Daily precipitation (0 = trace, -1=None) in hundrets of mililiters
     precipitation = Column(Integer, nullable=False)
     valid_date = Column(Date, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
 
 class SpendPatternsRice(Base):
@@ -293,6 +297,7 @@ class SpendPatternsRice(Base):
 
     # Transaction counts by intermediary
     transaction_intermediary = Column(JSON, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
 class StoreVisits(Base):
     """Table for the store visit dataset. For mroe detailed reference. please refer to the dataset models reference"""
@@ -335,3 +340,4 @@ class UrbanHeatIndex(Base):
     point_geometry = Column(Text, nullable=False)
     # urvan heat inteisty, higher values = greater urban heat impact
     uhi = Column(Integer, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
