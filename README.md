@@ -2,7 +2,7 @@
 
 2026 Rice University FIFA Summer Hackathon project.
 
-Rice-To-Meet-You is building a FIFA HeatSafe AI prototype: an online decision-support tool that helps visitors and city professionals predict heat, dehydration, weather, energy-use, and crowd-overlap danger zones around FIFA 2026 host cities.
+Rice-To-Meet-You is building a FIFA HeatSafe AI prototype: an online decision-support tool that helps visitors and city professionals predict heat, dehydration, weather, energy-use, and crowd-overlap danger zones around FIFA 2026 host cities while simulating actions.
 
 ## Table of Contents
 
