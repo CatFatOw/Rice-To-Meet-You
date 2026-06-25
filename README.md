@@ -11,7 +11,7 @@ Rice-To-Meet-You is building a FIFA HeatSafe AI prototype: an online decision-su
 | [Project Mission](#project-mission) | What the project is trying to accomplish |
 | [Quick Start](#quick-start) | First steps for new contributors |
 | [Project Idea](#project-idea) | Current product direction from team planning |
-| [Meeting Notes](#meeting-notes) | Team notes and action items |
+| [Meeting Notes](#meeting-notes) | Link to meeting-note files |
 | [Git Workflow](#git-workflow) | Branches, commits, pushes, PRs, and cleanup after merge |
 | [App Guide](#app-guide) | App structure, setup, checks, and key files |
 | [App Folder README](app/README.md) | More detailed map of files inside `app/` |
@@ -48,39 +48,13 @@ Key datasets for the first version:
 
 ## Meeting Notes
 
-### June 24 Meeting
+Meeting notes live in the [`meeting_notes/`](meeting_notes/README.md) folder.
 
-Source: `Rice Hack FIFA.pdf`
+Current notes:
 
-Main direction:
-
-- Build an online FIFA HeatSafe AI prototype for both visitors and city professionals.
-- Predict danger zones for heat, dehydration, weather, energy usage, and crowd overlap.
-- Start with an aggregate map/timeline for a selected state or city.
-- Use red, orange, and green cells to communicate average heat, warning level, and overall risk.
-- Combine heat mapping, visitor mapping, and risk score mapping.
-- Explore future prediction windows from a few days to a few months forward.
-- Add a simulation layer where urban planners can test solutions such as shade structures and cooling zones.
-
-Technology direction:
-
-| Area | Notes |
+| Date | File |
 |---|---|
-| Frontend | React and TypeScript |
-| Backend | FastAPI, SQLAlchemy, Pydantic, Postgres, Alembic |
-| Hosting | Neon Postgres, Render backend, Vercel frontend |
-| Modeling | XGBoost, linear regression, random forest, and heat-risk score formulas |
-| Database | Tables based on the provided datasets, plus future prediction tables for grid cells, metrics, colors, and dates |
-
-Action items before the Friday, June 26 meeting:
-
-| Person / Team | Task |
-|---|---|
-| Everyone | Review the datasets and presentation materials in detail |
-| Michael | Create the online PostgreSQL database and basic app schemas |
-| Phat | Map out the tech stack and decide technologies for each part |
-| Preston | Research and test statistical models for heat prediction/inference on one CSV file |
-| Zach / Gorden | Analyze datasets in depth, including statistics, graphs, columns, and topic relevance |
+| June 24 | [Rice Hack FIFA PDF](meeting_notes/Rice%20Hack%20FIFA_june_24.pdf) |
 
 ## Quick Start
 
