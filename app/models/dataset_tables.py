@@ -325,6 +325,11 @@ class StoreVisits(Base):
     store_id = Column(Text, nullable=False)
     sub_category = Column(Text, nullable=False)
     version_id = Column(Integer, nullable=False)
+    created_at = Column(
+    TIMESTAMP(timezone=True),
+    nullable=False,
+    server_default=text("CURRENT_TIMESTAMP"),
+)
 
 class UrbanHeatIndex(Base):
     """Table for the urban heat index dataset. For mroe detailed reference. please refer to the dataset models reference"""

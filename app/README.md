@@ -8,6 +8,7 @@ This folder contains the current backend app, database setup, SQLAlchemy dataset
 |---|---|
 | [Top-Level Files](#top-level-files) | Main backend files in `app/` |
 | [Folders](#folders) | What each app subfolder is for |
+| [Dataset Routes](#dataset-routes) | Current dataset CRUD API routes |
 | [Run Checks](#run-checks) | Quick commands to verify the app imports |
 | [Database Notes](#database-notes) | How `DATABASE_URL`, SQLAlchemy, and Alembic fit together |
 
@@ -27,7 +28,31 @@ This folder contains the current backend app, database setup, SQLAlchemy dataset
 | [`models/`](models/) | SQLAlchemy model definitions. Current dataset tables are defined in [`models/dataset_tables.py`](models/dataset_tables.py), and prediction outputs are defined in [`models/prediction_tables.py`](models/prediction_tables.py). |
 | [`alembic/`](alembic/) | Alembic migration environment and migration scripts. Use this when database schemas change. |
 | [`markdown_reference_guides/`](markdown_reference_guides/README.md) | Human-readable dataset/model reference docs with clickable links into each dataset guide. |
-| [`routers/`](routers/) | Placeholder for future FastAPI route modules. Add route files here as the API grows. |
+| [`routers/`](routers/) | FastAPI route modules. Current dataset routes live in [`routers/dataset.py`](routers/dataset.py). |
+| [`schemas/`](schemas/) | Pydantic request and response schemas. Current dataset schemas live in [`schemas/dataset_schemas.py`](schemas/dataset_schemas.py). |
+
+## Dataset Routes
+
+Dataset CRUD routes are defined in [`routers/dataset.py`](routers/dataset.py) and registered by [`main.py`](main.py).
+
+Base path:
+
+```text
+/dataset
+```
+
+Current resources:
+
+| Resource | Supported Methods |
+|---|---|
+| `core_poi_geometry_table` | `GET`, `POST`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` |
+| `daily_spend_brand_state` | `GET`, `POST`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` |
+| `daily_weather` | `GET`, `POST`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` |
+| `spending_patterns` | `GET`, `POST`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` |
+| `store_visits` | `GET`, `POST`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` |
+| `urban_heat_index` | `GET`, `POST`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` |
+
+Use [`../postman_dataset_routes_collection.json`](../postman_dataset_routes_collection.json) to test the routes in Postman. Import the file, set `baseUrl`, create a row first, then run the matching get/update/delete requests.
 
 ## Run Checks
 
