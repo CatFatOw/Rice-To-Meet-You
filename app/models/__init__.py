@@ -7,6 +7,7 @@ from .dataset_tables import (
     UrbanHeatIndex,
 )
 from .prediction_tables import PredictionTable
+from .user_tables import User
 
 __all__ = [
     "CorePoiGeometry",
@@ -16,4 +17,5 @@ __all__ = [
     "StoreVisits",
     "UrbanHeatIndex",
     "PredictionTable",
+    "User",
 ]

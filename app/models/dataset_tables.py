@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql.expression import text
+from .user_tables import User
 
 
 # ----------------------------CORE DATASETS TABLES OF INTEREST (PROVIDED By RICE) ----------------------------
@@ -72,8 +73,11 @@ class CorePoiGeometry(Base):
     tracking_closed_since = Column(Date, nullable=True)
     website = Column(Text, nullable=True)
     wkt_area_sq_meters = Column(Float, nullable=False)
-    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
+    user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=True)
+
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+    user = relationship(User)
 
 class DailySpendBrandState(Base):
     """Table for the Daily Spend Brand and State dataset.
@@ -107,8 +111,9 @@ class DailySpendBrandState(Base):
 
     # Dataset release/version
     version = Column(Text, nullable=False)
+    user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
-
+    user = relationship(User)
 
 
 class DailyWeatherRice(Base):
@@ -142,8 +147,9 @@ class DailyWeatherRice(Base):
     # Daily precipitation (0 = trace, -1=None) in hundrets of mililiters
     precipitation = Column(Integer, nullable=False)
     valid_date = Column(Date, nullable=False)
+    user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
-
+    user = relationship(User)
 
 class SpendPatternsRice(Base):
     """Implements the table for spending patterns rice;
@@ -297,7 +303,9 @@ class SpendPatternsRice(Base):
 
     # Transaction counts by intermediary
     transaction_intermediary = Column(JSON, nullable=True)
+    user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+    user = relationship(User)
 
 class StoreVisits(Base):
     """Table for the store visit dataset. For mroe detailed reference. please refer to the dataset models reference"""
@@ -325,11 +333,14 @@ class StoreVisits(Base):
     store_id = Column(Text, nullable=False)
     sub_category = Column(Text, nullable=False)
     version_id = Column(Integer, nullable=False)
+    user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=True)
     created_at = Column(
     TIMESTAMP(timezone=True),
     nullable=False,
     server_default=text("CURRENT_TIMESTAMP"),
 )
+
+    user = relationship(User)
 
 class UrbanHeatIndex(Base):
     """Table for the urban heat index dataset. For mroe detailed reference. please refer to the dataset models reference"""
@@ -345,4 +356,6 @@ class UrbanHeatIndex(Base):
     point_geometry = Column(Text, nullable=False)
     # urvan heat inteisty, higher values = greater urban heat impact
     uhi = Column(Integer, nullable=False)
+    user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+    user = relationship(User)

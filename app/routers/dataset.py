@@ -7,6 +7,7 @@ import models
 from schemas import dataset_schemas
 from typing import Type
 from pydantic import BaseModel
+from security import oauth2
 
 
 router = APIRouter(prefix="/dataset", tags=["dataset"])
@@ -24,9 +25,12 @@ def create_crud_routes(
 
     # Get all datasets
     @router.get(f"/{path}", response_model=list[response_schema])
-    async def get_all(db:Session = Depends(get_db)):
+    async def get_all(
+        db:Session = Depends(get_db),
+        curr_user: models.User = Depends(oauth2.get_current_user),
+    ):
         """Function gets all rows/cols from the table"""
-        data = db.query(model).all()
+        data = db.query(model).filter(model.user_id == curr_user.id).all()
 
         if not data:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"DATASET NOT FOUND")
@@ -35,9 +39,13 @@ def create_crud_routes(
 
     # Get specific database id 
     @router.get(f"/{path}/{{id}}", response_model=response_schema)
-    async def get_by_id(id:int, db:Session = Depends(get_db)):
+    async def get_by_id(
+        id:int,
+        db:Session = Depends(get_db),
+        curr_user: models.User = Depends(oauth2.get_current_user),
+    ):
         """Function gets specific row by row id"""
-        id_content = db.query(model).filter(model.id == id).first()
+        id_content = db.query(model).filter(model.id == id, model.user_id == curr_user.id).first()
 
         if not id_content:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"NOT FOUND")
@@ -47,10 +55,14 @@ def create_crud_routes(
 
     # Posting row in the dataset 
     @router.post(f"/{path}", response_model=response_schema)
-    async def create_row(payload:create_schema, db:Session=Depends(get_db)):
+    async def create_row(
+        payload:create_schema,
+        db:Session=Depends(get_db),
+        curr_user: models.User = Depends(oauth2.get_current_user),
+    ):
         """Function adds new data into the table"""
         # Since payload is pydantic use model_dump() to turn into dict
-        content = model(**payload.model_dump())
+        content = model(**payload.model_dump(), user_id=curr_user.id)
         db.add(content)
         db.commit()
         db.refresh(content)
@@ -59,9 +71,14 @@ def create_crud_routes(
 
     # Updating the DB
     @router.put(f"/{path}/{{id}}", response_model=response_schema)
-    async def update_row(id:int, payload:create_schema, db:Session=Depends(get_db)):
+    async def update_row(
+        id:int,
+        payload:create_schema,
+        db:Session=Depends(get_db),
+        curr_user: models.User = Depends(oauth2.get_current_user),
+    ):
         """Function updates a row in the dataset"""
-        id_content = db.query(model).filter(model.id == id).first()
+        id_content = db.query(model).filter(model.id == id, model.user_id == curr_user.id).first()
         
         if not id_content:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"NOT FOUND")
@@ -75,9 +92,13 @@ def create_crud_routes(
 
     # Delete a row of the DB
     @router.delete(f"/{path}/{{id}}", status_code=status.HTTP_204_NO_CONTENT)
-    async def delete_row(id:int, db:Session = Depends(get_db)):
+    async def delete_row(
+        id:int,
+        db:Session = Depends(get_db),
+        curr_user: models.User = Depends(oauth2.get_current_user),
+    ):
         """Function deletes a row on the dataset"""
-        id_content = db.query(model).filter(model.id == id).first()
+        id_content = db.query(model).filter(model.id == id, model.user_id == curr_user.id).first()
 
         if not id_content:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"NOT FOUND")

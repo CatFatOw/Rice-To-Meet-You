@@ -8,9 +8,9 @@ This folder contains the current backend app, database setup, SQLAlchemy dataset
 |---|---|
 | [Top-Level Files](#top-level-files) | Main backend files in `app/` |
 | [Folders](#folders) | What each app subfolder is for |
-| [Dataset Routes](#dataset-routes) | Current dataset CRUD API routes |
+| [Route Reference](#route-reference) | Auth, user, and dataset routes |
 | [Run Checks](#run-checks) | Quick commands to verify the app imports |
-| [Database Notes](#database-notes) | How `DATABASE_URL`, SQLAlchemy, and Alembic fit together |
+| [Database And Env Notes](#database-and-env-notes) | How environment variables, SQLAlchemy, and Alembic fit together |
 
 ## Top-Level Files
 
@@ -25,21 +25,33 @@ This folder contains the current backend app, database setup, SQLAlchemy dataset
 
 | Folder | Purpose |
 |---|---|
-| [`models/`](models/) | SQLAlchemy model definitions. Current dataset tables are defined in [`models/dataset_tables.py`](models/dataset_tables.py), and prediction outputs are defined in [`models/prediction_tables.py`](models/prediction_tables.py). |
+| [`models/`](models/) | SQLAlchemy model definitions. Dataset tables live in [`models/dataset_tables.py`](models/dataset_tables.py), users live in [`models/user_tables.py`](models/user_tables.py), and prediction outputs live in [`models/prediction_tables.py`](models/prediction_tables.py). |
 | [`alembic/`](alembic/) | Alembic migration environment and migration scripts. Use this when database schemas change. |
 | [`markdown_reference_guides/`](markdown_reference_guides/README.md) | Human-readable dataset/model reference docs with clickable links into each dataset guide. |
-| [`routers/`](routers/) | FastAPI route modules. Current dataset routes live in [`routers/dataset.py`](routers/dataset.py). |
-| [`schemas/`](schemas/) | Pydantic request and response schemas. Current dataset schemas live in [`schemas/dataset_schemas.py`](schemas/dataset_schemas.py). |
+| [`routers/`](routers/) | FastAPI route modules: [`routers/dataset.py`](routers/dataset.py), [`routers/users.py`](routers/users.py), and [`routers/login.py`](routers/login.py). |
+| [`schemas/`](schemas/) | Pydantic request/response schemas for datasets, users, and auth tokens. |
+| [`security/`](security/) | Password hashing and OAuth2/JWT helpers. |
 
-## Dataset Routes
+## Route Reference
 
-Dataset CRUD routes are defined in [`routers/dataset.py`](routers/dataset.py) and registered by [`main.py`](main.py).
+Routes are registered in [`main.py`](main.py).
 
-Base path:
+### Auth And Users
 
-```text
-/dataset
-```
+| Action | Method | Path | Auth |
+|---|---:|---|---|
+| Create user | `POST` | `/users/` | No |
+| Login | `POST` | `/login/` | No |
+| Get current user | `GET` | `/users/me` | Yes |
+| Change password | `PUT` | `/users/me/password` | Yes |
+| Delete current user | `DELETE` | `/users/me` | Yes |
+| Get user by ID | `GET` | `/users/{id}` | No |
+
+`/login/` expects form data with `username` and `password`. Use the returned bearer token for protected routes.
+
+### Dataset Routes
+
+All dataset routes require `Authorization: Bearer <token>`. Created rows are tied to the logged-in user.
 
 Current resources:
 
@@ -52,7 +64,7 @@ Current resources:
 | `store_visits` | `GET`, `POST`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` |
 | `urban_heat_index` | `GET`, `POST`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` |
 
-Use [`../postman_dataset_routes_collection.json`](../postman_dataset_routes_collection.json) to test the routes in Postman. Import the file, set `baseUrl`, create a row first, then run the matching get/update/delete requests.
+Use [`../postman_dataset_routes_collection.json`](../postman_dataset_routes_collection.json) to test the routes in Postman. Run `Create User`, then `Login`, then dataset requests.
 
 ## Run Checks
 
@@ -63,21 +75,22 @@ python3 -m compileall -q app
 ```
 
 ```bash
-DATABASE_URL="sqlite:///./local.db" python3 - <<'PY'
+DATABASE_URL="sqlite:///./local.db" JWT_KEY="dev-secret-key" python3 - <<'PY'
 import sys
 sys.path.insert(0, "app")
 import main
 PY
 ```
 
-## Database Notes
+## Database And Env Notes
 
-`database.py` expects `DATABASE_URL` to be set before the app imports the database layer.
+`database.py` expects `DATABASE_URL` to be set before the app imports the database layer. JWT token creation also needs `JWT_KEY`.
 
 Local SQLite example:
 
 ```bash
 export DATABASE_URL="sqlite:///./local.db"
+export JWT_KEY="dev-secret-key"
 ```
 
 Postgres example:
