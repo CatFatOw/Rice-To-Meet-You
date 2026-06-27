@@ -1,1 +1,5 @@
 .Rhistory
+.DS_Store
+data/.DS_Store
+data/.venv/
+catboost_info/
