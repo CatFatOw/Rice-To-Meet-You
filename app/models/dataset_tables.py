@@ -1,6 +1,5 @@
 from database import Base 
 from sqlalchemy import Integer, Text, TIMESTAMP, Column, JSON, Boolean, Float, Date
-from datetime import datetime, timedelta
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql.expression import text
@@ -20,7 +19,7 @@ class CorePoiGeometry(Base):
     brands = Column(JSON, nullable=True)
     # Category of the brand, could also be missing
     category_tags = Column(JSON, nullable=True)
-    city = Column(Text, nullable=False)
+    city = Column(Text, nullable=False, index=True)
     closed_on = Column(Date, nullable=True)
     # The website of the brand etc
     domains = Column(JSON, nullable=True)
@@ -33,11 +32,11 @@ class CorePoiGeometry(Base):
     is_synthetic = Column(Boolean, nullable=False)
 
     # Key position provided of the point of interest
-    latitude = Column(Float, nullable=False)
+    latitude = Column(Float, nullable=False, index=True)
     location_name = Column(Text, nullable=False)
-    longitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False, index=True)
     # market/city idk why its called market
-    market = Column(Text, nullable=False)
+    market = Column(Text, nullable=False, index=True)
 
     # Buisness identification codes 
     naics_code = Column(Integer, nullable=True)
@@ -52,7 +51,7 @@ class CorePoiGeometry(Base):
     # PARENT_PLACEKEY = the unique ID of the larger location that contains it (if any)
     parent_placekey = Column(Text, nullable=True)
     phone_number = Column(Text, nullable=True)
-    placekey = Column(Text, nullable=False)
+    placekey = Column(Text, nullable=False, index=True)
 
     # Type of polygon (mask of the polygon of the building)
     polygon_class = Column(Text, nullable=False)
@@ -61,10 +60,10 @@ class CorePoiGeometry(Base):
     # postal code
     postal_code = Column(Text, nullable=False)
     # tx, ca, id
-    region = Column(Text, nullable=False)
+    region = Column(Text, nullable=False, index=True)
     # SafeGraph's own unique identifier for a place (POI).
-    safegraph_place_id = Column(Text, nullable=False)
-    store_id = Column(Text, nullable=True)
+    safegraph_place_id = Column(Text, nullable=False, index=True)
+    store_id = Column(Text, nullable=True, index=True)
     street_address = Column(Text, nullable=False)
     sub_category = Column(Text, nullable=False)
     sub_category_2022 = Column(Text, nullable=False)
@@ -89,25 +88,25 @@ class DailySpendBrandState(Base):
     id = Column(Integer, primary_key=True, nullable=False)
 
     # Unique identifier assigned to a brand
-    brand_id = Column(Integer, nullable=False)
+    brand_id = Column(Integer, nullable=False, index=True)
 
     # Name of the business/brand
-    brand_name = Column(Text, nullable=False)
+    brand_name = Column(Text, nullable=False, index=True)
 
     # Metropolitan market where spending occurred
-    market = Column(Text, nullable=False)
+    market = Column(Text, nullable=False, index=True)
 
     # Estimated consumer spending amount
     spend_amount = Column(Float, nullable=False)
 
     # Two-letter state abbreviation
-    state_abbr = Column(Text, nullable=False)
+    state_abbr = Column(Text, nullable=False, index=True)
 
     # Estimated number of daily transactions (may be normalized)
     trans_count = Column(Float, nullable=False)
 
     # Date of the transaction data
-    trans_date = Column(Date, nullable=False)
+    trans_date = Column(Date, nullable=False, index=True)
 
     # Dataset release/version
     version = Column(Text, nullable=False)
@@ -135,7 +134,7 @@ class DailyWeatherRice(Base):
     # average wind speed (knots)
     average_wind_speed_knots = Column(Float, nullable=False)
     #weather station/city identify
-    city_location_identifier = Column(Text, nullable=False)
+    city_location_identifier = Column(Text, nullable=False, index=True)
     #Cooling indicator (higher = more AC demand)
     cooling_degree_days_c = Column(Float, nullable=False)
     # Heating demand indicator (metric to measure how much heating buildings need)
@@ -146,7 +145,7 @@ class DailyWeatherRice(Base):
     min_temperature_c = Column(Float, nullable=False)
     # Daily precipitation (0 = trace, -1=None) in hundrets of mililiters
     precipitation = Column(Integer, nullable=False)
-    valid_date = Column(Date, nullable=False)
+    valid_date = Column(Date, nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
     user = relationship(User)
@@ -161,7 +160,7 @@ class SpendPatternsRice(Base):
     id = Column(Integer, nullable=False, primary_key=True)
 
     # Brand/business name
-    brands = Column(Text, nullable=False)
+    brands = Column(Text, nullable=False, index=True)
 
     # Number of customers grouped by visit frequency
     bucketed_customer_frequency = Column(JSON, nullable=False)
@@ -170,7 +169,7 @@ class SpendPatternsRice(Base):
     bucketed_customer_incomes = Column(JSON, nullable=False)
 
     # City where the business is located
-    city = Column(Text, nullable=False)
+    city = Column(Text, nullable=False, index=True)
 
     # Customer home city distribution
     customer_home_city = Column(JSON, nullable=False)
@@ -182,16 +181,16 @@ class SpendPatternsRice(Base):
     iso_country_code = Column(Text, nullable=False)
 
     # Latitude of the business
-    latitude = Column(Float, nullable=False)
+    latitude = Column(Float, nullable=False, index=True)
 
     # Longitude of the business
-    longitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False, index=True)
 
     # Name of the physical location
     location_name = Column(Text, nullable=False)
 
     # Metropolitan market
-    market = Column(Text, nullable=False)
+    market = Column(Text, nullable=False, index=True)
 
     # Mean spend per customer grouped by visit frequency
     mean_spend_per_customer_by_frequency = Column(JSON, nullable=False)
@@ -218,7 +217,7 @@ class SpendPatternsRice(Base):
     parent_placekey = Column(Text, nullable=True)
 
     # Unique physical location identifier
-    placekey = Column(Text, nullable=False)
+    placekey = Column(Text, nullable=False, index=True)
 
     # ZIP/postal code
     postal_code = Column(Text, nullable=False)
@@ -233,7 +232,7 @@ class SpendPatternsRice(Base):
     raw_total_spend = Column(Float, nullable=False)
 
     # State/region abbreviation
-    region = Column(Text, nullable=False)
+    region = Column(Text, nullable=False, index=True)
 
     # Buy-now-pay-later service usage percentages
     related_buynowpaylater_service_pct = Column(JSON, nullable=True)
@@ -275,10 +274,10 @@ class SpendPatternsRice(Base):
     spend_by_transaction_intermediary = Column(JSON, nullable=True)
 
     # Start date of spending period
-    spend_date_range_start = Column(Date, nullable=False)
+    spend_date_range_start = Column(Date, nullable=False, index=True)
 
     # End date of spending period
-    spend_date_range_end = Column(Date, nullable=False)
+    spend_date_range_end = Column(Date, nullable=False, index=True)
 
     # Percent spending change vs previous month
     spend_pct_change_vs_prev_month = Column(Float, nullable=True)
@@ -312,25 +311,25 @@ class StoreVisits(Base):
     __tablename__ = "store_visits_rice"
     id = Column(Integer, primary_key=True, nullable=False)
     # Brand name 
-    brand = Column(Text, nullable=False)
+    brand = Column(Text, nullable=False, index=True)
     # high level industry category
     category = Column(Text, nullable=False)
     # daily visits/day to the store 
     daily_visits = Column(Integer, nullable=False)
     # local calendar date for the vist 
-    local_date = Column(Date, nullable=False)
+    local_date = Column(Date, nullable=False, index=True)
     # market/city area
-    market = Column(Text, nullable=False)
+    market = Column(Text, nullable=False, index=True)
     # naic code 
     naics_code = Column(Integer, nullable=False)
     # buisness name 
-    business_name = Column(Text, nullable=False)
+    business_name = Column(Text, nullable=False, index=True)
     # State abbrb
-    state = Column(Text, nullable=False)
+    state = Column(Text, nullable=False, index=True)
     stock_exchange = Column(Text, nullable=True)
     stock_symbol = Column(Text, nullable=True)
     # store ID 
-    store_id = Column(Text, nullable=False)
+    store_id = Column(Text, nullable=False, index=True)
     sub_category = Column(Text, nullable=False)
     version_id = Column(Integer, nullable=False)
     user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=True)
@@ -348,9 +347,9 @@ class UrbanHeatIndex(Base):
     __tablename__ = "urban_heat_index"
     id = Column(Integer, primary_key=True, nullable=False)
     
-    latitude = Column(Float, nullable=False)
-    longitude = Column(Float, nullable=False)
-    market = Column(Text, nullable=False)
+    latitude = Column(Float, nullable=False, index=True)
+    longitude = Column(Float, nullable=False, index=True)
+    market = Column(Text, nullable=False, index=True)
     # Point geometry stored in Well-Known Binary (WKB) hexadecimal format.
     #  Represents the exact geographic point.
     point_geometry = Column(Text, nullable=False)

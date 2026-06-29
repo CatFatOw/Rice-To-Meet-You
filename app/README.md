@@ -28,9 +28,10 @@ This folder contains the current backend app, database setup, SQLAlchemy dataset
 | [`models/`](models/) | SQLAlchemy model definitions. Dataset tables live in [`models/dataset_tables.py`](models/dataset_tables.py), users live in [`models/user_tables.py`](models/user_tables.py), and prediction outputs live in [`models/prediction_tables.py`](models/prediction_tables.py). |
 | [`alembic/`](alembic/) | Alembic migration environment and migration scripts. Use this when database schemas change. |
 | [`markdown_reference_guides/`](markdown_reference_guides/README.md) | Human-readable dataset/model reference docs with clickable links into each dataset guide. |
-| [`routers/`](routers/) | FastAPI route modules: [`routers/dataset.py`](routers/dataset.py), [`routers/users.py`](routers/users.py), and [`routers/login.py`](routers/login.py). |
+| [`routers/`](routers/) | FastAPI route modules: [`routers/dataset.py`](routers/dataset.py), [`routers/users.py`](routers/users.py), [`routers/login.py`](routers/login.py), and [`routers/nws_weather.py`](routers/nws_weather.py). |
 | [`schemas/`](schemas/) | Pydantic request/response schemas for datasets, users, and auth tokens. |
 | [`security/`](security/) | Password hashing and OAuth2/JWT helpers. |
+| [`services/`](services/) | External API clients and non-database business logic, such as National Weather Service helpers. |
 
 ## Route Reference
 
@@ -65,6 +66,60 @@ Current resources:
 | `urban_heat_index` | `GET`, `POST`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` |
 
 Use [`../postman_dataset_routes_collection.json`](../postman_dataset_routes_collection.json) to test the routes in Postman. Run `Create User`, then `Login`, then dataset requests.
+
+### Grid Geometry Routes
+
+Grid routes are defined in [`routers/grid_geometry.py`](routers/grid_geometry.py).
+
+| Action | Method | Path |
+|---|---:|---|
+| Generate state grid | `POST` | `/grid/generate_nxn_grid?state_name=Texas&n=40` |
+| Get all grid cells | `GET` | `/grid/all` |
+| Get grid by DB ID | `GET` | `/grid/id/{id}` |
+| Get grid by cell ID | `GET` | `/grid/cell/{cell_id}` |
+| Get grids by state | `GET` | `/grid/state/{state}` |
+| Get state grid GeoJSON | `GET` | `/grid/state/{state}/geojson` |
+| Get city neighbor cells | `GET` | `/grid/city/neighbors?city=Houston&state=Texas&radius=1` |
+| Get city neighbor GeoJSON | `GET` | `/grid/city/neighbors/geojson?city=Houston&state=Texas&radius=1` |
+| Get grid map GeoJSON | `GET` | `/grid/map/geojson` |
+
+Use the `Grid Geometry` folder in [`../postman_dataset_routes_collection.json`](../postman_dataset_routes_collection.json). Generate or load grid cells before creating NWS weather observations.
+
+### Grid Metrics Routes
+
+Grid metrics routes are defined in [`routers/grid_metrics.py`](routers/grid_metrics.py).
+
+| Action | Method | Path |
+|---|---:|---|
+| Create grid metrics | `POST` | `/grid_metrics/create` |
+| Get all metrics | `GET` | `/grid_metrics/all` |
+| Get metrics for grid | `GET` | `/grid_metrics/grid/{grid_cell_id}` |
+| Get latest metrics for grid | `GET` | `/grid_metrics/grid/{grid_cell_id}/latest` |
+| Get latest metrics for all grids | `GET` | `/grid_metrics/latest` |
+| Get metrics by state | `GET` | `/grid_metrics/state/{state}` |
+| Get latest metrics by state | `GET` | `/grid_metrics/state/{state}/latest` |
+| Get metrics by city neighbors | `GET` | `/grid_metrics/city/{state}/{city_name}` |
+| Get latest metrics by city neighbors | `GET` | `/grid_metrics/city/{state}/{city_name}/latest` |
+| Update grid metrics | `PUT` | `/grid_metrics/update/{id}` |
+| Delete grid metrics | `DELETE` | `/grid_metrics/delete/{id}` |
+
+Use the `Grid Metrics` folder in [`../postman_dataset_routes_collection.json`](../postman_dataset_routes_collection.json). Metrics should be created after at least one grid cell exists.
+
+### NWS Weather Routes
+
+Weather routes are defined in [`routers/nws_weather.py`](routers/nws_weather.py). They use [`services/national_weather.py`](services/national_weather.py) to fetch selected National Weather Service data for a stored grid cell.
+
+| Action | Method | Path |
+|---|---:|---|
+| Get all weather observations | `GET` | `/weather/fetch/all` |
+| Get weather for grid cell | `GET` | `/weather/fetch/{id}` |
+| Create weather from NWS | `POST` | `/weather/fetch/create/{grid_cell_id}` |
+| Update weather for grid cell | `PUT` | `/weather/fetch/update/{id}` |
+| Delete weather observation | `DELETE` | `/weather/delete/{id}` |
+| Get latest for grid cell | `GET` | `/weather/grid/{grid_cell_id}/latest` |
+| Get history for grid cell | `GET` | `/weather/grid/{grid_cell_id}` |
+
+Use the `NWS Weather` folder in [`../postman_dataset_routes_collection.json`](../postman_dataset_routes_collection.json). Set `gridCellId` to an existing `grid_cell_geometry.id` before creating weather from NWS.
 
 ## Run Checks
 

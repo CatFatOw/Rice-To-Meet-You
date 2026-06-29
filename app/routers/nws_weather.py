@@ -1,0 +1,117 @@
+"""Routes for fetching key National Weather Service API data."""
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session 
+from database import get_db
+from models import grid_cell_tables, weather_tables
+from schemas import weather_schemas
+from fastapi.responses import Response
+from datetime import datetime
+from services.national_weather import get_hourly_forecast, get_grid_forecast, get_state_bbox, split_bbox_into_cell, get_detailed_weather_summary
+
+
+
+router = APIRouter(prefix="/weather", tags=["weather"])
+
+# Get all weather data across all cell data 
+@router.get("/fetch/all", response_model=list[weather_schemas.WeatherObservationResponse])
+async def get_forecast_grid_all(db:Session=Depends(get_db)):
+    """Function gets every single grid's weather data"""
+    data = db.query(weather_tables.WeatherObservation).all()
+    if not data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"WEATHER DATA NOT FOUND")
+    return data
+
+# Get the specific weather data in that cell region 
+@router.get("/fetch/{id}", response_model=weather_schemas.WeatherObservationResponse)
+async def get_forecast_grid_id(id:int, db:Session=Depends(get_db)):
+    """function gets the speicifc nws weather from a specific grid"""
+    data = db.query(weather_tables.WeatherObservation).filter(weather_tables.WeatherObservation.grid_cell_id == id).first()
+
+    if not data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"WEATHER DATA NOT FOUND")
+    return data
+
+# Create or assign weather metrics to a cell
+@router.post(f"/fetch/create/{{grid_cell_id}}", response_model=weather_schemas.WeatherObservationResponse)
+async def add_weather_data_grid(grid_cell_id:int, db:Session=Depends(get_db)):
+    """Function creates an entry in the db"""
+    # Get the specific lat, lon
+    cell = db.query(grid_cell_tables.GridCellGeometry).filter(grid_cell_tables.GridCellGeometry.id == grid_cell_id).first()
+    if not cell:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"GRID NOT FOUND")
+
+    existing_observation = (
+        db.query(weather_tables.WeatherObservation)
+        .filter(weather_tables.WeatherObservation.grid_cell_id == cell.id)
+        .first()
+    )
+    if existing_observation:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"ALREADY CREATED. CANNOT CREATE")
+    # otherwise data doesn't exist 
+    observation_data = get_detailed_weather_summary(cell.grid_centroid_lat, cell.grid_centroid_lon)
+    new_data = weather_tables.WeatherObservation(
+        grid_cell_id=cell.id,
+        timestamp=datetime.fromisoformat(observation_data["time"]),
+        temperature=observation_data["temperature"]["value"],
+        humidity=observation_data["humidity"],
+        dewpoint=observation_data["dewpoint_c"],
+        wind_direction=observation_data["wind"]["direction"],
+        precipitation_prob=observation_data["precipitation_probability"],
+        detailed_forecast=observation_data["forecast"]["detailed"],
+        source="NWS",
+    )
+    db.add(new_data)
+    db.commit()
+    db.refresh(new_data)
+    return new_data
+
+# Update weather data 
+@router.put("/fetch/update/{id}", response_model=weather_schemas.WeatherObservationResponse)
+async def _update_weather_data_grid(id:int,observation:weather_schemas.WeatherObservationCreate, db:Session=Depends(get_db)):
+    """Function updates weather data for a grid cell id"""
+    data = db.query(weather_tables.WeatherObservation).filter(weather_tables.WeatherObservation.grid_cell_id == id).first()
+    if not data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"ID NOT FOUND")
+    # Update 
+    for key, value in observation.model_dump().items():
+        setattr(data, key, value)
+    db.commit()
+    db.refresh(data)
+    return data
+
+@router.delete("/delete/{id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_weather_data_grid(id:int, db:Session = Depends(get_db)):
+    """Function deletes specificed cell/etc"""
+    data = db.query(weather_tables.WeatherObservation).filter(weather_tables.WeatherObservation.id == id).first()
+    if not data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"ID NOT FOUND")
+    db.delete(data)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+
+# Get the latest metrics for the grid cell 
+@router.get("/grid/{grid_cell_id}/latest", response_model=weather_schemas.WeatherObservationResponse)
+async def get_latest_weather_grid(grid_cell_id:int, db:Session=Depends(get_db)):
+    """Function gets the latest weather metrics for each grid"""
+    data = (
+        db.query(weather_tables.WeatherObservation)
+        .filter(weather_tables.WeatherObservation.grid_cell_id == grid_cell_id)
+        .order_by(weather_tables.WeatherObservation.timestamp.desc())
+        .first()
+    )
+    if not data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"ID NOT FOUND")
+    return data
+
+# Get specific weather history
+@router.get("/grid/{grid_cell_id}", response_model=list[weather_schemas.WeatherObservationResponse])
+async def get_weather_history_grid(grid_cell_id:int, db:Session = Depends(get_db)):
+    """function gets entire weather history of a grid cell"""
+
+    data = db.query(weather_tables.WeatherObservation).filter(weather_tables.WeatherObservation.grid_cell_id == grid_cell_id).all()
+    if not data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"ID NOT FOUND")
+    return data
