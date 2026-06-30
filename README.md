@@ -9,14 +9,10 @@ Rice-To-Meet-You is building a FIFA HeatSafe AI prototype: an online decision-su
 | Go To | What It Contains |
 |---|---|
 | [Project Mission](#project-mission) | What the project is trying to accomplish |
-| [Quick Start](#quick-start) | First steps for new contributors |
 | [Project Idea](#project-idea) | Current product direction from team planning |
-| [Meeting Notes](#meeting-notes) | Link to meeting-note files |
-| [Git Workflow](#git-workflow) | Branches, commits, pushes, PRs, and cleanup after merge |
 | [App Guide](#app-guide) | App structure, setup, checks, and key files |
 | [App Folder README](app/README.md) | More detailed map of files inside `app/` |
 | [Markdown Reference Guides](app/markdown_reference_guides/README.md) | Dataset/model documentation landing page |
-| [Project Rules](#project-rules) | Team expectations for keeping `main` stable |
 
 ## Project Mission
 
@@ -46,113 +42,6 @@ Key datasets for the first version:
 | Urban Heat Index | Relative urban heat intensity across locations |
 | Store Visits | Business traffic and possible crowd/activity signals |
 
-## Meeting Notes
-
-Meeting notes live in the [`meeting_notes/`](meeting_notes/README.md) folder.
-
-Current notes:
-
-| Date | File |
-|---|---|
-| June 24 | [Rice Hack FIFA PDF](meeting_notes/Rice%20Hack%20FIFA_june_24.pdf) |
-
-## Quick Start
-
-| Task | Link |
-|---|---|
-| Clone this repository | [Clone the repo](#clone-the-repo) |
-| Make your own branch | [Create a branch](#create-a-branch) |
-| Save your work | [Commit changes](#commit-changes) |
-| Push your work | [Push your branch](#push-your-branch) |
-| Ask the team to review | [Open a pull request](#open-a-pull-request) |
-| Clean up after merge | [After your PR is merged](#after-your-pr-is-merged) |
-| Understand the app folder | [App Folder README](app/README.md) |
-| Read dataset/model docs | [Markdown Reference Guides](app/markdown_reference_guides/README.md) |
-
-## Git Workflow
-
-### Clone the Repo
-
-```bash
-git clone https://github.com/CatFatOw/Rice-To-Meet-You.git
-cd Rice-To-Meet-You
-git status
-```
-
-### Create a Branch
-
-Use `main` only for approved demo/submission work. Use your own branch for experiments, features, notes, and unfinished work.
-
-```bash
-git checkout main
-git pull origin main
-git checkout -b your-name/short-description
-```
-
-Example branch names:
-
-```text
-michael/heat-map-prototype
-zac/transit-gap-analysis
-sarah/demo-dashboard
-```
-
-### Commit Changes
-
-```bash
-git status
-git add path/to/file
-git commit -m "Describe your change"
-```
-
-### Push Your Branch
-
-First push:
-
-```bash
-git push -u origin your-name/short-description
-```
-
-Later pushes:
-
-```bash
-git push
-```
-
-### Open a Pull Request
-
-1. Push your branch.
-2. Open `https://github.com/CatFatOw/Rice-To-Meet-You`.
-3. Click **Compare & pull request**, or go to **Pull requests** -> **New pull request**.
-4. Set **base** to `main`.
-5. Set **compare** to your branch.
-6. Write what changed, why it matters, whether AI helped, and what reviewers should check.
-
-Do not merge into `main` until the group approves the pull request.
-
-### After Your PR Is Merged
-
-After GitHub says your PR has been merged:
-
-```bash
-git checkout main
-git pull origin main
-```
-
-Delete the old local branch if you are finished with it:
-
-```bash
-git branch -d your-name/short-description
-```
-
-Delete the old remote branch if GitHub did not already delete it:
-
-```bash
-git push origin --delete your-name/short-description
-```
-
-If Git says the branch is not fully merged, stop and ask the group before deleting it.
-
 ## App Guide
 
 | File or Folder | Purpose |
@@ -167,11 +56,14 @@ If Git says the branch is not fully merged, stop and ask the group before deleti
 
 ### Environment Setup
 
-Install dependencies:
-
+First clone the repository:
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/CatFatOw/Rice-To-Meet-You.git
+cd Rice-To-Meet-You
+git status
 ```
+
+When you open the repository in the workspace, you should see a notification in the bottom right corner that prompts you to reopen the workspace in a container. Click it. Alternatively, run the command "Dev Containers: Rebuild and Reopen in Container." The dependencies should be installed for you.
 
 Set `DATABASE_URL` before importing or running the app:
 
@@ -198,11 +90,3 @@ sys.path.insert(0, "app")
 import main
 PY
 ```
-
-## Project Rules
-
-- Keep `main` stable for approved final-demo or submission work.
-- Do active development on personal or feature branches.
-- Prefer small, clear commits with descriptive messages.
-- Keep dataset/model documentation updated when schemas change.
-- Ask the group before forcing Git commands or deleting branches that Git says are not merged.
