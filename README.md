@@ -10,7 +10,6 @@ Rice-To-Meet-You is building a FIFA HeatSafe AI prototype: an online decision-su
 |---|---|
 | [Project Mission](#project-mission) | What the project is trying to accomplish |
 | [Project Idea](#project-idea) | Current product direction from team planning |
-| [Git Workflow](#git-workflow) | Branches, commits, pushes, PRs, and cleanup after merge |
 | [App Guide](#app-guide) | App structure, setup, checks, and key files |
 | [App Folder README](app/README.md) | More detailed map of files inside `app/` |
 | [Markdown Reference Guides](app/markdown_reference_guides/README.md) | Dataset/model documentation landing page |
