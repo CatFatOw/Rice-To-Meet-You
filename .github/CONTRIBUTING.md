@@ -15,8 +15,7 @@ This project is not open to external contributors. This guide is mainly for team
 
 | Task | Link |
 |---|---|
-| Requirements | [Requirements](#requirements) |
-| Clone this repository | [Clone the repo](#clone-the-repo) |
+| Setup | [Setup](#setup) |
 | Make your own branch | [Create a branch](#create-a-branch) |
 | Save your work | [Commit changes](#commit-changes) |
 | Push your work | [Push your branch](#push-your-branch) |
@@ -25,21 +24,9 @@ This project is not open to external contributors. This guide is mainly for team
 | Understand the app folder | [App Folder README](app/README.md) |
 | Read dataset/model docs | [Markdown Reference Guides](app/markdown_reference_guides/README.md) |
 
-## Requirements
+## Setup
 
-Make sure you have Docker Desktop installed and opened, and the Dev Containers VSCode extension installed.
-
-## Git Workflow
-
-### Clone the Repo
-
-```bash
-git clone https://github.com/CatFatOw/Rice-To-Meet-You.git
-cd Rice-To-Meet-You
-git status
-```
-
-When you open the repository in the workspace, you should see a notification in the bottom right corner that prompts you to reopen the workspace in a container. Click it. Alternatively, run the command "Dev Containers: Rebuild and Reopen in Container"
+See [Readme](README.md#app-guide)
 
 ### Create a Branch
 
@@ -83,6 +70,7 @@ git push
 
 ### Open a Pull Request
 
+0. It is strongly advised that you check for merge conflicts before opening a PR. You can do that by running `git pull origin main`
 1. Push your branch.
 2. Open `https://github.com/CatFatOw/Rice-To-Meet-You`.
 3. Click **Compare & pull request**, or go to **Pull requests** -> **New pull request**.

@@ -56,14 +56,22 @@ Key datasets for the first version:
 
 ### Environment Setup
 
-First clone the repository:
+Make sure you have [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and opened, and [Dev Containers VSCode extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) installed. 
+
+If you are using Windows, you also need to set up Windows Subsystem for Linux. Guide [here](https://learn.microsoft.com/en-us/windows/wsl/setup/environment). After setting up WSL, ensure the WSL 2 back-end is enabled: Right-click on the Docker taskbar item and select Settings. Check Use the WSL 2 based engine and verify your distribution is enabled under Resources > WSL Integration.
+
+If you are using Linux, you are on your own. Good luck. Check out more information below
+
+More information [here](https://code.visualstudio.com/docs/devcontainers/containers#_getting-started)
+
+Now you can clone the repository:
 ```bash
 git clone https://github.com/CatFatOw/Rice-To-Meet-You.git
 cd Rice-To-Meet-You
 git status
 ```
 
-When you open the repository in the workspace, you should see a notification in the bottom right corner that prompts you to reopen the workspace in a container. Click it. Alternatively, run the command "Dev Containers: Rebuild and Reopen in Container." The dependencies should be installed for you.
+When you open the repository in the workspace, you should see a notification in the bottom right corner that asks if you want to reopen the workspace in a container. Click it. Alternatively, run the command "Dev Containers: Rebuild and Reopen in Container." The dependencies should be installed for you automatically.
 
 Set `DATABASE_URL` before importing or running the app:
 
