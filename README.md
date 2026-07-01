@@ -8,7 +8,8 @@ Rice-To-Meet-You is a FIFA HeatSafe AI prototype: a backend-first decision-suppo
 
 | Need | Go To |
 |---|---|
-| Run the backend | [Run Locally](#run-locally) |
+| Use the dev container | [Dev Container Setup](#dev-container-setup) |
+| Run the backend locally | [Run Locally](#run-locally) |
 | Understand the backend architecture | [Backend Architecture](#backend-architecture) |
 | Test requests in Postman | [Postman Workflow](#postman-workflow) |
 | See route groups | [API Map](#api-map) |
@@ -30,9 +31,34 @@ The prototype turns city/state geometry and heat-safety signals into:
 | NWS weather | Attach National Weather Service weather baselines to grid cells. |
 | Postman collection | Provide repeatable API testing flows for teammates. |
 
+## Dev Container Setup
+
+For the easiest team setup, use the repository dev container.
+
+Install and open:
+
+| Tool | Link |
+|---|---|
+| Docker Desktop | <https://www.docker.com/products/docker-desktop/> |
+| VS Code Dev Containers extension | <https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers> |
+
+Windows users should also set up WSL 2:
+
+```text
+https://learn.microsoft.com/en-us/windows/wsl/setup/environment
+```
+
+After cloning the repository, VS Code should offer to reopen the workspace in a container. Accept that prompt, or run:
+
+```text
+Dev Containers: Rebuild and Reopen in Container
+```
+
+Dependencies should install automatically inside the container.
+
 ## Run Locally
 
-Install dependencies from the repo root:
+If you are not using the dev container, install dependencies from the repo root:
 
 ```bash
 python3 -m venv .venv
@@ -211,7 +237,6 @@ Open a PR against `main` on GitHub, and keep it as a draft until the team is rea
 |---|---|
 | Detailed backend guide | [app/README.md](app/README.md) |
 | Dataset/model docs | [app/markdown_reference_guides/README.md](app/markdown_reference_guides/README.md) |
-| Meeting notes | [meeting_notes/README.md](meeting_notes/README.md) |
 
 ## Project Rules
 
