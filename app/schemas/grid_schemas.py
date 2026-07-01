@@ -42,6 +42,27 @@ class GridCellMetricsCreate(BaseModel):
 
     overall_risk_color: Optional[str] = "#00BFFF"
 
+
+class GridCellMetricsAssignAll(BaseModel):
+    timestamp: datetime
+
+    heat_index: Optional[float] = None
+    heat_risk: Optional[float] = None
+    crowd_density: Optional[float] = None
+    population: Optional[float] = None
+    cooling_centers: Optional[int] = None
+    cooling_centers_impact_radius: Optional[float] = None
+    infrastructure_strain: Optional[float] = None
+
+    heat_index_color: Optional[str] = "#00BFFF"
+    heat_risk_color: Optional[str] = "#00BFFF"
+    crowd_density_color: Optional[str] = "#00BFFF"
+    population_color: Optional[str] = "#00BFFF"
+    cooling_centers_color: Optional[str] = "#00BFFF"
+    infrastructure_strain_color: Optional[str] = "#00BFFF"
+
+    overall_risk_color: Optional[str] = "#00BFFF"
+
 # OUTPUT SCHEMAS
 
 # Geometry Schema 

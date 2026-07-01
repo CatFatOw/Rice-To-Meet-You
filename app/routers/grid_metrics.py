@@ -1,11 +1,11 @@
 """File handles the assignment of metrics to each grid cell"""
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session 
+from sqlalchemy.orm import Session
 from fastapi.responses import Response
 from database import get_db
 from models import grid_cell_tables
 from schemas import grid_schemas
-from routers.grid_geometry import get_city_neighbor_cells, get_state_grid_cells
+from routers.grid_geometry import get_state_grid_cells
 from sqlalchemy import func, and_
 router = APIRouter(prefix="/grid_metrics", tags=["grid_metrics"])
 
@@ -71,6 +71,62 @@ async def create_grid_metrics(payload:grid_schemas.GridCellMetricsCreate, db:Ses
     db.refresh(metrics)
     return add_cell_id(metrics)
 
+
+# Create one metric snapshot for every current grid cell.
+@router.post("/assign_all", status_code=status.HTTP_201_CREATED)
+async def assign_metrics_all_grids(
+    payload: grid_schemas.GridCellMetricsAssignAll,
+    state: str | None = None,
+    replace_existing: bool = True,
+    db: Session = Depends(get_db),
+):
+    """Assign the same metric snapshot to every grid cell, optionally within one state."""
+    if state:
+        grid_cells = get_state_grid_cells(state, db)
+    else:
+        grid_cells = db.query(grid_cell_tables.GridCellGeometry).all()
+
+    if not grid_cells:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NO GRID CELLS FOUND")
+
+    grid_cell_ids = [cell.id for cell in grid_cells]
+    metric_values = payload.model_dump()
+
+    deleted_count = 0
+    if replace_existing:
+        deleted_count = (
+            db.query(grid_cell_tables.GridCellMetrics)
+            .filter(grid_cell_tables.GridCellMetrics.grid_cell_id.in_(grid_cell_ids))
+            .filter(grid_cell_tables.GridCellMetrics.timestamp == payload.timestamp)
+            .delete(synchronize_session=False)
+        )
+
+    metrics = [
+        grid_cell_tables.GridCellMetrics(
+            grid_cell_id=grid_cell_id,
+            **metric_values,
+        )
+        for grid_cell_id in grid_cell_ids
+    ]
+
+    db.add_all(metrics)
+    db.commit()
+
+    first_metric = metrics[0]
+    db.refresh(first_metric)
+    add_cell_id(first_metric)
+
+    return {
+        "message": "Metrics assigned successfully",
+        "state": state,
+        "replace_existing": replace_existing,
+        "metrics_deleted": deleted_count,
+        "metrics_created": len(metrics),
+        "first_metric_id": first_metric.id,
+        "first_grid_cell_id": first_metric.grid_cell_id,
+        "first_grid_cell_cell_id": first_metric.cell_id,
+    }
+
 # Get every saved metric snapshot across all grid cells.
 @router.get("/all", response_model=list[grid_schemas.GridCellMetricsResponse])
 async def get_all_metrics(db:Session = Depends(get_db)):
@@ -117,21 +173,6 @@ async def get_latest_metrics(db: Session = Depends(get_db)):
     return add_cell_ids(metrics)
 
 
-# Get all metric snapshots for the city center grid cell and nearby neighbor cells.
-@router.get("/city/{state}/{city_name}", response_model=list[grid_schemas.GridCellMetricsResponse])
-async def get_metrics_city_grid(state:str, city_name:str, db:Session=Depends(get_db)):
-    """Function gets all metrics relateing to grids associated with the specific state's city"""
-    grid_data = get_city_neighbor_cells(city_name, state, 1, db)
-    grid_data_cell_ids = [cell.id for cell in grid_data["neighbors"]]
-
-    # Query the database based on the given cell ids
-    city_grid_metrics = db.query(grid_cell_tables.GridCellMetrics).filter(grid_cell_tables.GridCellMetrics.grid_cell_id.in_(grid_data_cell_ids)).all()
-    if not city_grid_metrics:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"NOT FOUND")
-    
-    # otherwise return the metrics
-    return add_cell_ids(city_grid_metrics)
-
 # Get all metric snapshots for every grid cell in a state.
 @router.get("/state/{state}", response_model=list[grid_schemas.GridCellMetricsResponse])
 async def get_metrics_state_grid(state:str, db:Session=Depends(get_db)):
@@ -155,18 +196,6 @@ async def get_latest_metrics_state_grid(state:str, db:Session=Depends(get_db)):
     state_cells = get_state_grid_cells(state, db)
     cell_ids = [cell.id for cell in state_cells]
     metrics = latest_metrics_query(db).filter(grid_cell_tables.GridCellMetrics.grid_cell_id.in_(cell_ids)).all()
-    if not metrics:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"NOT FOUND")
-    return add_cell_ids(metrics)
-
-
-# Get the newest metric snapshot for the city center grid cell and nearby neighbor cells.
-@router.get("/city/{state}/{city_name}/latest", response_model=list[grid_schemas.GridCellMetricsResponse])
-async def get_latest_metrics_city_grid(state:str, city_name:str, db:Session=Depends(get_db)):
-    """Function gets latest metrics for city neighbor grids."""
-    grid_data = get_city_neighbor_cells(city_name, state, 1, db)
-    grid_data_cell_ids = [cell.id for cell in grid_data["neighbors"]]
-    metrics = latest_metrics_query(db).filter(grid_cell_tables.GridCellMetrics.grid_cell_id.in_(grid_data_cell_ids)).all()
     if not metrics:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"NOT FOUND")
     return add_cell_ids(metrics)

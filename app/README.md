@@ -74,16 +74,15 @@ Grid routes are defined in [`routers/grid_geometry.py`](routers/grid_geometry.py
 | Action | Method | Path |
 |---|---:|---|
 | Generate state grid | `POST` | `/grid/generate_nxn_grid?state_name=Texas&n=40` |
+| Generate city grid | `POST` | `/grid/generate_nxn_grid_city?city=Houston&state=Texas&n=40` |
 | Get all grid cells | `GET` | `/grid/all` |
 | Get grid by DB ID | `GET` | `/grid/id/{id}` |
 | Get grid by cell ID | `GET` | `/grid/cell/{cell_id}` |
 | Get grids by state | `GET` | `/grid/state/{state}` |
 | Get state grid GeoJSON | `GET` | `/grid/state/{state}/geojson` |
-| Get city neighbor cells | `GET` | `/grid/city/neighbors?city=Houston&state=Texas&radius=1` |
-| Get city neighbor GeoJSON | `GET` | `/grid/city/neighbors/geojson?city=Houston&state=Texas&radius=1` |
 | Get grid map GeoJSON | `GET` | `/grid/map/geojson` |
 
-Use the `Grid Geometry` folder in [`../postman_dataset_routes_collection.json`](../postman_dataset_routes_collection.json). Generate or load grid cells before creating NWS weather observations.
+Use the `Grid Geometry` folder in [`../postman_dataset_routes_collection.json`](../postman_dataset_routes_collection.json). Regenerating a grid replaces the existing grid cells for that state. Generate or load grid cells before creating NWS weather observations.
 
 ### Grid Metrics Routes
 
@@ -92,14 +91,13 @@ Grid metrics routes are defined in [`routers/grid_metrics.py`](routers/grid_metr
 | Action | Method | Path |
 |---|---:|---|
 | Create grid metrics | `POST` | `/grid_metrics/create` |
+| Assign metrics to all grids | `POST` | `/grid_metrics/assign_all?state=Texas&replace_existing=true` |
 | Get all metrics | `GET` | `/grid_metrics/all` |
 | Get metrics for grid | `GET` | `/grid_metrics/grid/{grid_cell_id}` |
 | Get latest metrics for grid | `GET` | `/grid_metrics/grid/{grid_cell_id}/latest` |
 | Get latest metrics for all grids | `GET` | `/grid_metrics/latest` |
 | Get metrics by state | `GET` | `/grid_metrics/state/{state}` |
 | Get latest metrics by state | `GET` | `/grid_metrics/state/{state}/latest` |
-| Get metrics by city neighbors | `GET` | `/grid_metrics/city/{state}/{city_name}` |
-| Get latest metrics by city neighbors | `GET` | `/grid_metrics/city/{state}/{city_name}/latest` |
 | Update grid metrics | `PUT` | `/grid_metrics/update/{id}` |
 | Delete grid metrics | `DELETE` | `/grid_metrics/delete/{id}` |
 

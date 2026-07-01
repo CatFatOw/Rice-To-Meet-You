@@ -73,3 +73,54 @@ class GridCellMetrics(Base):
         nullable=False,
         server_default=text("now()")
     )
+
+
+
+class InterpolatedPoint(Base):
+    """
+    Stores interpolated point samples generated from the
+    city/state grid before converting back to GeoJSON.
+    """
+
+    __tablename__ = "interpolated_points"
+
+    id = Column(Integer, primary_key=True)
+
+    # Which grid cell this interpolated point belongs to
+    grid_cell_id = Column(
+        Integer,
+        ForeignKey("grid_cell_geometry.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    timestamp = Column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        index=True,
+    )
+
+    # Point location
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+
+    # Interpolated values
+    heat_index = Column(Float)
+    heat_risk = Column(Float)
+    crowd_density = Column(Float)
+    population = Column(Float)
+    cooling_centers = Column(Float)
+    infrastructure_strain = Column(Float)
+
+    # Metadata
+    interpolation_method = Column(Text, default="idw")
+    source_count = Column(Integer)
+    confidence = Column(Float)
+
+    created_at = Column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+
+    grid_cell = relationship("GridCellGeometry")
