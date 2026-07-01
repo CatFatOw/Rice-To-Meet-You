@@ -2,86 +2,186 @@
 
 2026 Rice University FIFA Summer Hackathon project.
 
-Rice-To-Meet-You is building a FIFA HeatSafe AI prototype: an online decision-support tool that helps visitors and city professionals predict heat, dehydration, weather, energy-use, and crowd-overlap danger zones around FIFA 2026 host cities while simulating actions.
+Rice-To-Meet-You is a FIFA HeatSafe AI prototype: a backend-first decision-support tool for mapping heat, weather, crowd, infrastructure, and intervention risk across host-city grids.
 
-## Table of Contents
+## Start Here
 
-| Go To | What It Contains |
+| Need | Go To |
 |---|---|
-| [Project Mission](#project-mission) | What the project is trying to accomplish |
-| [Quick Start](#quick-start) | First steps for new contributors |
-| [Project Idea](#project-idea) | Current product direction from team planning |
-| [Meeting Notes](#meeting-notes) | Link to meeting-note files |
-| [Git Workflow](#git-workflow) | Branches, commits, pushes, PRs, and cleanup after merge |
-| [App Guide](#app-guide) | App structure, setup, checks, and key files |
-| [App Folder README](app/README.md) | More detailed map of files inside `app/` |
-| [Markdown Reference Guides](app/markdown_reference_guides/README.md) | Dataset/model documentation landing page |
-| [Project Rules](#project-rules) | Team expectations for keeping `main` stable |
+| Run the backend | [Run Locally](#run-locally) |
+| Understand the backend architecture | [Backend Architecture](#backend-architecture) |
+| Test requests in Postman | [Postman Workflow](#postman-workflow) |
+| See route groups | [API Map](#api-map) |
+| Learn the simulation flow | [Simulation Workflow](#simulation-workflow) |
+| Work with Git | [Git Workflow](#git-workflow) |
+| Read detailed app docs | [App README](app/README.md) |
 
 ## Project Mission
 
-Build a useful, credible, and polished FIFA 2026 HeatSafe platform that helps host cities and visitors understand where heat risk, dehydration risk, crowd activity, weather conditions, and energy pressure may overlap.
+The goal is to help visitors and city planners understand where heat risk, dehydration risk, crowd activity, weather conditions, and infrastructure pressure overlap.
 
-The goal is to turn Rice-provided datasets into clear maps, timelines, risk scores, and planning simulations that help cities prepare safer routes, cooling zones, shade structures, medical staffing, and other heat-resilience interventions.
-
-## Project Idea
-
-The current prototype direction is **FIFA HeatSafe AI**.
+The prototype turns city/state geometry and heat-safety signals into:
 
 | Feature | Purpose |
 |---|---|
-| Heat mapping | Show red, orange, and green risk zones across a selected city or state |
-| Visitor mapping | Estimate where visitor and business activity may concentrate |
-| Risk score mapping | Combine heat, weather, and visitor activity into an easy-to-read risk score |
-| Future timeline | Extend predictions forward using historical weather and activity data |
-| Simulation platform | Let planners test interventions such as shade structures and cooling zones |
-| Planning recommendations | Help identify where hydration, cooling, shade, transit, and medical support may matter most |
+| Grid generation | Split a city/state into simulation cells. |
+| Grid metrics | Store heat, crowd, population, cooling-center, and infrastructure signals per cell. |
+| Interpolation | Fill metric values across grid centroids for map rendering and simulation. |
+| NWS weather | Attach National Weather Service weather baselines to grid cells. |
+| Postman collection | Provide repeatable API testing flows for teammates. |
 
-Key datasets for the first version:
+## Run Locally
 
-| Dataset | Why It Matters |
+Install dependencies from the repo root:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Set environment variables:
+
+```bash
+export DATABASE_URL="sqlite:///./local.db"
+export JWT_KEY="dev-secret-key"
+```
+
+Start FastAPI from the `app/` folder:
+
+```bash
+cd app
+python3 -m uvicorn main:app --reload
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+## Backend Architecture
+
+The backend uses a router/service/repository structure:
+
+```text
+request
+  -> routers/       FastAPI endpoints and HTTP errors
+  -> services/      business logic, GeoJSON conversion, interpolation, NWS calls
+  -> repository/    SQLAlchemy database reads/writes
+  -> models/        SQLAlchemy tables
+  -> schemas/       Pydantic payloads/responses
+```
+
+Key folders:
+
+| Path | Purpose |
 |---|---|
-| Daily Weather | Climate, weather, and energy-risk prediction |
-| Core POI Geometry | Locations, points of interest, business areas, and possible visitor activity |
-| Urban Heat Index | Relative urban heat intensity across locations |
-| Store Visits | Business traffic and possible crowd/activity signals |
+| [`app/routers/`](app/routers/) | API route definitions. |
+| [`app/services/`](app/services/) | Business logic and external API calls. |
+| [`app/repository/`](app/repository/) | Database query helpers. |
+| [`app/models/`](app/models/) | SQLAlchemy models. |
+| [`app/schemas/`](app/schemas/) | Pydantic schemas. |
+| [`app/alembic/`](app/alembic/) | Migrations. |
+| [`app/README.md`](app/README.md) | Detailed backend guide. |
 
-## Meeting Notes
+## Simulation Workflow
 
-Meeting notes live in the [`meeting_notes/`](meeting_notes/README.md) folder.
+Recommended backend flow:
 
-Current notes:
+1. Generate a city grid.
+2. Assign grid metrics.
+3. Interpolate metric values.
+4. Render heatmap/mesh GeoJSON in the frontend.
+5. Assign NWS weather as a regional baseline.
+6. Combine weather + grid metrics for local simulation risk.
 
-| Date | File |
+In Postman, that usually means:
+
+```text
+Grid Geometry / Generate N by N City Grid
+Grid Metrics / Assign Metrics To All Grid Cells
+Grid Interpolation / Interpolate City Grid
+Grid Interpolation / Get Interpolated Heatmap GeoJSON
+NWS Weather / Assign Weather To State Grid Cells
+```
+
+## API Map
+
+Detailed routes are documented in [app/README.md](app/README.md). High-level route groups:
+
+| Group | Prefix | Purpose |
+|---|---|---|
+| Users | `/users` | User creation, profile, password, deletion. |
+| Login | `/login` | JWT bearer token login. |
+| Datasets | `/dataset` | Protected CRUD for Rice dataset tables. |
+| Grid Geometry | `/grid` | Generate/read state and city grid cells. |
+| Grid Metrics | `/grid_metrics` | Create/read/update/delete simulation metrics. |
+| Grid Interpolation | `/grid_interpolation` | Interpolate metrics and return GeoJSON. |
+| NWS Weather | `/weather` | Fetch and assign National Weather Service observations. |
+
+## Postman Workflow
+
+Import [`postman_dataset_routes_collection.json`](postman_dataset_routes_collection.json) into Postman.
+
+Important collection variables:
+
+| Variable | Purpose |
 |---|---|
-| June 24 | [Rice Hack FIFA PDF](meeting_notes/Rice%20Hack%20FIFA_june_24.pdf) |
+| `baseUrl` | API URL, usually `http://127.0.0.1:8000`. |
+| `cityName` | City used for city grid/interpolation routes. |
+| `stateName` | State used for grid/metric/weather routes. |
+| `gridSize` | `n` for an `n x n` grid. |
+| `metricTimestamp` | Timestamp for grid metrics. |
+| `interpolationTimestamp` | Timestamp for interpolation; usually match `metricTimestamp`. |
+| `interpolationMetric` | Metric to interpolate, such as `heat_index` or `population`. |
+| `heatmapMetric` | Metric used for heatmap intensity. |
+| `colorMetric` | Metric used for mesh color. |
 
-## Quick Start
+Good first test order:
 
-| Task | Link |
-|---|---|
-| Clone this repository | [Clone the repo](#clone-the-repo) |
-| Make your own branch | [Create a branch](#create-a-branch) |
-| Save your work | [Commit changes](#commit-changes) |
-| Push your work | [Push your branch](#push-your-branch) |
-| Ask the team to review | [Open a pull request](#open-a-pull-request) |
-| Clean up after merge | [After your PR is merged](#after-your-pr-is-merged) |
-| Understand the app folder | [App Folder README](app/README.md) |
-| Read dataset/model docs | [Markdown Reference Guides](app/markdown_reference_guides/README.md) |
+1. `Users and Auth / Create User`
+2. `Users and Auth / Login`
+3. `Grid Geometry / Generate N by N City Grid`
+4. `Grid Metrics / Assign Metrics To All Grid Cells`
+5. `Grid Interpolation / Interpolate City Grid`
+6. `Grid Interpolation / Get Interpolated Heatmap GeoJSON`
+
+For a full weather refresh, use:
+
+```text
+NWS Weather / Assign Weather To State Grid Cells
+```
+
+That request currently uses:
+
+```text
+/weather/assign_state?state={{stateName}}&max_workers=20&skip_existing=false
+```
+
+Weather assignment deduplicates repeated NWS forecast URLs during each run, so many app grid cells can share one NWS forecast request.
+
+## Checks
+
+Run these before pushing backend changes:
+
+```bash
+python3 -m compileall -q app
+```
+
+```bash
+python3 -m json.tool postman_dataset_routes_collection.json >/tmp/postman.json
+```
+
+Optional import smoke test:
+
+```bash
+DATABASE_URL="sqlite:///./local.db" JWT_KEY="dev-secret-key" python3 -c "import sys; sys.path.insert(0, 'app'); import main"
+```
 
 ## Git Workflow
 
-### Clone the Repo
-
-```bash
-git clone https://github.com/CatFatOw/Rice-To-Meet-You.git
-cd Rice-To-Meet-You
-git status
-```
-
-### Create a Branch
-
-Use `main` only for approved demo/submission work. Use your own branch for experiments, features, notes, and unfinished work.
+Use a feature branch for active work:
 
 ```bash
 git checkout main
@@ -89,15 +189,7 @@ git pull origin main
 git checkout -b your-name/short-description
 ```
 
-Example branch names:
-
-```text
-michael/heat-map-prototype
-zac/transit-gap-analysis
-sarah/demo-dashboard
-```
-
-### Commit Changes
+Commit intentionally:
 
 ```bash
 git status
@@ -105,104 +197,26 @@ git add path/to/file
 git commit -m "Describe your change"
 ```
 
-### Push Your Branch
-
-First push:
+Push and open a pull request:
 
 ```bash
 git push -u origin your-name/short-description
 ```
 
-Later pushes:
+Open a PR against `main` on GitHub, and keep it as a draft until the team is ready to review.
 
-```bash
-git push
-```
+## Reference Docs
 
-### Open a Pull Request
-
-1. Push your branch.
-2. Open `https://github.com/CatFatOw/Rice-To-Meet-You`.
-3. Click **Compare & pull request**, or go to **Pull requests** -> **New pull request**.
-4. Set **base** to `main`.
-5. Set **compare** to your branch.
-6. Write what changed, why it matters, whether AI helped, and what reviewers should check.
-
-Do not merge into `main` until the group approves the pull request.
-
-### After Your PR Is Merged
-
-After GitHub says your PR has been merged:
-
-```bash
-git checkout main
-git pull origin main
-```
-
-Delete the old local branch if you are finished with it:
-
-```bash
-git branch -d your-name/short-description
-```
-
-Delete the old remote branch if GitHub did not already delete it:
-
-```bash
-git push origin --delete your-name/short-description
-```
-
-If Git says the branch is not fully merged, stop and ask the group before deleting it.
-
-## App Guide
-
-| File or Folder | Purpose |
+| Resource | Link |
 |---|---|
-| [`app/README.md`](app/README.md) | App-folder overview and file map |
-| [`app/main.py`](app/main.py) | FastAPI app entrypoint |
-| [`app/database.py`](app/database.py) | SQLAlchemy engine, session, and base model setup |
-| [`app/models/dataset_models.py`](app/models/dataset_models.py) | SQLAlchemy models for Rice-provided datasets |
-| [`app/alembic/`](app/alembic/) | Database migration setup |
-| [`app/markdown_reference_guides/`](app/markdown_reference_guides/README.md) | Human-readable model and dataset reference docs |
-| [`requirements.txt`](requirements.txt) | Python dependencies for the current backend app |
-
-### Environment Setup
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-Set `DATABASE_URL` before importing or running the app:
-
-```bash
-export DATABASE_URL="sqlite:///./local.db"
-```
-
-For Postgres:
-
-```bash
-export DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
-```
-
-### Run Checks
-
-```bash
-python3 -m compileall -q app
-```
-
-```bash
-DATABASE_URL="sqlite:///./local.db" python3 - <<'PY'
-import sys
-sys.path.insert(0, "app")
-import main
-PY
-```
+| Detailed backend guide | [app/README.md](app/README.md) |
+| Dataset/model docs | [app/markdown_reference_guides/README.md](app/markdown_reference_guides/README.md) |
+| Meeting notes | [meeting_notes/README.md](meeting_notes/README.md) |
 
 ## Project Rules
 
 - Keep `main` stable for approved final-demo or submission work.
 - Do active development on personal or feature branches.
 - Prefer small, clear commits with descriptive messages.
-- Keep dataset/model documentation updated when schemas change.
-- Ask the group before forcing Git commands or deleting branches that Git says are not merged.
+- Keep docs and Postman updated when routes change.
+- Ask the group before destructive Git commands or deleting branches that Git says are not merged.

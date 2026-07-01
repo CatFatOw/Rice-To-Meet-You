@@ -12,8 +12,15 @@ Every endpoint returns JSON file
 
 import requests
 from datetime import datetime 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import geopandas as gpd
+from requests.exceptions import RequestException
 from shapely.geometry import box 
+
+from repository.weather_repository import (
+    get_existing_observation_cell_ids,
+    upsert_nws_observation,
+)
 
 headers = {
     "User-Agent": "RiceHeatSafe (michaelwufluffy@gmail.com)",
@@ -21,12 +28,13 @@ headers = {
 }
 
 BASE_URL = "https://api.weather.gov"
+REQUEST_TIMEOUT = 20
 
 # Get the point metadata 
 def get_point_metadata(lat:float, lon:float):
     """Given a specified latitude/longitude it returns the NWS metadata and returns it in json format"""
     point_url = f"{BASE_URL}/points/{lat},{lon}"
-    point_res = requests.get(point_url, headers=headers)
+    point_res = requests.get(point_url, headers=headers, timeout=REQUEST_TIMEOUT)
     # Validate if returned correctly
     point_res.raise_for_status()
     return point_res.json()
@@ -39,7 +47,14 @@ def get_hourly_forecast(lat:float, lon:float):
     # Returns the metadata NWS 
     point_data = get_point_metadata(lat, lon)
     hourly_url = point_data["properties"]["forecastHourly"]
-    response = requests.get(hourly_url, headers=headers)
+    response = requests.get(hourly_url, headers=headers, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    return response.json()
+
+
+def get_hourly_forecast_by_url(hourly_url: str):
+    """Fetch an hourly forecast from an NWS forecastHourly URL."""
+    response = requests.get(hourly_url, headers=headers, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
     return response.json()
 
@@ -54,7 +69,7 @@ def get_grid_forecast(lat:float, lon:float):
     """Function gets the NWS raw gridded forecast data and returns more detailed forecast variables (temp, humidity, dew, heat index, wind) over time"""
     point_data = get_point_metadata(lat, lon)
     grid_url = point_data["properties"]["forecastGridData"]
-    response = requests.get(grid_url, headers=headers)
+    response = requests.get(grid_url, headers=headers, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
     return response.json()
 
@@ -83,6 +98,7 @@ def get_state_bbox(
         "https://nominatim.openstreetmap.org/search",
         headers=headers,
         params=payload,
+        timeout=REQUEST_TIMEOUT,
     )
     response.raise_for_status()
 
@@ -181,26 +197,11 @@ def split_bbox_into_cell(state_geojson, output_path=None, n=100, download=False)
     
 
 
-def get_detailed_weather_summary(
-    lat: float,
-    lon: float,
+def hourly_forecast_to_weather_summary(
+    hourly: dict,
     target_time: str | None = None,
 ):
-    """
-    Returns a detailed weather summary.
-
-    Parameters
-    ----------
-    lat : float
-    lon : float
-    target_time : str | None
-        ISO 8601 datetime, e.g.
-        "2026-06-28T15:00:00-05:00"
-
-        If None, returns the current forecast period.
-    """
-
-    hourly = get_hourly_forecast(lat, lon)
+    """Convert NWS hourly forecast JSON into the smaller weather summary we store."""
     periods = hourly["properties"]["periods"]
 
     # Default to the first (current) forecast period
@@ -246,4 +247,155 @@ def get_detailed_weather_summary(
         "icon": period["icon"],
     }
 
+
+def get_detailed_weather_summary(
+    lat: float,
+    lon: float,
+    target_time: str | None = None,
+):
+    """
+    Returns a detailed weather summary.
+
+    Parameters
+    ----------
+    lat : float
+    lon : float
+    target_time : str | None
+        ISO 8601 datetime, e.g.
+        "2026-06-28T15:00:00-05:00"
+
+        If None, returns the current forecast period.
+    """
+
+    hourly = get_hourly_forecast(lat, lon)
+    return hourly_forecast_to_weather_summary(hourly, target_time)
+
 #print(get_detailed_weather_summary(29.7604, -95.3698))
+
+
+def fetch_nws_metadata_for_cell(cell_data: dict):
+    """Fetch NWS point metadata for one grid-cell centroid."""
+    point_data = get_point_metadata(cell_data["lat"], cell_data["lon"])
+    properties = point_data["properties"]
+    return {
+        **cell_data,
+        "nws_grid_id": properties["gridId"],
+        "nws_grid_x": properties["gridX"],
+        "nws_grid_y": properties["gridY"],
+        "forecast_hourly": properties["forecastHourly"],
+    }
+
+
+def fetch_weather_observation_for_cell(cell_data: dict):
+    """Fetch the current NWS weather data for one grid cell without using the DB session."""
+    return {
+        "grid_cell_id": cell_data["grid_cell_id"],
+        "cell_id": cell_data["cell_id"],
+        "observation_data": get_detailed_weather_summary(cell_data["lat"], cell_data["lon"]),
+    }
+
+
+def save_weather_observation_for_cell(cell, db):
+    """Create or update the latest NWS weather row for one grid cell."""
+    fetched = fetch_weather_observation_for_cell({
+        "grid_cell_id": cell.id,
+        "cell_id": cell.cell_id,
+        "lat": cell.grid_centroid_lat,
+        "lon": cell.grid_centroid_lon,
+    })
+    return upsert_nws_observation(fetched["grid_cell_id"], fetched["observation_data"], db)
+
+
+def assign_weather_for_cells(cells, db, max_workers: int, skip_existing: bool, limit: int | None):
+    """Fetch NWS data concurrently, reusing repeated forecast URLs within this run."""
+    created_count = 0
+    updated_count = 0
+    failed = []
+    skipped_existing = 0
+    max_workers = max(1, min(max_workers, 20))
+
+    if skip_existing:
+        cell_ids = [cell.id for cell in cells]
+        existing_cell_ids = get_existing_observation_cell_ids(cell_ids, db)
+        skipped_existing = len(existing_cell_ids)
+        cells = [cell for cell in cells if cell.id not in existing_cell_ids]
+
+    if limit is not None:
+        cells = cells[:max(0, limit)]
+
+    cell_data = [
+        {
+            "grid_cell_id": cell.id,
+            "cell_id": cell.cell_id,
+            "lat": cell.grid_centroid_lat,
+            "lon": cell.grid_centroid_lon,
+        }
+        for cell in cells
+    ]
+
+    metadata_rows = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(fetch_nws_metadata_for_cell, cell): cell
+            for cell in cell_data
+        }
+        for future in as_completed(futures):
+            cell = futures[future]
+            try:
+                metadata_rows.append(future.result())
+            except RequestException as exc:
+                failed.append({"grid_cell_id": cell["grid_cell_id"], "cell_id": cell["cell_id"], "error": str(exc)})
+
+    cells_by_forecast_url = {}
+    for metadata in metadata_rows:
+        cells_by_forecast_url.setdefault(metadata["forecast_hourly"], []).append(metadata)
+
+    forecast_by_url = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(get_hourly_forecast_by_url, forecast_url): forecast_url
+            for forecast_url in cells_by_forecast_url
+        }
+        for future in as_completed(futures):
+            forecast_url = futures[future]
+            try:
+                forecast_by_url[forecast_url] = hourly_forecast_to_weather_summary(future.result())
+            except RequestException as exc:
+                for cell in cells_by_forecast_url[forecast_url]:
+                    failed.append({
+                        "grid_cell_id": cell["grid_cell_id"],
+                        "cell_id": cell["cell_id"],
+                        "nws_grid": f"{cell['nws_grid_id']} {cell['nws_grid_x']},{cell['nws_grid_y']}",
+                        "error": str(exc),
+                    })
+
+    # Database writes stay in this request thread because SQLAlchemy sessions are not thread-safe.
+    for forecast_url, grouped_cells in cells_by_forecast_url.items():
+        observation_data = forecast_by_url.get(forecast_url)
+        if not observation_data:
+            continue
+
+        for cell in grouped_cells:
+            _, created = upsert_nws_observation(
+                cell["grid_cell_id"],
+                observation_data,
+                db,
+            )
+
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
+
+    db.commit()
+    return {
+        "created": created_count,
+        "updated": updated_count,
+        "skipped_existing": skipped_existing,
+        "failed": len(failed),
+        "failures": failed[:10],
+        "count": created_count + updated_count,
+        "requested": len(cell_data),
+        "metadata_requests": len(cell_data),
+        "forecast_requests": len(cells_by_forecast_url),
+    }

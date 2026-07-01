@@ -1,39 +1,92 @@
-# App Folder Guide
+# Backend App Guide
 
-This folder contains the current backend app, database setup, SQLAlchemy dataset models, Alembic migrations, and dataset reference documentation.
+This folder contains the FastAPI backend for the FIFA HeatSafe prototype. It owns the API routes, database models, request/response schemas, database migrations, and service code used to build grid-based heat, weather, and simulation layers.
 
-## Table of Contents
+## Navigation
 
-| Go To | What It Covers |
+| Need | Go To |
 |---|---|
-| [Top-Level Files](#top-level-files) | Main backend files in `app/` |
-| [Folders](#folders) | What each app subfolder is for |
-| [Route Reference](#route-reference) | Auth, user, and dataset routes |
-| [Run Checks](#run-checks) | Quick commands to verify the app imports |
-| [Database And Env Notes](#database-and-env-notes) | How environment variables, SQLAlchemy, and Alembic fit together |
+| Install and run the API | [Quick Start](#quick-start) |
+| Understand code organization | [How The Backend Is Organized](#how-the-backend-is-organized) |
+| Find route files and folders | [Folder Map](#folder-map) |
+| See route groups | [Route Groups](#route-groups) |
+| Run Postman in the right order | [Recommended Postman Flow](#recommended-postman-flow) |
+| Debug common route issues | [Common Gotchas](#common-gotchas) |
+| Run validation checks | [Quick Checks](#quick-checks) |
 
-## Top-Level Files
+## Quick Start
 
-| File | Purpose |
-|---|---|
-| [`main.py`](main.py) | FastAPI entrypoint. Creates the `FastAPI()` app and imports models so table metadata is registered. |
-| [`database.py`](database.py) | Sets up the SQLAlchemy engine, session factory, declarative `Base`, and `get_db()` dependency. |
-| [`alembic.ini`](alembic.ini) | Alembic configuration file for database migrations. |
-| [`README.md`](README.md) | This app-folder overview. |
+Run these commands from the repository root:
 
-## Folders
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Set the required environment variables:
+
+```bash
+export DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
+export JWT_KEY="dev-secret-key"
+```
+
+Start the API from the `app/` folder:
+
+```bash
+cd app
+python3 -m uvicorn main:app --reload
+```
+
+The default local API URL is:
+
+```text
+http://127.0.0.1:8000
+```
+
+Use the interactive docs at:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+## How The Backend Is Organized
+
+The app now follows a router/service/repository style:
+
+```text
+HTTP request
+  -> routers/       FastAPI endpoints, validation, HTTP errors
+  -> services/      business logic, calculations, external API calls
+  -> repository/    SQLAlchemy database queries and writes
+  -> models/        database table definitions
+  -> schemas/       Pydantic request and response shapes
+```
+
+Keep route files thin when possible. If code is mostly database querying, put it in `repository/`. If code is a calculation, GeoJSON conversion, NWS fetch, interpolation step, or other business rule, put it in `services/`.
+
+## Folder Map
 
 | Folder | Purpose |
 |---|---|
-| [`models/`](models/) | SQLAlchemy model definitions. Dataset tables live in [`models/dataset_tables.py`](models/dataset_tables.py), users live in [`models/user_tables.py`](models/user_tables.py), and prediction outputs live in [`models/prediction_tables.py`](models/prediction_tables.py). |
-| [`alembic/`](alembic/) | Alembic migration environment and migration scripts. Use this when database schemas change. |
-| [`markdown_reference_guides/`](markdown_reference_guides/README.md) | Human-readable dataset/model reference docs with clickable links into each dataset guide. |
-| [`routers/`](routers/) | FastAPI route modules: [`routers/dataset.py`](routers/dataset.py), [`routers/users.py`](routers/users.py), [`routers/login.py`](routers/login.py), and [`routers/nws_weather.py`](routers/nws_weather.py). |
-| [`schemas/`](schemas/) | Pydantic request/response schemas for datasets, users, and auth tokens. |
-| [`security/`](security/) | Password hashing and OAuth2/JWT helpers. |
-| [`services/`](services/) | External API clients and non-database business logic, such as National Weather Service helpers. |
+| [`routers/`](routers/) | FastAPI route modules for auth, datasets, grids, metrics, interpolation, and weather. |
+| [`services/`](services/) | Business logic and external API helpers. |
+| [`repository/`](repository/) | SQLAlchemy query/write helpers. |
+| [`models/`](models/) | SQLAlchemy table definitions. |
+| [`schemas/`](schemas/) | Pydantic request and response models. |
+| [`security/`](security/) | Password hashing, OAuth2, and JWT helpers. |
+| [`alembic/`](alembic/) | Alembic migration environment and migration files. |
+| [`markdown_reference_guides/`](markdown_reference_guides/README.md) | Human-readable dataset/model reference docs. |
 
-## Route Reference
+## Main Files
+
+| File | Purpose |
+|---|---|
+| [`main.py`](main.py) | Creates the FastAPI app and includes all routers. |
+| [`database.py`](database.py) | Creates the SQLAlchemy engine, session factory, base model, and `get_db()` dependency. |
+| [`alembic.ini`](alembic.ini) | Alembic configuration. |
+
+## Route Groups
 
 Routes are registered in [`main.py`](main.py).
 
@@ -48,28 +101,36 @@ Routes are registered in [`main.py`](main.py).
 | Delete current user | `DELETE` | `/users/me` | Yes |
 | Get user by ID | `GET` | `/users/{id}` | No |
 
-`/login/` expects form data with `username` and `password`. Use the returned bearer token for protected routes.
+Use `/login/` with form-data fields `username` and `password`. Protected dataset routes need `Authorization: Bearer <token>`.
 
-### Dataset Routes
+### Dataset CRUD
 
-All dataset routes require `Authorization: Bearer <token>`. Created rows are tied to the logged-in user.
+Dataset routes are defined in [`routers/dataset.py`](routers/dataset.py). The reusable database logic lives in [`repository/dataset_repository.py`](repository/dataset_repository.py).
 
-Current resources:
+All dataset routes require a logged-in user.
 
-| Resource | Supported Methods |
+| Resource | Path |
 |---|---|
-| `core_poi_geometry_table` | `GET`, `POST`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` |
-| `daily_spend_brand_state` | `GET`, `POST`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` |
-| `daily_weather` | `GET`, `POST`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` |
-| `spending_patterns` | `GET`, `POST`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` |
-| `store_visits` | `GET`, `POST`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` |
-| `urban_heat_index` | `GET`, `POST`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` |
+| Core POI geometry | `/dataset/core_poi_geometry_table` |
+| Daily spend by brand/state | `/dataset/daily_spend_brand_state` |
+| Daily weather | `/dataset/daily_weather` |
+| Spending patterns | `/dataset/spending_patterns` |
+| Store visits | `/dataset/store_visits` |
+| Urban heat index | `/dataset/urban_heat_index` |
 
-Use [`../postman_dataset_routes_collection.json`](../postman_dataset_routes_collection.json) to test the routes in Postman. Run `Create User`, then `Login`, then dataset requests.
+Each resource supports:
 
-### Grid Geometry Routes
+```text
+GET /dataset/{resource}
+POST /dataset/{resource}
+GET /dataset/{resource}/{id}
+PUT /dataset/{resource}/{id}
+DELETE /dataset/{resource}/{id}
+```
 
-Grid routes are defined in [`routers/grid_geometry.py`](routers/grid_geometry.py).
+### Grid Geometry
+
+Grid geometry routes are defined in [`routers/grid_geometry.py`](routers/grid_geometry.py). Database logic lives in [`repository/grid_geometry_repository.py`](repository/grid_geometry_repository.py), and GeoJSON/geometry helpers live in [`services/grid_geometry_services.py`](services/grid_geometry_services.py).
 
 | Action | Method | Path |
 |---|---:|---|
@@ -79,14 +140,15 @@ Grid routes are defined in [`routers/grid_geometry.py`](routers/grid_geometry.py
 | Get grid by DB ID | `GET` | `/grid/id/{id}` |
 | Get grid by cell ID | `GET` | `/grid/cell/{cell_id}` |
 | Get grids by state | `GET` | `/grid/state/{state}` |
+| Get grids by city/state | `GET` | `/grid/city?city=Houston&state=Texas` |
 | Get state grid GeoJSON | `GET` | `/grid/state/{state}/geojson` |
 | Get grid map GeoJSON | `GET` | `/grid/map/geojson` |
 
-Use the `Grid Geometry` folder in [`../postman_dataset_routes_collection.json`](../postman_dataset_routes_collection.json). Regenerating a grid replaces the existing grid cells for that state. Generate or load grid cells before creating NWS weather observations.
+Regenerating a grid replaces existing cells for that city/state or state. Dependent grid metrics, interpolated points, and weather observations can be removed during replacement, so treat grid regeneration as a reset step.
 
-### Grid Metrics Routes
+### Grid Metrics
 
-Grid metrics routes are defined in [`routers/grid_metrics.py`](routers/grid_metrics.py).
+Grid metrics routes are defined in [`routers/grid_metrics.py`](routers/grid_metrics.py). Database logic lives in [`repository/grid_metrics_repository.py`](repository/grid_metrics_repository.py), and response helpers live in [`services/grid_metrics_services.py`](services/grid_metrics_services.py).
 
 | Action | Method | Path |
 |---|---:|---|
@@ -101,11 +163,27 @@ Grid metrics routes are defined in [`routers/grid_metrics.py`](routers/grid_metr
 | Update grid metrics | `PUT` | `/grid_metrics/update/{id}` |
 | Delete grid metrics | `DELETE` | `/grid_metrics/delete/{id}` |
 
-Use the `Grid Metrics` folder in [`../postman_dataset_routes_collection.json`](../postman_dataset_routes_collection.json). Metrics should be created after at least one grid cell exists.
+For testing, create or generate grid cells first. Then use `assign_all` to attach one metric row to every grid cell.
 
-### NWS Weather Routes
+### Grid Interpolation
 
-Weather routes are defined in [`routers/nws_weather.py`](routers/nws_weather.py). They use [`services/national_weather.py`](services/national_weather.py) to fetch selected National Weather Service data for a stored grid cell.
+Grid interpolation routes are defined in [`routers/grid_interpolation.py`](routers/grid_interpolation.py). Database logic lives in [`repository/grid_interpolation_repository.py`](repository/grid_interpolation_repository.py), and interpolation/GeoJSON logic lives in [`services/grid_interpolation_service.py`](services/grid_interpolation_service.py).
+
+| Action | Method | Path |
+|---|---:|---|
+| Get city grid cells as GeoJSON | `GET` | `/grid_interpolation/grid_cells_city?city=Houston&state=Texas` |
+| Interpolate city grid | `POST` | `/grid_interpolation/interpolate` |
+| Get all interpolated points as GeoJSON | `GET` | `/grid_interpolation/all` |
+| Get interpolated mesh polygons | `GET` | `/grid_interpolation/mesh?city=Houston&state=Texas&timestamp=...&color_metric=heat_index` |
+| Get heatmap-friendly points | `GET` | `/grid_interpolation/heatmap?city=Houston&state=Texas&timestamp=...&metric_key=heat_index` |
+| Update interpolated point | `PUT` | `/grid_interpolation/update/{interpolated_id}` |
+| Delete interpolated point | `DELETE` | `/grid_interpolation/delete/{interpolated_id}` |
+
+Interpolation uses known metric values and fills values across grid-cell centroids. The mesh endpoint still returns grid-cell polygons, while the heatmap endpoint returns points with normalized intensity for smoother frontend heatmap rendering.
+
+### NWS Weather
+
+Weather routes are defined in [`routers/nws_weather.py`](routers/nws_weather.py). Database logic lives in [`repository/weather_repository.py`](repository/weather_repository.py), and National Weather Service fetch/assignment logic lives in [`services/nws_weather_service.py`](services/nws_weather_service.py).
 
 | Action | Method | Path |
 |---|---:|---|
@@ -116,10 +194,51 @@ Weather routes are defined in [`routers/nws_weather.py`](routers/nws_weather.py)
 | Delete weather observation | `DELETE` | `/weather/delete/{id}` |
 | Get latest for grid cell | `GET` | `/weather/grid/{grid_cell_id}/latest` |
 | Get history for grid cell | `GET` | `/weather/grid/{grid_cell_id}` |
+| Assign weather to all cells | `POST` | `/weather/assign_all?max_workers=20&skip_existing=false` |
+| Assign weather to state cells | `POST` | `/weather/assign_state?state=Texas&max_workers=20&skip_existing=false` |
 
-Use the `NWS Weather` folder in [`../postman_dataset_routes_collection.json`](../postman_dataset_routes_collection.json). Set `gridCellId` to an existing `grid_cell_geometry.id` before creating weather from NWS.
+Weather assignment calls the National Weather Service API. The backend fetches point metadata for each grid centroid, groups cells that share the same NWS hourly forecast URL, and fetches each repeated forecast only once per assignment run.
 
-## Run Checks
+## Recommended Postman Flow
+
+Import [`../postman_dataset_routes_collection.json`](../postman_dataset_routes_collection.json) into Postman and set `baseUrl` to your running API.
+
+Recommended simulation setup order:
+
+1. Run `Grid Geometry -> Generate N by N City Grid`.
+2. Run `Grid Metrics -> Assign Metrics To All Grid Cells`.
+3. Run `Grid Interpolation -> Interpolate City Grid`.
+4. View either `Get Interpolated Heatmap GeoJSON` or `Get Interpolated Polygon Mesh GeoJSON`.
+5. Run weather assignment only when you need NWS-backed weather observations.
+
+For faster scoped weather testing, temporarily add a `limit` query parameter, such as `&limit=100`. For a full refresh, leave `limit` off.
+
+Useful collection variables:
+
+| Variable | Purpose |
+|---|---|
+| `baseUrl` | Local API base URL, usually `http://127.0.0.1:8000`. |
+| `cityName` / `stateName` | City and state used for grid generation and filtered reads. |
+| `gridSize` | `n` for an `n x n` grid. |
+| `gridCellId` | Numeric database ID for one grid cell. |
+| `gridCellIdText` | Human-readable cell ID string. |
+| `metricTimestamp` | Timestamp used when creating grid metrics. |
+| `interpolationTimestamp` | Timestamp used when reading/writing interpolated values. Match this to `metricTimestamp` during normal tests. |
+| `interpolationMetric` | Metric interpolated by the Postman request, such as `heat_index` or `population`. |
+| `colorMetric` | Metric used to color the polygon mesh. |
+| `heatmapMetric` | Metric used for the heatmap point intensity. |
+
+## Common Gotchas
+
+If interpolation returns no useful metric values, make sure grid metrics exist for the same city/state and timestamp. During normal testing, keep `metricTimestamp` and `interpolationTimestamp` the same.
+
+If a route says a grid cell was not found, regenerate a city grid and then rerun `Set Grid Cell ID From Grid List` in the Postman collection.
+
+`/grid_metrics/all` can be slower than filtered metric routes because it returns every metric row. Prefer `/grid_metrics/latest`, `/grid_metrics/state/{state}`, or `/grid_metrics/state/{state}/latest` for normal map work.
+
+The polygon mesh endpoint is still discrete because it returns one polygon per grid cell. For a smoother visual surface, feed the heatmap GeoJSON endpoint into a frontend heatmap layer.
+
+## Quick Checks
 
 From the repository root:
 
@@ -127,29 +246,8 @@ From the repository root:
 python3 -m compileall -q app
 ```
 
-```bash
-DATABASE_URL="sqlite:///./local.db" JWT_KEY="dev-secret-key" python3 - <<'PY'
-import sys
-sys.path.insert(0, "app")
-import main
-PY
-```
-
-## Database And Env Notes
-
-`database.py` expects `DATABASE_URL` to be set before the app imports the database layer. JWT token creation also needs `JWT_KEY`.
-
-Local SQLite example:
+Validate the Postman JSON:
 
 ```bash
-export DATABASE_URL="sqlite:///./local.db"
-export JWT_KEY="dev-secret-key"
+python3 -m json.tool postman_dataset_routes_collection.json >/tmp/postman.json
 ```
-
-Postgres example:
-
-```bash
-export DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
-```
-
-The dataset table classes live in [`models/dataset_tables.py`](models/dataset_tables.py). Prediction table classes live in [`models/prediction_tables.py`](models/prediction_tables.py). The `models/__init__.py` file exports those classes so `import models` registers the table metadata with SQLAlchemy and Alembic.
