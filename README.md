@@ -9,14 +9,10 @@ Rice-To-Meet-You is building a FIFA HeatSafe AI prototype: an online decision-su
 | Go To | What It Contains |
 |---|---|
 | [Project Mission](#project-mission) | What the project is trying to accomplish |
-| [Quick Start](#quick-start) | First steps for new contributors |
 | [Project Idea](#project-idea) | Current product direction from team planning |
-| [Meeting Notes](#meeting-notes) | Link to meeting-note files |
-| [Git Workflow](#git-workflow) | Branches, commits, pushes, PRs, and cleanup after merge |
 | [App Guide](#app-guide) | App structure, setup, checks, and key files |
 | [App Folder README](app/README.md) | More detailed map of files inside `app/` |
 | [Markdown Reference Guides](app/markdown_reference_guides/README.md) | Dataset/model documentation landing page |
-| [Project Rules](#project-rules) | Team expectations for keeping `main` stable |
 
 ## Project Mission
 
@@ -237,11 +233,22 @@ type Response = Record<string, HeatmapMetricPoint[]>;
 
 ### Environment Setup
 
-Install dependencies:
+Make sure you have [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and opened, and [Dev Containers VSCode extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) installed. 
 
+If you are using Windows, you also need to set up Windows Subsystem for Linux. Guide [here](https://learn.microsoft.com/en-us/windows/wsl/setup/environment). After setting up WSL, ensure the WSL 2 back-end is enabled: Right-click on the Docker taskbar item and select Settings. Check Use the WSL 2 based engine and verify your distribution is enabled under Resources > WSL Integration.
+
+If you are using Linux, you are on your own. Good luck. Check out more information below
+
+More information [here](https://code.visualstudio.com/docs/devcontainers/containers#_getting-started)
+
+Now you can clone the repository:
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/CatFatOw/Rice-To-Meet-You.git
+cd Rice-To-Meet-You
+git status
 ```
+
+When you open the repository in the workspace, you should see a notification in the bottom right corner that asks if you want to reopen the workspace in a container. Click it. Alternatively, run the command "Dev Containers: Rebuild and Reopen in Container." The dependencies should be installed for you automatically.
 
 Set `DATABASE_URL` before importing or running the app:
 
@@ -268,11 +275,3 @@ sys.path.insert(0, "app")
 import main
 PY
 ```
-
-## Project Rules
-
-- Keep `main` stable for approved final-demo or submission work.
-- Do active development on personal or feature branches.
-- Prefer small, clear commits with descriptive messages.
-- Keep dataset/model documentation updated when schemas change.
-- Ask the group before forcing Git commands or deleting branches that Git says are not merged.
