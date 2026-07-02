@@ -1,5 +1,13 @@
-.Rhistory
+__pycache__/
+*.py[cod]
+*$py.class
+
+.env
+.venv/
+venv/
+
+*.db
+*.sqlite
+*.sqlite3
+
 .DS_Store
-data/.DS_Store
-data/.venv/
-catboost_info/
