@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Rice To Meet You - API Routes",
-    "description": "Postman collection for the Rice-To-Meet-You FastAPI backend. Recommended flow: create/login user for protected dataset CRUD, generate a city grid, assign grid metrics, run interpolation, view heatmap or mesh GeoJSON, then fetch/assign NWS weather when needed. Set baseUrl to your running API, for example http://127.0.0.1:8000.",
+    "description": "Postman collection for the Rice-To-Meet-You FastAPI backend. Recommended flow: create/login user for protected dataset CRUD, generate a city grid, create a polygon impact region, compute impacted grids, assign grid metrics, run interpolation, view heatmap or mesh GeoJSON, then fetch/assign NWS weather when needed. Set baseUrl to your running API, for example http://127.0.0.1:8000.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -108,6 +108,14 @@
     {
       "key": "colorMetric",
       "value": "heat_index"
+    },
+    {
+      "key": "polygonId",
+      "value": "1"
+    },
+    {
+      "key": "polygonImpactGridId",
+      "value": "1"
     }
   ],
   "item": [
@@ -1214,6 +1222,235 @@
             },
             "method": "GET",
             "url": "{{baseUrl}}/grid/state/{{stateName}}/geojson"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Polygon Impact Regions",
+      "item": [
+        {
+          "name": "Create Polygon",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created polygon', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('polygonId', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [\n      [\n        [\n          -95.4,\n          29.74\n        ],\n        [\n          -95.36,\n          29.74\n        ],\n        [\n          -95.36,\n          29.78\n        ],\n        [\n          -95.4,\n          29.78\n        ],\n        [\n          -95.4,\n          29.74\n        ]\n      ]\n    ]\n  }\n}"
+            },
+            "url": "{{baseUrl}}/polygon/create_new_polygon"
+          }
+        },
+        {
+          "name": "Create Polygon And Compute Impact Grids",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created polygon impacts', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('polygonId', json.polygon_id);",
+                  "if (json.impacted_grids && json.impacted_grids.length > 0) {",
+                  "  pm.collectionVariables.set('polygonImpactGridId', json.impacted_grids[0].id);",
+                  "  pm.collectionVariables.set('gridCellId', json.impacted_grids[0].grid_cell_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [\n      [\n        [\n          -95.4,\n          29.74\n        ],\n        [\n          -95.36,\n          29.74\n        ],\n        [\n          -95.36,\n          29.78\n        ],\n        [\n          -95.4,\n          29.78\n        ],\n        [\n          -95.4,\n          29.74\n        ]\n      ]\n    ]\n  }\n}"
+            },
+            "url": "{{baseUrl}}/polygon/compute_impact_grids?city={{cityName}}&state={{stateName}}"
+          }
+        },
+        {
+          "name": "Get All Polygons",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/polygon/"
+          }
+        },
+        {
+          "name": "Get Polygon By ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/polygon/{{polygonId}}"
+          }
+        },
+        {
+          "name": "Update Polygon And Recompute Impacts",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('updated polygon', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('polygonId', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [\n      [\n        [\n          -95.4,\n          29.74\n        ],\n        [\n          -95.36,\n          29.74\n        ],\n        [\n          -95.36,\n          29.78\n        ],\n        [\n          -95.4,\n          29.78\n        ],\n        [\n          -95.4,\n          29.74\n        ]\n      ]\n    ]\n  }\n}"
+            },
+            "url": "{{baseUrl}}/polygon/update_polygon/{{polygonId}}?recompute_impacts=true&city={{cityName}}&state={{stateName}}"
+          }
+        },
+        {
+          "name": "Compute Impact Grids For Saved Polygon",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('computed impacts', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('polygonId', json.polygon_id);",
+                  "if (json.impacted_grids && json.impacted_grids.length > 0) {",
+                  "  pm.collectionVariables.set('polygonImpactGridId', json.impacted_grids[0].id);",
+                  "  pm.collectionVariables.set('gridCellId', json.impacted_grids[0].grid_cell_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "url": "{{baseUrl}}/polygon/{{polygonId}}/compute_impact_grids?city={{cityName}}&state={{stateName}}&replace_existing=true"
+          }
+        },
+        {
+          "name": "Get Impacted Grid Summary For Polygon",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('polygonId', json.polygon_geometry_id);",
+                  "if (json.impacted_grid_cell_ids && json.impacted_grid_cell_ids.length > 0) {",
+                  "  pm.collectionVariables.set('gridCellId', json.impacted_grid_cell_ids[0]);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/polygon/{{polygonId}}/impacted_grids/summary"
+          }
+        },
+        {
+          "name": "Get Impacted Grids For Polygon",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok', function () { pm.expect([200, 404]).to.include(pm.response.code); });",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (Array.isArray(json) && json.length > 0) {",
+                  "    pm.collectionVariables.set('polygonImpactGridId', json[0].id);",
+                  "    pm.collectionVariables.set('gridCellId', json[0].grid_cell_id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/polygon/{{polygonId}}/impacted_grids"
+          }
+        },
+        {
+          "name": "Get All Impacted Grids",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/polygon/impacted_grids"
+          }
+        },
+        {
+          "name": "Delete Polygon",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "DELETE",
+            "url": "{{baseUrl}}/polygon/delete/{{polygonId}}"
           }
         }
       ]

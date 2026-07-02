@@ -28,6 +28,14 @@ class GridCellGeometry(Base):
     grid_centroid_lon = Column(Float, nullable=False)
     geometry = Column(JSONB, nullable=False)
 
+    # Cached NWS point metadata. The NWS point-to-grid mapping rarely changes,
+    # so keeping it here avoids thousands of /points lookups during refreshes.
+    nws_grid_id = Column(Text)
+    nws_grid_x = Column(Integer)
+    nws_grid_y = Column(Integer)
+    forecast_hourly = Column(Text)
+    nws_metadata_checked_at = Column(TIMESTAMP(timezone=True))
+
     state = Column(Text, nullable=False, index=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text("now()"))
 

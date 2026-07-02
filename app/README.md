@@ -69,7 +69,7 @@ Keep route files thin when possible. If code is mostly database querying, put it
 
 | Folder | Purpose |
 |---|---|
-| [`routers/`](routers/) | FastAPI route modules for auth, datasets, grids, metrics, interpolation, and weather. |
+| [`routers/`](routers/) | FastAPI route modules for auth, datasets, grids, metrics, polygon impacts, interpolation, and weather. |
 | [`services/`](services/) | Business logic and external API helpers. |
 | [`repository/`](repository/) | SQLAlchemy query/write helpers. |
 | [`models/`](models/) | SQLAlchemy table definitions. |
@@ -165,6 +165,54 @@ Grid metrics routes are defined in [`routers/grid_metrics.py`](routers/grid_metr
 
 For testing, create or generate grid cells first. Then use `assign_all` to attach one metric row to every grid cell.
 
+### Polygon Impact Regions
+
+Polygon routes are defined in [`routers/polygon.py`](routers/polygon.py). Database logic lives in [`repository/polygon_repository.py`](repository/polygon_repository.py), and centroid-in-polygon logic lives in [`services/polygon_services.py`](services/polygon_services.py).
+
+The frontend labeling tool should send a GeoJSON `Polygon`. The backend stores it, then computes impacted grid cells by checking whether each grid centroid is inside or on the polygon boundary.
+
+| Action | Method | Path |
+|---|---:|---|
+| Get all polygons | `GET` | `/polygon/` |
+| Create polygon | `POST` | `/polygon/create_new_polygon` |
+| Update polygon | `PUT` | `/polygon/update_polygon/{polygon_id}?recompute_impacts=true` |
+| Delete polygon | `DELETE` | `/polygon/delete/{polygon_id}` |
+| Get all impacted grid rows | `GET` | `/polygon/impacted_grids` |
+| Compute impacts for saved polygon | `POST` | `/polygon/{polygon_id}/compute_impact_grids?city=Houston&state=Texas` |
+| Create polygon and compute impacts | `POST` | `/polygon/compute_impact_grids?city=Houston&state=Texas` |
+| Get impacted grid summary for polygon | `GET` | `/polygon/{polygon_id}/impacted_grids/summary` |
+| Get impacted grids for polygon | `GET` | `/polygon/{polygon_id}/impacted_grids` |
+| Get polygon by ID | `GET` | `/polygon/{polygon_id}` |
+
+Example polygon body:
+
+```json
+{
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [[
+      [-95.40, 29.74],
+      [-95.36, 29.74],
+      [-95.36, 29.78],
+      [-95.40, 29.78],
+      [-95.40, 29.74]
+    ]]
+  }
+}
+```
+
+Use the optional `city` and `state` query parameters when computing impacts to avoid scanning unrelated grid cells. Recomputing impacts replaces existing impact rows for that polygon, which keeps edited polygons from leaving stale grid assignments.
+
+The summary endpoint returns a frontend-friendly payload:
+
+```json
+{
+  "polygon_geometry_id": 2,
+  "impacted_count": 9,
+  "impacted_grid_cell_ids": [350, 358, 362, 363, 364, 365, 367, 368, 382]
+}
+```
+
 ### Grid Interpolation
 
 Grid interpolation routes are defined in [`routers/grid_interpolation.py`](routers/grid_interpolation.py). Database logic lives in [`repository/grid_interpolation_repository.py`](repository/grid_interpolation_repository.py), and interpolation/GeoJSON logic lives in [`services/grid_interpolation_service.py`](services/grid_interpolation_service.py).
@@ -206,10 +254,12 @@ Import [`../postman_dataset_routes_collection.json`](../postman_dataset_routes_c
 Recommended simulation setup order:
 
 1. Run `Grid Geometry -> Generate N by N City Grid`.
-2. Run `Grid Metrics -> Assign Metrics To All Grid Cells`.
-3. Run `Grid Interpolation -> Interpolate City Grid`.
-4. View either `Get Interpolated Heatmap GeoJSON` or `Get Interpolated Polygon Mesh GeoJSON`.
-5. Run weather assignment only when you need NWS-backed weather observations.
+2. Run `Polygon -> Create Polygon And Compute Impact Grids`.
+3. Use the impacted grid IDs to scope any simulation changes that should only affect the drawn region.
+4. Run `Grid Metrics -> Assign Metrics To All Grid Cells`.
+5. Run `Grid Interpolation -> Interpolate City Grid`.
+6. View either `Get Interpolated Heatmap GeoJSON` or `Get Interpolated Polygon Mesh GeoJSON`.
+7. Run weather assignment only when you need NWS-backed weather observations.
 
 For faster scoped weather testing, temporarily add a `limit` query parameter, such as `&limit=100`. For a full refresh, leave `limit` off.
 
@@ -227,6 +277,7 @@ Useful collection variables:
 | `interpolationMetric` | Metric interpolated by the Postman request, such as `heat_index` or `population`. |
 | `colorMetric` | Metric used to color the polygon mesh. |
 | `heatmapMetric` | Metric used for the heatmap point intensity. |
+| `polygonId` | Saved polygon ID used for impacted-grid reads and recomputation. |
 
 ## Common Gotchas
 
@@ -237,6 +288,10 @@ If a route says a grid cell was not found, regenerate a city grid and then rerun
 `/grid_metrics/all` can be slower than filtered metric routes because it returns every metric row. Prefer `/grid_metrics/latest`, `/grid_metrics/state/{state}`, or `/grid_metrics/state/{state}/latest` for normal map work.
 
 The polygon mesh endpoint is still discrete because it returns one polygon per grid cell. For a smoother visual surface, feed the heatmap GeoJSON endpoint into a frontend heatmap layer.
+
+If polygon impact computation returns zero rows, confirm the polygon coordinates use `[longitude, latitude]`, the city/state grid already exists, and the polygon overlaps the generated grid area.
+
+If `alembic revision --autogenerate` fails with `DATABASE_URL environment variable is not set`, export `DATABASE_URL` first. For the current polygon work, do not create another revision; the polygon migration already exists, so run `alembic upgrade head` from the `app/` folder after setting `DATABASE_URL`.
 
 ## Quick Checks
 

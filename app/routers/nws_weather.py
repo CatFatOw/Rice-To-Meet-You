@@ -30,7 +30,7 @@ def assignment_response(result, max_workers: int, skip_existing: bool, limit: in
     """Return a consistent assign-weather response payload."""
     return {
         "message": "Successfully assigned weather.",
-        "max_workers": max(1, min(max_workers, 20)),
+        "max_workers": max(1, min(max_workers, 12)),
         "skip_existing": skip_existing,
         "limit": limit,
         **result,

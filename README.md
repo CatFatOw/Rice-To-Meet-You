@@ -27,6 +27,7 @@ The prototype turns city/state geometry and heat-safety signals into:
 |---|---|
 | Grid generation | Split a city/state into simulation cells. |
 | Grid metrics | Store heat, crowd, population, cooling-center, and infrastructure signals per cell. |
+| Polygon impact regions | Save drawn simulation polygons and mark the grid cells inside them. |
 | Interpolation | Fill metric values across grid centroids for map rendering and simulation. |
 | NWS weather | Attach National Weather Service weather baselines to grid cells. |
 | Postman collection | Provide repeatable API testing flows for teammates. |
@@ -69,14 +70,20 @@ pip install -r requirements.txt
 Set environment variables:
 
 ```bash
-export DATABASE_URL="sqlite:///./local.db"
+export DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
 export JWT_KEY="dev-secret-key"
+```
+
+Run migrations:
+
+```bash
+cd app
+alembic upgrade head
 ```
 
 Start FastAPI from the `app/` folder:
 
 ```bash
-cd app
 python3 -m uvicorn main:app --reload
 ```
 
@@ -116,16 +123,19 @@ Key folders:
 Recommended backend flow:
 
 1. Generate a city grid.
-2. Assign grid metrics.
-3. Interpolate metric values.
-4. Render heatmap/mesh GeoJSON in the frontend.
-5. Assign NWS weather as a regional baseline.
-6. Combine weather + grid metrics for local simulation risk.
+2. Draw or save a polygon impact region.
+3. Compute impacted grids for the polygon.
+4. Assign or run simulation changes against only those impacted grid IDs.
+5. Interpolate metric values.
+6. Render heatmap/mesh GeoJSON in the frontend.
+7. Assign NWS weather as a regional baseline.
+8. Combine weather + grid metrics for local simulation risk.
 
 In Postman, that usually means:
 
 ```text
 Grid Geometry / Generate N by N City Grid
+Polygon / Create Polygon And Compute Impact Grids
 Grid Metrics / Assign Metrics To All Grid Cells
 Grid Interpolation / Interpolate City Grid
 Grid Interpolation / Get Interpolated Heatmap GeoJSON
@@ -145,6 +155,7 @@ Detailed routes are documented in [app/README.md](app/README.md). High-level rou
 | Grid Metrics | `/grid_metrics` | Create/read/update/delete simulation metrics. |
 | Grid Interpolation | `/grid_interpolation` | Interpolate metrics and return GeoJSON. |
 | NWS Weather | `/weather` | Fetch and assign National Weather Service observations. |
+| Polygons | `/polygon` | Store drawn impact regions and compute impacted grid cells. |
 
 ## Postman Workflow
 
@@ -163,15 +174,17 @@ Important collection variables:
 | `interpolationMetric` | Metric to interpolate, such as `heat_index` or `population`. |
 | `heatmapMetric` | Metric used for heatmap intensity. |
 | `colorMetric` | Metric used for mesh color. |
+| `polygonId` | Saved polygon ID used for impacted-grid reads and recomputation. |
 
 Good first test order:
 
 1. `Users and Auth / Create User`
 2. `Users and Auth / Login`
 3. `Grid Geometry / Generate N by N City Grid`
-4. `Grid Metrics / Assign Metrics To All Grid Cells`
-5. `Grid Interpolation / Interpolate City Grid`
-6. `Grid Interpolation / Get Interpolated Heatmap GeoJSON`
+4. `Polygon / Create Polygon And Compute Impact Grids`
+5. `Grid Metrics / Assign Metrics To All Grid Cells`
+6. `Grid Interpolation / Interpolate City Grid`
+7. `Grid Interpolation / Get Interpolated Heatmap GeoJSON`
 
 For a full weather refresh, use:
 

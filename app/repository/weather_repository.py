@@ -1,6 +1,7 @@
 """Database access helpers for weather observation routes."""
 from datetime import datetime
 
+from sqlalchemy import tuple_
 from sqlalchemy.orm import Session
 
 from models import grid_cell_tables, weather_tables
@@ -98,14 +99,82 @@ def upsert_nws_observation(grid_cell_id: int, observation_data: dict, db: Sessio
         )
         db.add(observation)
 
+    apply_nws_observation_data(observation, observation_data)
+    return observation, created
+
+
+def apply_nws_observation_data(observation, observation_data: dict):
+    """Apply normalized NWS summary data to a weather observation row."""
     observation.temperature = observation_data["temperature"]["value"]
     observation.humidity = observation_data["humidity"]
     observation.dewpoint = observation_data["dewpoint_c"]
     observation.wind_direction = observation_data["wind"]["direction"]
     observation.precipitation_prob = observation_data["precipitation_probability"]
     observation.detailed_forecast = observation_data["forecast"]["detailed"]
+    return observation
 
-    return observation, created
+
+def bulk_upsert_nws_observations(observation_assignments, db: Session):
+    """Create or update many NWS weather observations with one existing-row lookup."""
+    if not observation_assignments:
+        return 0, 0
+
+    normalized_assignments = [
+        (
+            grid_cell_id,
+            datetime.fromisoformat(observation_data["time"]),
+            observation_data,
+        )
+        for grid_cell_id, observation_data in observation_assignments
+    ]
+    lookup_keys = {
+        (grid_cell_id, timestamp)
+        for grid_cell_id, timestamp, _ in normalized_assignments
+    }
+
+    existing_rows = []
+    lookup_key_list = list(lookup_keys)
+    for start in range(0, len(lookup_key_list), 500):
+        chunk = lookup_key_list[start:start + 500]
+        existing_rows.extend(
+            db.query(weather_tables.WeatherObservation)
+            .filter(weather_tables.WeatherObservation.source == "NWS")
+            .filter(
+                tuple_(
+                    weather_tables.WeatherObservation.grid_cell_id,
+                    weather_tables.WeatherObservation.timestamp,
+                ).in_(chunk)
+            )
+            .all()
+        )
+
+    existing_by_key = {
+        (row.grid_cell_id, row.timestamp): row
+        for row in existing_rows
+    }
+
+    created_count = 0
+    updated_count = 0
+
+    for grid_cell_id, timestamp, observation_data in normalized_assignments:
+        key = (grid_cell_id, timestamp)
+        observation = existing_by_key.get(key)
+
+        if observation is None:
+            observation = weather_tables.WeatherObservation(
+                grid_cell_id=grid_cell_id,
+                timestamp=timestamp,
+                source="NWS",
+            )
+            db.add(observation)
+            existing_by_key[key] = observation
+            created_count += 1
+        else:
+            updated_count += 1
+
+        apply_nws_observation_data(observation, observation_data)
+
+    return created_count, updated_count
 
 
 def update_weather_observation(observation_row, payload, db: Session):

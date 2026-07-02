@@ -105,3 +105,5 @@ def save_nxn_grid_cells(nxn_grid, state: str, cell_id_prefix: str, db: Session):
         "cells_deleted": deleted_count,
         "cells_created": len(new_cells),
     }
+
+
