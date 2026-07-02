@@ -3,3 +3,8 @@ uvicorn[standard]
 sqlalchemy
 alembic
 psycopg2-binary
+geopy
+requests
+geopandas
+shapely
+pykrige

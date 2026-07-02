@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Depends, status
 from sqlalchemy.orm import Session 
 import database 
 import models
-from routers import dataset, grid_geometry, grid_interpolation, grid_metrics, login, nws_weather, users
+from routers import dataset, grid_geometry, grid_interpolation, grid_metrics, login, nws_weather, polygon, users
 
 
 
@@ -14,6 +14,7 @@ app.include_router(nws_weather.router)
 app.include_router(grid_geometry.router)
 app.include_router(grid_metrics.router)
 app.include_router(grid_interpolation.router)
+app.include_router(polygon.router)
 
 # Show which tables are gonna be created
 print(database.Base.metadata.tables.keys())
