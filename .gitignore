@@ -11,3 +11,4 @@ venv/
 *.sqlite3
 
 .DS_Store
+catboost_info/
