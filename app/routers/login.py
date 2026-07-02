@@ -15,6 +15,7 @@ router = APIRouter(prefix="/login", tags=["auth"])
 async def login(user_credentials:OAuth2PasswordRequestForm=Depends(), db:Session=Depends(get_db)):
     """Route used to get user credentials and login user"""
     user = db.query(models.User).filter(models.User.email == user_credentials.username).first()
+    
 
     # if the user doesn't exist 
     if not user:

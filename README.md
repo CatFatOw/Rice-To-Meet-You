@@ -153,6 +153,76 @@ git push origin --delete your-name/short-description
 
 If Git says the branch is not fully merged, stop and ask the group before deleting it.
 
+## Frontend APIs
+
+### 1. Get Location POIs
+
+**Purpose:** Retrieve polygon boundaries for points of interest (POIs) to display on the map.
+
+**Request**
+
+```http
+
+GET /heatmap/location-pois
+
+```
+
+**Expected Response**
+
+```ts
+
+interface CityPOIArea {
+
+  id: string;
+
+  name: string;
+
+  cityName: string;
+
+  color: [number, number, number, number]; // RGBA
+
+  polygon: [number, number][];
+
+}
+
+type Response = CityPOIArea[];
+
+```
+
+---
+
+### 2. Get Heatmap Metric Points
+
+**Purpose:** Retrieve weighted heatmap points for each city.
+
+**Request**
+
+```http
+
+GET /heatmap/metrics/points
+
+```
+
+**Expected Response**
+
+```ts
+
+interface HeatmapMetricPoint {
+
+  metric: string;
+
+  value: number;
+
+  location_name: string;
+
+  location_coordinates: [number, number]; // [longitude, latitude]
+
+}
+
+type Response = Record<string, HeatmapMetricPoint[]>;
+
+```
+
 ## App Guide
 
 | File or Folder | Purpose |

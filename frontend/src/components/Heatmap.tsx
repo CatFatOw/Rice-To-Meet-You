@@ -1,16 +1,17 @@
-import React, { useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import DeckGL from '@deck.gl/react';
 import { ScatterplotLayer, PolygonLayer } from '@deck.gl/layers';
+import { HeatmapLayer } from '@deck.gl/aggregation-layers';
 import {
   type CityPOIArea,
+  type HeatmapMetricPoint,
+  type HeatmapMetricsPointResponse,
 } from '../api/map';
 import { cities, type City } from '../data/hostCities';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
-// ==========================================================
-//                   Types and Interfaces
-// ==========================================================
+
 
 interface ViewState {
   longitude: number;
@@ -24,13 +25,17 @@ interface HeatmapProps {
   viewState: ViewState;
   setViewState: React.Dispatch<React.SetStateAction<ViewState>>;
   selectedCity: string | null;
+  setSelectedCity: React.Dispatch<React.SetStateAction<string | null>>;
   cityPOIAreas: CityPOIArea[];
+  heatmapPointsByCity: HeatmapMetricsPointResponse;
   hoveredGridCellId: string | null;
   setHoveredGridCellId: React.Dispatch<React.SetStateAction<string | null>>;
   selectedGridCellId: string | null;
   setSelectedGridCellId: React.Dispatch<React.SetStateAction<string | null>>;
   coordinateColors: Record<string, RGBA>;
-  setCoordinateColor: (lon: number, lat: number, color: RGBA) => void;
+  mapContainerRef: React.RefObject<HTMLDivElement | null>;
+  mapRef: React.MutableRefObject<maplibregl.Map | null>;
+  mapSyncFrameRef: React.MutableRefObject<number | null>;
 }
 
 type RGBA = [number, number, number, number];
@@ -39,186 +44,64 @@ interface CityGridCell {
   id: string;
   cityName: string;
   polygon: [number, number][];
-  baseColor: RGBA;
   coordKey: string;
-}
-
-// ==========================================================
-//                   Helper Functions
-// ==========================================================
-
-function coordKey(lon: number, lat: number, precision = 3): string {
-  return `${lon.toFixed(precision)},${lat.toFixed(precision)}`;
-}
-
-function signedPolygonArea(polygon: [number, number][]): number {
-  let area = 0;
-  for (let i = 0; i < polygon.length; i += 1) {
-    const [x1, y1] = polygon[i];
-    const [x2, y2] = polygon[(i + 1) % polygon.length];
-    area += x1 * y2 - x2 * y1;
-  }
-  return area / 2;
-}
-
-function lineIntersection(
-  p1: [number, number],
-  p2: [number, number],
-  p3: [number, number],
-  p4: [number, number],
-): [number, number] {
-  const [x1, y1] = p1;
-  const [x2, y2] = p2;
-  const [x3, y3] = p3;
-  const [x4, y4] = p4;
-
-  const denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
-  if (Math.abs(denominator) < 1e-12) {
-    return p2;
-  }
-
-  const numeratorX =
-    (x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4);
-  const numeratorY =
-    (x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4);
-
-  return [numeratorX / denominator, numeratorY / denominator];
-}
-
-function clipPolygonToConvexBoundary(
-  subjectPolygon: [number, number][],
-  clipPolygon: [number, number][],
-): [number, number][] {
-  if (subjectPolygon.length < 3 || clipPolygon.length < 3) return [];
-
-  const orientation = signedPolygonArea(clipPolygon) >= 0 ? 1 : -1;
-
-  const isInside = (
-    point: [number, number],
-    edgeStart: [number, number],
-    edgeEnd: [number, number],
-  ): boolean => {
-    const cross =
-      (edgeEnd[0] - edgeStart[0]) * (point[1] - edgeStart[1]) -
-      (edgeEnd[1] - edgeStart[1]) * (point[0] - edgeStart[0]);
-    return orientation > 0 ? cross >= 0 : cross <= 0;
-  };
-
-  let output = subjectPolygon;
-
-  for (let i = 0; i < clipPolygon.length; i += 1) {
-    const clipStart = clipPolygon[i];
-    const clipEnd = clipPolygon[(i + 1) % clipPolygon.length];
-    const input = output;
-    output = [];
-
-    if (input.length === 0) {
-      break;
-    }
-
-    let previousPoint = input[input.length - 1];
-
-    for (const currentPoint of input) {
-      const currentInside = isInside(currentPoint, clipStart, clipEnd);
-      const previousInside = isInside(previousPoint, clipStart, clipEnd);
-
-      if (currentInside) {
-        if (!previousInside) {
-          output.push(lineIntersection(previousPoint, currentPoint, clipStart, clipEnd));
-        }
-        output.push(currentPoint);
-      } else if (previousInside) {
-        output.push(lineIntersection(previousPoint, currentPoint, clipStart, clipEnd));
-      }
-
-      previousPoint = currentPoint;
-    }
-  }
-
-  return output;
-}
-
-function buildCityBoundaryPolygon(
-  cityName: string,
-  cityCenter: City,
-): [number, number][] {
-  const centerLon = cityCenter.longitude;
-  const centerLat = cityCenter.latitude;
-  // Metropolitan area radii — ~130 km east-west, ~110 km north-south
-  const baseWidth = 1.2;
-  const baseHeight = 1.0;
-
-  const seed = cityName.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  const rx = baseWidth / 2;
-  const ry = baseHeight / 2;
-  const vertices = 14;
-  const startAngle = (seed % 360) * (Math.PI / 180);
-
-  const polygon: [number, number][] = [];
-
-  for (let i = 0; i < vertices; i += 1) {
-    const angle = startAngle + (i * 2 * Math.PI) / vertices;
-    const noise = Math.abs(Math.sin((seed + i * 37) * 0.41));
-    const radialScale = 0.86 + noise * 0.16;
-    polygon.push([
-      centerLon + Math.cos(angle) * rx * radialScale,
-      centerLat + Math.sin(angle) * ry * radialScale,
-    ]);
-  }
-
-  return polygon;
 }
 
 const GRID_HOVER_COLOR: RGBA = [134, 239, 172, 130];
 const GRID_SELECTED_COLOR: RGBA = [251, 191, 36, 155];
 
+function coordKey(lon: number, lat: number, precision = 3): string {
+  return `${lon.toFixed(precision)},${lat.toFixed(precision)}`;
+}
 
-// ==========================================================
-//                     Main Component
-// ==========================================================
+function buildGridCells(city: City): CityGridCell[] {
+  const cells: CityGridCell[] = [];
+  const halfSpanLon = 0.24;
+  const halfSpanLat = 0.2;
+  const step = 0.03;
+
+  const minLon = city.longitude - halfSpanLon;
+  const maxLon = city.longitude + halfSpanLon;
+  const minLat = city.latitude - halfSpanLat;
+  const maxLat = city.latitude + halfSpanLat;
+
+  for (let lat = minLat; lat < maxLat - 1e-9; lat += step) {
+    for (let lon = minLon; lon < maxLon - 1e-9; lon += step) {
+      const centerLon = Number((lon + step / 2).toFixed(3));
+      const centerLat = Number((lat + step / 2).toFixed(3));
+      cells.push({
+        id: `${city.name}-${centerLon}-${centerLat}`,
+        cityName: city.name,
+        polygon: [
+          [lon, lat],
+          [lon + step, lat],
+          [lon + step, lat + step],
+          [lon, lat + step],
+        ],
+        coordKey: coordKey(centerLon, centerLat),
+      });
+    }
+  }
+
+  return cells;
+}
 
 const Heatmap: React.FC<HeatmapProps> = ({
   viewState,
   setViewState,
   selectedCity,
+  setSelectedCity,
   cityPOIAreas,
+  heatmapPointsByCity,
   hoveredGridCellId,
   setHoveredGridCellId,
   selectedGridCellId,
   setSelectedGridCellId,
   coordinateColors,
-  setCoordinateColor,
+  mapContainerRef,
+  mapRef,
+  mapSyncFrameRef,
 }) => {
-  const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<maplibregl.Map | null>(null);
-  const mapSyncFrame = useRef<number | null>(null);
-
-  // Initialize map
-  useEffect(() => {
-    if (!mapContainer.current) return;
-
-    if (map.current) return; // Prevent duplicate maps
-
-    map.current = new maplibregl.Map({
-      container: mapContainer.current,
-      style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
-      center: [viewState.longitude, viewState.latitude],
-      zoom: viewState.zoom,
-      pitch: viewState.pitch,
-      bearing: viewState.bearing,
-    });
-
-    return () => {
-      if (mapSyncFrame.current !== null) {
-        cancelAnimationFrame(mapSyncFrame.current);
-        mapSyncFrame.current = null;
-      }
-      if (map.current) {
-        map.current.remove();
-        map.current = null;
-      }
-    };
-  }, []);
 
   const handleCityClick = useCallback((city: City) => {
     const newState = {
@@ -229,16 +112,17 @@ const Heatmap: React.FC<HeatmapProps> = ({
       bearing: 0,
     };
     setViewState(newState);
+    setSelectedCity(city.name);
 
     // Update map camera
-    if (map.current) {
-      map.current.flyTo({
+    if (mapRef.current) {
+      mapRef.current.flyTo({
         center: [city.longitude, city.latitude],
         zoom: 10,
         duration: 1000,
       });
     }
-  }, []);
+  }, [setViewState, setSelectedCity, mapRef]);
 
   const scatterplotLayer = useMemo(
     () =>
@@ -263,87 +147,43 @@ const Heatmap: React.FC<HeatmapProps> = ({
     [handleCityClick],
   );
 
+  const displayedHeatmapPoints: HeatmapMetricPoint[] = useMemo(
+    () => (selectedCity ? (heatmapPointsByCity[selectedCity] ?? []) : []),
+    [selectedCity, heatmapPointsByCity],
+  );
+
   const displayedPOIAreas: CityPOIArea[] = useMemo(
     () => (selectedCity ? cityPOIAreas.filter((poi) => poi.cityName === selectedCity) : []),
     [selectedCity, cityPOIAreas],
   );
 
-  const cityBoundaryPolygon = useMemo(() => {
-    if (!selectedCity) return [];
-
-    const city = cities.find((entry) => entry.name === selectedCity);
-    if (!city) return [];
-
-    return buildCityBoundaryPolygon(selectedCity, city);
-  }, [selectedCity]);
-
-
-  // ==================== Changing Individual Cells ====================
-
   const displayedGridCells: CityGridCell[] = useMemo(() => {
     if (!selectedCity) return [];
-    if (cityBoundaryPolygon.length < 3) return [];
+    const city = cities.find((c) => c.name === selectedCity);
+    if (!city) return [];
+    return buildGridCells(city);
+  }, [selectedCity]);
 
-    const longitudes = cityBoundaryPolygon.map((point) => point[0]);
-    const latitudes = cityBoundaryPolygon.map((point) => point[1]);
-    const minLon = Math.min(...longitudes);
-    const maxLon = Math.max(...longitudes);
-    const minLat = Math.min(...latitudes);
-    const maxLat = Math.max(...latitudes);
-
-    const boundaryWidth = maxLon - minLon;
-    const boundaryHeight = maxLat - minLat;
-    // Fixed cell size of ~0.025° ≈ 2.5 km per cell across the metro area
-    const lonStep = Math.max(0.02, boundaryWidth / 50);
-    const latStep = Math.max(0.02, boundaryHeight / 50);
-
-    const cells: CityGridCell[] = [];
-    let rowIndex = 0;
-
-    for (let lat = minLat; lat < maxLat; lat += latStep) {
-      let colIndex = 0;
-
-      for (let lon = minLon; lon < maxLon; lon += lonStep) {
-        const maxCellLon = Math.min(maxLon, lon + lonStep);
-        const maxCellLat = Math.min(maxLat, lat + latStep);
-        const cellPolygon: [number, number][] = [
-          [lon, lat],
-          [maxCellLon, lat],
-          [maxCellLon, maxCellLat],
-          [lon, maxCellLat],
-        ];
-
-        const clippedPolygon = clipPolygonToConvexBoundary(cellPolygon, cityBoundaryPolygon);
-        if (clippedPolygon.length >= 3 && Math.abs(signedPolygonArea(clippedPolygon)) > 1e-8) {
-          const gradient = (rowIndex + colIndex) % 4;
-          const alpha = 36 + gradient * 6;
-
-          // Centroid of the clipped cell — used to derive this cell's
-          // coordinate key so a color set at a coordinate can find it.
-          const centroid = clippedPolygon.reduce(
-            (acc, [x, y]) => [acc[0] + x, acc[1] + y] as [number, number],
-            [0, 0] as [number, number],
-          ).map((sum) => sum / clippedPolygon.length) as [number, number];
-
-          cells.push({
-            id: `${selectedCity}-grid-${rowIndex}-${colIndex}`,
-            cityName: selectedCity,
-            polygon: clippedPolygon,
-            baseColor: [147, 197, 253, alpha],
-            coordKey: coordKey(centroid[0], centroid[1]),
-          });
-        }
-
-        colIndex += 1;
-      }
-
-      rowIndex += 1;
-    }
-
-    return cells;
-  }, [selectedCity, cityBoundaryPolygon]);
-
-  // =====================================================================
+  const heatmapPointLayer = useMemo(
+    () =>
+      new HeatmapLayer({
+        id: 'heatmap-point-layer',
+        data: displayedHeatmapPoints,
+        pickable: false,
+        getPosition: (d: HeatmapMetricPoint) => d.location_coordinates,
+        getWeight: (d: HeatmapMetricPoint) => d.value,
+        radiusPixels: 40,
+        intensity: 1.2,
+        threshold: 0.05,
+        colorRange: [
+          [46, 125, 50, 80],
+          [249, 168, 37, 140],
+          [245, 124, 0, 180],
+          [183, 28, 28, 220],
+        ],
+      }),
+    [displayedHeatmapPoints],
+  );
 
   const poiAreaLayer = useMemo(
     () =>
@@ -363,36 +203,23 @@ const Heatmap: React.FC<HeatmapProps> = ({
     [displayedPOIAreas],
   );
 
-  const cityGridLayer = useMemo(
+  const gridLayer = useMemo(
     () =>
-      new PolygonLayer({
-        id: 'city-grid-layer',
+      new PolygonLayer<CityGridCell>({
+        id: 'grid-layer',
         data: displayedGridCells,
         pickable: true,
         stroked: true,
         filled: true,
-        opacity: 0.75,
-        getPolygon: (d: CityGridCell) => d.polygon,
-        getLineColor: [180, 220, 255, 170],
-        getLineWidth: 1,
         lineWidthUnits: 'pixels',
-        getFillColor: (d: CityGridCell) => {
-          const isSelected = d.id === selectedGridCellId;
-          const isHovered = d.id === hoveredGridCellId;
-
-          if (isSelected) return GRID_SELECTED_COLOR;
-          if (isHovered) return GRID_HOVER_COLOR;
-
-          // Coordinate-driven color: if this cell's centroid bucket has an
-          // assigned color, use it; otherwise fall back to the base color.
-          const mapped = coordinateColors[d.coordKey];
-          if (mapped) return mapped;
-
-          return d.baseColor;
+        getLineWidth: 1,
+        getPolygon: (d) => d.polygon,
+        getLineColor: [148, 163, 184, 140],
+        getFillColor: (d) => {
+          if (selectedGridCellId === d.id) return GRID_SELECTED_COLOR;
+          if (hoveredGridCellId === d.id) return GRID_HOVER_COLOR;
+          return coordinateColors[d.coordKey] ?? [100, 116, 139, 70];
         },
-        // Tell deck.gl to recompute fill colors when hover/selection OR the
-        // coordinate->color map changes. Without this, the GPU color buffer is
-        // cached and updated colors never get applied.
         updateTriggers: {
           getFillColor: [hoveredGridCellId, selectedGridCellId, coordinateColors],
         },
@@ -404,17 +231,16 @@ const Heatmap: React.FC<HeatmapProps> = ({
             setSelectedGridCellId(null);
             return;
           }
-
-          const nextId = (info.object as CityGridCell).id;
-          setSelectedGridCellId((current) => (current === nextId ? null : nextId));
+          const id = (info.object as CityGridCell).id;
+          setSelectedGridCellId((prev) => (prev === id ? null : id));
         },
       }),
     [displayedGridCells, hoveredGridCellId, selectedGridCellId, coordinateColors],
   );
 
   const layers = useMemo(
-    () => [scatterplotLayer, cityGridLayer, poiAreaLayer],
-    [scatterplotLayer, cityGridLayer, poiAreaLayer],
+    () => [scatterplotLayer, heatmapPointLayer, poiAreaLayer, gridLayer],
+    [scatterplotLayer, heatmapPointLayer, poiAreaLayer, gridLayer],
   );
 
   const handleViewStateChange = useCallback(
@@ -447,15 +273,15 @@ const Heatmap: React.FC<HeatmapProps> = ({
         return newState;
       });
 
-      if (!map.current) return;
+      if (!mapRef.current) return;
 
-      if (mapSyncFrame.current !== null) {
-        cancelAnimationFrame(mapSyncFrame.current);
+      if (mapSyncFrameRef.current !== null) {
+        cancelAnimationFrame(mapSyncFrameRef.current);
       }
 
-      mapSyncFrame.current = requestAnimationFrame(() => {
-        if (!map.current) return;
-        map.current.jumpTo({
+      mapSyncFrameRef.current = requestAnimationFrame(() => {
+        if (!mapRef.current) return;
+        mapRef.current.jumpTo({
           center: [newState.longitude, newState.latitude],
           zoom: newState.zoom,
           pitch: newState.pitch,
@@ -463,13 +289,13 @@ const Heatmap: React.FC<HeatmapProps> = ({
         });
       });
     },
-    [],
+    [setViewState, mapRef, mapSyncFrameRef],
   );
 
   return (
     <div style={{ width: '100%', height: '100%', minHeight: '480px', position: 'relative' }}>
       <div
-        ref={mapContainer}
+        ref={mapContainerRef}
         style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}
       />
       <DeckGL
@@ -525,13 +351,13 @@ const Heatmap: React.FC<HeatmapProps> = ({
           ))}
         </div>
 
-        {selectedCity && (
+        {selectedCity && displayedHeatmapPoints.length > 0 && (
           <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid #ddd' }}>
             <h4 style={{ marginTop: 0, marginBottom: 10 }}>
-              City Grid Coverage in {selectedCity}
+              Heatmap Point Density in {selectedCity}
             </h4>
             <div style={{ fontSize: '13px', color: '#333' }}>
-              Total grid cells: {displayedGridCells.length}
+              Total points: {displayedHeatmapPoints.length}
             </div>
             {displayedPOIAreas.length > 0 && (
               <div style={{ marginTop: 8, fontSize: '13px', color: '#333' }}>
