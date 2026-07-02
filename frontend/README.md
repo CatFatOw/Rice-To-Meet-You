@@ -1,75 +1,129 @@
-# React + TypeScript + Vite
+# HeatSafe AI Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + TypeScript frontend for exploring heat risk across host cities, viewing POIs, and rendering map-based risk layers.
 
-Currently, two official plugins are available:
+## Run Locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Frontend API Reference
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+The frontend currently uses local mock API modules under `src/api`.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### Map API (`src/api/map.ts`)
 
+#### `callMockLocationPOIs()`
+
+- Purpose: Fetches polygon overlays for known POIs.
+- Returns: `Promise<CityPOIArea[]>`
+- Current data: Houston polygons (NRG Stadium, Rice University).
+
+**Main shape**
+
+```ts
+interface CityPOIArea {
+  id: string;
+  name: string;
+  cityName: string;
+  color: [number, number, number, number];
+  polygon: [number, number][];
+}
 ```
+
+#### `callHeatmapMetricsPoints()`
+
+- Purpose: Returns point-level heat risk data for map heatmap rendering.
+- Returns: `Promise<Record<string, HeatmapMetricPoint[]>>`
+- Current data: Dense interpolated field for Houston.
+
+**Main shape**
+
+```ts
+interface HeatmapMetricPoint {
+  metric: string; // e.g. "heat_risk_score"
+  value: number; // 0-100 heat risk weight
+  location_name: string;
+  location_coordinates: [number, number]; // [lon, lat]
+  individual_metrics?: {
+    temperatureF: number;
+    heatIndexF: number;
+    relativeHumidityPct: number;
+    landSurfaceTempF: number;
+    nighttimeTempF: number;
+    treeCanopyPct: number;
+    imperviousSurfacePct: number;
+  };
+}
+```
+
+#### `getCoordinateValue()`
+
+- Purpose: Returns dense coordinate-level heat profile values for full-grid analytics.
+- Returns: `Promise<MetricCoordinateData[]>`
+- Current metric key: `heat_profile`
+
+**Main shape**
+
+```ts
+interface MetricCoordinateData {
+  metric: 'heat_profile';
+  points: CoordinateValue[];
+}
+
+interface CoordinateValue {
+  coordinate: [number, number];
+  value: number; // alias of temperatureF
+  temperatureF: number;
+  relativeHumidityPct: number;
+  heatIndexF: number;
+  landSurfaceTempF: number;
+  nighttimeTempF: number;
+  treeCanopyPct: number;
+  imperviousSurfacePct: number;
+  heatVulnerabilityIndex: number;
+  category: 'low' | 'moderate' | 'high' | 'extreme';
+}
+```
+
+### Statistics API (`src/api/statistics.ts`)
+
+#### `callMockStatistics(city)`
+
+- Purpose: Fetches dashboard cards + POI statistics for a selected city.
+- Input: `city: string`
+- Returns: `Promise<CityStatisticsResponse>`
+- Fallback behavior: If city is unknown, data falls back to `Nationally`.
+
+**Main shape**
+
+```ts
+interface CityStatisticsResponse {
+  overallStatistics: OverallStatisticsProps;
+  poiStatistics: POIStatisticsProps;
+}
+```
+
+## Usage Example
+
+```ts
+import {
+  callMockLocationPOIs,
+  callHeatmapMetricsPoints,
+  getCoordinateValue,
+} from './src/api/map';
+import { callMockStatistics } from './src/api/statistics';
+
+const pois = await callMockLocationPOIs();
+const pointsByCity = await callHeatmapMetricsPoints();
+const coordinateMetrics = await getCoordinateValue();
+const stats = await callMockStatistics('Houston');
+```
+
+## Notes
+
+- These APIs are asynchronous and include simulated network latency.
+- Data is mock data for frontend development and visualization behavior.
+- Coordinate order is longitude, latitude across map APIs.
