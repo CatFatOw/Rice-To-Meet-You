@@ -1,18 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
-import Heatmap from '../components/Heatmap';
+import Heatmap, { type GeocodeResult, type TooltipState } from '../components/Heatmap';
 import NavigationBar from '../components/NavigationBar';
 import OverallStatistics, { type OverallStatisticsProps } from '../components/OverallStatistics';
 import POIStatistics, { type POIStatisticsProps } from '../components/POIStatistics';
 import {
   callHeatmapMetricsPoints,
   callMockLocationPOIs,
-  getCoordinateValue,
   type CityPOIArea,
   type HeatmapMetricsPointResponse,
 } from '../api/map';
 import { callMockStatistics } from '../api/statistics';
-import { getColor } from '../utils/colors';
 import { determineCityView } from '../utils/cityViews';
 
 interface ViewState {
@@ -23,11 +21,6 @@ interface ViewState {
   bearing: number;
 }
 
-type RGBA = [number, number, number, number];
-
-function coordKey(lon: number, lat: number, precision = 3): string {
-  return `${lon.toFixed(precision)},${lat.toFixed(precision)}`;
-}
 
 const ExplorePage: React.FC = () => {
   const [viewState, setViewState] = useState<ViewState>({
@@ -46,9 +39,19 @@ const ExplorePage: React.FC = () => {
   const [cityPOIAreas, setCityPOIAreas] = useState<CityPOIArea[]>([]);
   const [heatmapPointsByCity, setHeatmapPointsByCity] =
     useState<HeatmapMetricsPointResponse>({});
-  const [hoveredGridCellId, setHoveredGridCellId] = useState<string | null>(null);
-  const [selectedGridCellId, setSelectedGridCellId] = useState<string | null>(null);
-  const [coordinateColors, setCoordinateColors] = useState<Record<string, RGBA>>({});
+  const [tooltip, setTooltip] = useState<TooltipState | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [draftPoints, setDraftPoints] = useState<[number, number][]>([]);
+  const [draftColorHex, setDraftColorHex] = useState('#22c55e');
+  const [draftName, setDraftName] = useState('');
+  const [userPOIAreas, setUserPOIAreas] = useState<CityPOIArea[]>([]);
+  const [hoveringHeatmap, setHoveringHeatmap] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [geoResults, setGeoResults] = useState<GeocodeResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
   const [overallStatisticsProps, setOverallStatisticsProps] =
     useState<OverallStatisticsProps>();
   const [poiStatisticsProps, setPOIStatisticsProps] = useState<POIStatisticsProps>();
@@ -68,38 +71,6 @@ const ExplorePage: React.FC = () => {
     };
 
     loadMockPOIs();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadCoordinateColors = async () => {
-      try {
-        const metricsData = await getCoordinateValue();
-        if (!isMounted) return;
-
-        const temperatureMetric = metricsData.find((m) => m.metric === 'temperature');
-        if (!temperatureMetric) return;
-
-        const newColors: Record<string, RGBA> = {};
-        temperatureMetric.points.forEach(({ coordinate, value }) => {
-          const [lon, lat] = coordinate;
-          const key = coordKey(lon, lat);
-          const [r, g, b] = getColor(value, temperatureMetric.metric);
-          newColors[key] = [r, g, b, 150];
-        });
-
-        setCoordinateColors(newColors);
-      } catch (error) {
-        console.error('Failed to load coordinate values', error);
-      }
-    };
-
-    loadCoordinateColors();
 
     return () => {
       isMounted = false;
@@ -133,7 +104,7 @@ const ExplorePage: React.FC = () => {
 
     mapRef.current = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+      style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
       center: [viewState.longitude, viewState.latitude],
       zoom: viewState.zoom,
       pitch: viewState.pitch,
@@ -180,11 +151,6 @@ const ExplorePage: React.FC = () => {
     };
   }, [selectedCity]);
 
-  useEffect(() => {
-    setHoveredGridCellId(null);
-    setSelectedGridCellId(null);
-  }, [selectedCity]);
-
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[#020817] text-white">
       <div className="shrink-0">
@@ -201,14 +167,35 @@ const ExplorePage: React.FC = () => {
               setSelectedCity={setSelectedCity}
               cityPOIAreas={cityPOIAreas}
               heatmapPointsByCity={heatmapPointsByCity}
-              hoveredGridCellId={hoveredGridCellId}
-              setHoveredGridCellId={setHoveredGridCellId}
-              selectedGridCellId={selectedGridCellId}
-              setSelectedGridCellId={setSelectedGridCellId}
-              coordinateColors={coordinateColors}
               mapContainerRef={mapContainerRef}
               mapRef={mapRef}
               mapSyncFrameRef={mapSyncFrameRef}
+              tooltip={tooltip}
+              setTooltip={setTooltip}
+              isFullscreen={isFullscreen}
+              setIsFullscreen={setIsFullscreen}
+              isDrawing={isDrawing}
+              setIsDrawing={setIsDrawing}
+              draftPoints={draftPoints}
+              setDraftPoints={setDraftPoints}
+              draftColorHex={draftColorHex}
+              setDraftColorHex={setDraftColorHex}
+              draftName={draftName}
+              setDraftName={setDraftName}
+              userPOIAreas={userPOIAreas}
+              setUserPOIAreas={setUserPOIAreas}
+              hoveringHeatmap={hoveringHeatmap}
+              setHoveringHeatmap={setHoveringHeatmap}
+              searchQuery={searchQuery}
+              setSearchQuery={setSearchQuery}
+              geoResults={geoResults}
+              setGeoResults={setGeoResults}
+              isSearching={isSearching}
+              setIsSearching={setIsSearching}
+              showSuggestions={showSuggestions}
+              setShowSuggestions={setShowSuggestions}
+              selectedMetric={selectedMetric}
+              setSelectedMetric={setSelectedMetric}
             />
           </section>
 
