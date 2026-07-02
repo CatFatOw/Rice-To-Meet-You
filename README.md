@@ -42,6 +42,183 @@ Key datasets for the first version:
 | Urban Heat Index | Relative urban heat intensity across locations |
 | Store Visits | Business traffic and possible crowd/activity signals |
 
+## Meeting Notes
+
+Meeting notes live in the [`meeting_notes/`](meeting_notes/README.md) folder.
+
+Current notes:
+
+| Date | File |
+|---|---|
+| June 24 | [Rice Hack FIFA PDF](meeting_notes/Rice%20Hack%20FIFA_june_24.pdf) |
+
+## Quick Start
+
+| Task | Link |
+|---|---|
+| Clone this repository | [Clone the repo](#clone-the-repo) |
+| Make your own branch | [Create a branch](#create-a-branch) |
+| Save your work | [Commit changes](#commit-changes) |
+| Push your work | [Push your branch](#push-your-branch) |
+| Ask the team to review | [Open a pull request](#open-a-pull-request) |
+| Clean up after merge | [After your PR is merged](#after-your-pr-is-merged) |
+| Understand the app folder | [App Folder README](app/README.md) |
+| Read dataset/model docs | [Markdown Reference Guides](app/markdown_reference_guides/README.md) |
+
+## Git Workflow
+
+### Clone the Repo
+
+```bash
+git clone https://github.com/CatFatOw/Rice-To-Meet-You.git
+cd Rice-To-Meet-You
+git status
+```
+
+### Create a Branch
+
+Use `main` only for approved demo/submission work. Use your own branch for experiments, features, notes, and unfinished work.
+
+```bash
+git checkout main
+git pull origin main
+git checkout -b your-name/short-description
+```
+
+Example branch names:
+
+```text
+michael/heat-map-prototype
+zac/transit-gap-analysis
+sarah/demo-dashboard
+```
+
+### Commit Changes
+
+```bash
+git status
+git add path/to/file
+git commit -m "Describe your change"
+```
+
+### Push Your Branch
+
+First push:
+
+```bash
+git push -u origin your-name/short-description
+```
+
+Later pushes:
+
+```bash
+git push
+```
+
+### Open a Pull Request
+
+1. Push your branch.
+2. Open `https://github.com/CatFatOw/Rice-To-Meet-You`.
+3. Click **Compare & pull request**, or go to **Pull requests** -> **New pull request**.
+4. Set **base** to `main`.
+5. Set **compare** to your branch.
+6. Write what changed, why it matters, whether AI helped, and what reviewers should check.
+
+Do not merge into `main` until the group approves the pull request.
+
+### After Your PR Is Merged
+
+After GitHub says your PR has been merged:
+
+```bash
+git checkout main
+git pull origin main
+```
+
+Delete the old local branch if you are finished with it:
+
+```bash
+git branch -d your-name/short-description
+```
+
+Delete the old remote branch if GitHub did not already delete it:
+
+```bash
+git push origin --delete your-name/short-description
+```
+
+If Git says the branch is not fully merged, stop and ask the group before deleting it.
+
+## Frontend APIs
+
+### 1. Get Location POIs
+
+**Purpose:** Retrieve polygon boundaries for points of interest (POIs) to display on the map.
+
+**Request**
+
+```http
+
+GET /heatmap/location-pois
+
+```
+
+**Expected Response**
+
+```ts
+
+interface CityPOIArea {
+
+  id: string;
+
+  name: string;
+
+  cityName: string;
+
+  color: [number, number, number, number]; // RGBA
+
+  polygon: [number, number][];
+
+}
+
+type Response = CityPOIArea[];
+
+```
+
+---
+
+### 2. Get Heatmap Metric Points
+
+**Purpose:** Retrieve weighted heatmap points for each city.
+
+**Request**
+
+```http
+
+GET /heatmap/metrics/points
+
+```
+
+**Expected Response**
+
+```ts
+
+interface HeatmapMetricPoint {
+
+  metric: string;
+
+  value: number;
+
+  location_name: string;
+
+  location_coordinates: [number, number]; // [longitude, latitude]
+
+}
+
+type Response = Record<string, HeatmapMetricPoint[]>;
+
+```
+
 ## App Guide
 
 | File or Folder | Purpose |

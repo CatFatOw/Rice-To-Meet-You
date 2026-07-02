@@ -8,6 +8,8 @@ from .dataset_tables import (
 )
 from .prediction_tables import PredictionTable
 from .user_tables import User
+from .grid_cell_tables import GridCellGeometry, GridCellMetrics
+from .weather_tables import WeatherObservation
 
 __all__ = [
     "CorePoiGeometry",
@@ -18,4 +20,7 @@ __all__ = [
     "UrbanHeatIndex",
     "PredictionTable",
     "User",
+    "GridCellGeometry",
+    "GridCellMetrics",
+    "WeatherObservation",
 ]
