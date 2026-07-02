@@ -8,3 +8,6 @@ requests
 geopandas
 shapely
 pykrige
+passlib
+python-jose
+python-multipart
