@@ -1,12 +1,28 @@
 {
   "name": "Invariant-Based Documentation Generator",
   "image": "mcr.microsoft.com/devcontainers/python:3",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    }
+  },
   "customizations": {
     "vscode": {
       "extensions": [
-        "ms-python.python"
+        "ms-python.python",
+        "dbaeumer.vscode-eslint",
+        "bradlc.vscode-tailwindcss",
+        "esbenp.prettier-vscode",
+        "openai.chatgpt",
+        "anthropic.claude-code"
       ]
     }
   },
-  "postCreateCommand": "pip install -r requirements.txt"
+  "forwardPorts": [5173, 4173, 8000],
+  "portsAttributes": {
+    "5173": { "label": "Vite dev server" },
+    "4173": { "label": "Vite preview" },
+    "8000": { "label": "FastAPI backend" }
+  },
+  "postCreateCommand": "npm install --prefix frontend && pip install -r requirements.txt"
 }
