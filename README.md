@@ -1,326 +1,305 @@
-# Rice-To-Meet-You
-
-2026 Rice University FIFA Summer Hackathon Group
-
-## Branch Rule
-
-> **`main` = production**
->
-> The `main` branch should only contain work that the group has approved for the final demo or submission.
-
-> **Your branch = brainstorming and prototypes**
->
-> Use your own Git branch for experiments, AI-assisted work, notes, prototypes, and rough ideas.
-
-## Table of Contents
-
-- [Chapter 1: Clone This Project](#chapter-1-clone-this-project)
-- [Chapter 2: Understand the Branch Workflow](#chapter-2-understand-the-branch-workflow)
-- [Chapter 3: Create Your Own Branch](#chapter-3-create-your-own-branch)
-- [Chapter 4: Save Your Work](#chapter-4-save-your-work)
-- [Chapter 5: Push Your Branch](#chapter-5-push-your-branch)
-- [Chapter 6: Open a Pull Request](#chapter-6-open-a-pull-request)
-- [Chapter 7: Daily Git Commands](#chapter-7-daily-git-commands)
-- [Project Mission](#project-mission)
-
-## Chapter 1: Clone This Project
-
-If this is your first time working on the project, copy it from GitHub to your computer.
-
-### 1. Open Terminal
-
-On Mac, open the **Terminal** app.
-
-### 2. Go to the folder where you want the project
-
-Example:
-
-```bash
-cd Desktop
-```
-
-You can also use another folder:
-
-```bash
-cd Documents
-```
-
-### 3. Clone the repository
-
-Run:
-
-```bash
-git clone https://github.com/CatFatOw/Rice-To-Meet-You.git
-```
-
-This creates a folder called `Rice-To-Meet-You` on your computer.
-
-### 4. Enter the project folder
-
-Run:
-
-```bash
-cd Rice-To-Meet-You
-```
-
-### 5. Confirm it worked
-
-Run:
-
-```bash
-git status
-```
-
-If it worked, Git should say you are on the `main` branch.
-
-## Chapter 2: Understand the Branch Workflow
-
-Branches let everyone work without breaking the final version.
-
-- Use **`main`** for approved production work only.
-- Use a **personal or feature branch** for brainstorming, prototypes, AI-assisted experiments, and unfinished work.
-- When the group approves your work, bring it into **`main`**.
-
-Recommended branch names:
-
-```text
-name/short-description
-```
-
-Examples:
-
-```text
-michael/heat-map-prototype
-zac/transit-gap-analysis
-sarah/demo-dashboard
-```
-
-## Chapter 3: Create Your Own Branch
-
-Before creating a branch, make sure your local `main` branch is updated.
-
-```bash
-git checkout main
-git pull origin main
-```
-
-Create your own branch:
-
-```bash
-git checkout -b your-name/your-feature
-```
-
-Example:
-
-```bash
-git checkout -b michael/heat-map-prototype
-```
-
-Check which branch you are on:
-
-```bash
-git branch
-```
-
-The branch with the `*` next to it is your current branch.
-
-## Chapter 4: Save Your Work
-
-After editing files, check what changed:
-
-```bash
-git status
-```
-
-Add one file:
-
-```bash
-git add path/to/file
-```
-
-Add everything you changed:
-
-```bash
-git add .
-```
-
-Commit your changes with a clear message:
-
-```bash
-git commit -m "Add heat map prototype"
-```
-
-Good commit messages:
-
-- `Add transit gap analysis notes`
-- `Create visitor flow dashboard`
-- `Clean venue dataset`
-- `Update prototype README`
-
-## Chapter 5: Push Your Branch
-
-The first time you push your branch, run:
-
-```bash
-git push -u origin your-name/your-feature
-```
-
-Example:
-
-```bash
-git push -u origin michael/heat-map-prototype
-```
-
-After that, you can usually push with:
-
-```bash
-git push
-```
-
-## Chapter 6: Open a Pull Request
-
-A pull request, or PR, is how you ask the group to review your branch before it becomes part of `main`.
-
-Use a pull request when your prototype, notes, data work, or code is ready for the group to see.
-
-### 1. Make sure your branch is pushed
-
-If this is your first time pushing the branch:
-
-```bash
-git push -u origin your-name/your-feature
-```
-
-If you already pushed this branch before:
-
-```bash
-git push
-```
-
-### 2. Open GitHub
-
-Go to:
-
-```text
-https://github.com/CatFatOw/Rice-To-Meet-You
-```
-
-GitHub may show a yellow box with a **Compare & pull request** button. Click it.
-
-If you do not see that button:
-
-1. Click the **Pull requests** tab.
-2. Click **New pull request**.
-3. Set **base** to `main`.
-4. Set **compare** to your branch, such as `michael/heat-map-prototype`.
-
-### 3. Write a clear PR title
-
-Good titles:
-
-- `Add heat map prototype`
-- `Add transit gap analysis notes`
-- `Create demo dashboard draft`
-
-### 4. Write a short PR description
-
-Use this format:
-
-```markdown
-## What changed
-
-- Explain the files, prototype, data, or notes you added.
-
-## Why it matters
-
-- Explain how this helps the hackathon project.
-
-## AI usage
-
-- Say how AI helped, if you used it.
-
-## Questions for the group
-
-- Ask anything you want reviewers to check.
-```
-
-### 5. Ask for review
-
-Send the PR link to the group. Do not merge it until the group approves it.
-
-Reviewers should check:
-
-- Does this help the project?
-- Is the idea clear?
-- Are the files in the right place?
-- Is the work ready for `main`?
-
-### 6. Merge after approval
-
-After the group approves:
-
-1. Click **Merge pull request**.
-2. Click **Confirm merge**.
-3. Delete the branch on GitHub if the work is finished.
-
-### 7. Update your computer after the PR merges
-
-After your PR is merged, update your local `main`:
-
-```bash
-git checkout main
-git pull origin main
-```
-
-You can delete your old local branch if you are done with it:
-
-```bash
-git branch -d your-name/your-feature
-```
-
-If Git says the branch is not fully merged, ask the group before deleting it.
-
-### Emergency option: merge from Terminal
-
-Only do this if the group agrees and you understand what you are merging.
-
-```bash
-git checkout main
-git pull origin main
-git merge your-name/your-feature
-git push origin main
-```
-
-## Chapter 7: Daily Git Commands
-
-Use this flow whenever you start working:
-
-```bash
-git checkout main
-git pull origin main
-git checkout -b your-name/your-feature
-```
-
-Use this flow while working:
-
-```bash
-git status
-git add .
-git commit -m "Describe your change"
-git push
-```
-
-Use this flow when returning to an existing branch:
-
-```bash
-git checkout your-name/your-feature
-git pull
-```
-
-If Git shows a conflict or confusing message, stop and ask the group before forcing anything. Do not use commands like `git reset --hard` unless everyone agrees.
+# Rice-To-Meet-You: FIFA HeatSafe AI
+
+2026 Rice University FIFA Summer Hackathon project.
+
+Rice-To-Meet-You is a FIFA HeatSafe AI prototype: a backend-first decision-support tool for mapping heat, weather, crowd, infrastructure, and intervention risk across host-city grids.
+
+## Start Here
+
+| Need | Go To |
+|---|---|
+| Use the dev container | [Dev Container Setup](#dev-container-setup) |
+| Run the backend locally | [Run Locally](#run-locally) |
+| Understand the backend architecture | [Backend Architecture](#backend-architecture) |
+| Test requests in Postman | [Postman Workflow](#postman-workflow) |
+| See route groups | [API Map](#api-map) |
+| Learn the simulation flow | [Simulation Workflow](#simulation-workflow) |
+| Read detailed app docs | [App README](app/README.md) |
 
 ## Project Mission
 
-Build a useful, credible, and polished FIFA 2026 decision-support platform that helps host cities prepare for visitor surges, transportation pressure, sustainability demands, climate risk, and future growth opportunities.
+The goal is to help visitors and city planners understand where heat risk, dehydration risk, crowd activity, weather conditions, and infrastructure pressure overlap.
 
-Our goal is not only to make something that works. Our goal is to make something judges can understand quickly, trust as data-informed, and remember after the demo.
+The prototype turns city/state geometry and heat-safety signals into:
+
+| Feature | Purpose |
+|---|---|
+| Grid generation | Split a city/state into simulation cells. |
+| Grid metrics | Store heat, crowd, population, cooling-center, and infrastructure signals per cell. |
+| Polygon impact regions | Save drawn simulation polygons and mark the grid cells inside them. |
+| Interpolation | Fill metric values across grid centroids for map rendering and simulation. |
+| NWS weather | Attach National Weather Service weather baselines to grid cells. |
+| Postman collection | Provide repeatable API testing flows for teammates. |
+
+## Dev Container Setup
+
+For the easiest team setup, use the repository dev container.
+
+Install and open:
+
+| Tool | Link |
+|---|---|
+| Docker Desktop | <https://www.docker.com/products/docker-desktop/> |
+| VS Code Dev Containers extension | <https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers> |
+
+Windows users should also set up WSL 2:
+
+```text
+https://learn.microsoft.com/en-us/windows/wsl/setup/environment
+```
+
+After cloning the repository, VS Code should offer to reopen the workspace in a container. Accept that prompt, or run:
+
+```text
+Dev Containers: Rebuild and Reopen in Container
+```
+
+Dependencies should install automatically inside the container.
+
+## Frontend APIs
+
+### 1. Get Location POIs
+
+**Purpose:** Retrieve polygon boundaries for points of interest (POIs) to display on the map.
+
+**Request**
+
+```http
+
+GET /heatmap/location-pois
+
+```
+
+**Expected Response**
+
+```ts
+
+interface CityPOIArea {
+
+  id: string;
+
+  name: string;
+
+  cityName: string;
+
+  color: [number, number, number, number]; // RGBA
+
+  polygon: [number, number][];
+
+}
+
+type Response = CityPOIArea[];
+
+```
+
+---
+
+### 2. Get Heatmap Metric Points
+
+**Purpose:** Retrieve weighted heatmap points for each city.
+
+**Request**
+
+```http
+
+GET /heatmap/metrics/points
+
+```
+
+**Expected Response**
+
+```ts
+
+interface HeatmapMetricPoint {
+
+  metric: string;
+
+  value: number;
+
+  location_name: string;
+
+  location_coordinates: [number, number]; // [longitude, latitude]
+
+}
+
+type Response = Record<string, HeatmapMetricPoint[]>;
+
+```
+
+## App Guide
+
+## Run Locally
+
+If you are not using the dev container, install dependencies from the repo root:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Set environment variables:
+
+```bash
+export DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
+export JWT_KEY="dev-secret-key"
+```
+
+Run migrations:
+
+```bash
+cd app
+alembic upgrade head
+```
+
+Start FastAPI from the `app/` folder:
+
+```bash
+python3 -m uvicorn main:app --reload
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+## Backend Architecture
+
+The backend uses a router/service/repository structure:
+
+```text
+request
+  -> routers/       FastAPI endpoints and HTTP errors
+  -> services/      business logic, GeoJSON conversion, interpolation, NWS calls
+  -> repository/    SQLAlchemy database reads/writes
+  -> models/        SQLAlchemy tables
+  -> schemas/       Pydantic payloads/responses
+```
+
+Key folders:
+
+| Path | Purpose |
+|---|---|
+| [`app/routers/`](app/routers/) | API route definitions. |
+| [`app/services/`](app/services/) | Business logic and external API calls. |
+| [`app/repository/`](app/repository/) | Database query helpers. |
+| [`app/models/`](app/models/) | SQLAlchemy models. |
+| [`app/schemas/`](app/schemas/) | Pydantic schemas. |
+| [`app/alembic/`](app/alembic/) | Migrations. |
+| [`app/README.md`](app/README.md) | Detailed backend guide. |
+
+## Simulation Workflow
+
+Recommended backend flow:
+
+1. Generate a city grid.
+2. Draw or save a polygon impact region.
+3. Compute impacted grids for the polygon.
+4. Assign or run simulation changes against only those impacted grid IDs.
+5. Interpolate metric values.
+6. Render heatmap/mesh GeoJSON in the frontend.
+7. Assign NWS weather as a regional baseline.
+8. Combine weather + grid metrics for local simulation risk.
+
+In Postman, that usually means:
+
+```text
+Grid Geometry / Generate N by N City Grid
+Polygon / Create Polygon And Compute Impact Grids
+Grid Metrics / Assign Metrics To All Grid Cells
+Grid Interpolation / Interpolate City Grid
+Grid Interpolation / Get Interpolated Heatmap GeoJSON
+NWS Weather / Assign Weather To State Grid Cells
+```
+
+## API Map
+
+Detailed routes are documented in [app/README.md](app/README.md). High-level route groups:
+
+| Group | Prefix | Purpose |
+|---|---|---|
+| Users | `/users` | User creation, profile, password, deletion. |
+| Login | `/login` | JWT bearer token login. |
+| Datasets | `/dataset` | Protected CRUD for Rice dataset tables. |
+| Grid Geometry | `/grid` | Generate/read state and city grid cells. |
+| Grid Metrics | `/grid_metrics` | Create/read/update/delete simulation metrics. |
+| Grid Interpolation | `/grid_interpolation` | Interpolate metrics and return GeoJSON. |
+| NWS Weather | `/weather` | Fetch and assign National Weather Service observations. |
+| Polygons | `/polygon` | Store drawn impact regions and compute impacted grid cells. |
+
+## Postman Workflow
+
+Import [`postman_dataset_routes_collection.json`](postman_dataset_routes_collection.json) into Postman.
+
+Important collection variables:
+
+| Variable | Purpose |
+|---|---|
+| `baseUrl` | API URL, usually `http://127.0.0.1:8000`. |
+| `cityName` | City used for city grid/interpolation routes. |
+| `stateName` | State used for grid/metric/weather routes. |
+| `gridSize` | `n` for an `n x n` grid. |
+| `metricTimestamp` | Timestamp for grid metrics. |
+| `interpolationTimestamp` | Timestamp for interpolation; usually match `metricTimestamp`. |
+| `interpolationMetric` | Metric to interpolate, such as `heat_index` or `population`. |
+| `heatmapMetric` | Metric used for heatmap intensity. |
+| `colorMetric` | Metric used for mesh color. |
+| `polygonId` | Saved polygon ID used for impacted-grid reads and recomputation. |
+
+Good first test order:
+
+1. `Users and Auth / Create User`
+2. `Users and Auth / Login`
+3. `Grid Geometry / Generate N by N City Grid`
+4. `Polygon / Create Polygon And Compute Impact Grids`
+5. `Grid Metrics / Assign Metrics To All Grid Cells`
+6. `Grid Interpolation / Interpolate City Grid`
+7. `Grid Interpolation / Get Interpolated Heatmap GeoJSON`
+
+For a full weather refresh, use:
+
+```text
+NWS Weather / Assign Weather To State Grid Cells
+```
+
+That request currently uses:
+
+```text
+/weather/assign_state?state={{stateName}}&max_workers=20&skip_existing=false
+```
+
+Weather assignment deduplicates repeated NWS forecast URLs during each run, so many app grid cells can share one NWS forecast request.
+
+## Checks
+
+Run these before pushing backend changes:
+
+```bash
+python3 -m compileall -q app
+```
+
+```bash
+python3 -m json.tool postman_dataset_routes_collection.json >/tmp/postman.json
+```
+
+Optional import smoke test:
+
+```bash
+DATABASE_URL="sqlite:///./local.db" JWT_KEY="dev-secret-key" python3 -c "import sys; sys.path.insert(0, 'app'); import main"
+```
+
+## Reference Docs
+
+| Resource | Link |
+|---|---|
+| Detailed backend guide | [app/README.md](app/README.md) |
+| Dataset/model docs | [app/markdown_reference_guides/README.md](app/markdown_reference_guides/README.md) |
+
+## Project Rules
+
+- Keep `main` stable for approved final-demo or submission work.
+- Do active development on personal or feature branches.
+- Prefer small, clear commits with descriptive messages.
+- Keep docs and Postman updated when routes change.
+- Ask the group before destructive Git commands or deleting branches that Git says are not merged.

@@ -13,3 +13,5 @@ venv/
 .DS_Store
 catboost_info/
 .Rhistory
+state_geojson/
+Kansas_Houston_Geo.json

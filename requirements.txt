@@ -1,4 +1,19 @@
-# Pinned to the versions the heat_model_test.ipynb workflow was validated with.
+# Backend (FastAPI app)
+fastapi
+uvicorn[standard]
+sqlalchemy
+alembic
+psycopg2-binary
+geopy
+requests
+geopandas
+shapely
+pykrige
+passlib
+python-jose
+python-multipart
+
+# Modeling / heat_model_test.ipynb — pinned to the versions the workflow was validated with
 catboost==1.2.10
 lightgbm==4.6.0
 matplotlib==3.11.0

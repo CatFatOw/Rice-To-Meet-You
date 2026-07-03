@@ -1,0 +1,1968 @@
+{
+  "info": {
+    "name": "Rice To Meet You - API Routes",
+    "description": "Postman collection for the Rice-To-Meet-You FastAPI backend. Recommended flow: create/login user for protected dataset CRUD, generate a city grid, create a polygon impact region, compute impacted grids, assign grid metrics, run interpolation, view heatmap or mesh GeoJSON, then fetch/assign NWS weather when needed. Set baseUrl to your running API, for example http://127.0.0.1:8000.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "corePoiGeometryId",
+      "value": "1"
+    },
+    {
+      "key": "dailySpendBrandStateId",
+      "value": "1"
+    },
+    {
+      "key": "dailyWeatherId",
+      "value": "1"
+    },
+    {
+      "key": "spendingPatternsId",
+      "value": "1"
+    },
+    {
+      "key": "storeVisitsId",
+      "value": "1"
+    },
+    {
+      "key": "urbanHeatIndexId",
+      "value": "1"
+    },
+    {
+      "key": "userEmail",
+      "value": "postman.user@example.com"
+    },
+    {
+      "key": "userPassword",
+      "value": "postman-test-password"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "userId",
+      "value": "1"
+    },
+    {
+      "key": "gridCellId",
+      "value": "1"
+    },
+    {
+      "key": "weatherObservationId",
+      "value": "1"
+    },
+    {
+      "key": "stateName",
+      "value": "Texas"
+    },
+    {
+      "key": "gridSize",
+      "value": "40"
+    },
+    {
+      "key": "gridId",
+      "value": "1"
+    },
+    {
+      "key": "gridCellIdText",
+      "value": "0_0"
+    },
+    {
+      "key": "cityName",
+      "value": "Houston"
+    },
+    {
+      "key": "neighborRadius",
+      "value": "1"
+    },
+    {
+      "key": "gridMetricId",
+      "value": "1"
+    },
+    {
+      "key": "metricTimestamp",
+      "value": "2026-06-29T12:00:00-05:00"
+    },
+    {
+      "key": "interpolatedPointId",
+      "value": "1"
+    },
+    {
+      "key": "interpolationTimestamp",
+      "value": "2026-06-29T12:00:00-05:00"
+    },
+    {
+      "key": "interpolationMetric",
+      "value": "heat_index"
+    },
+    {
+      "key": "heatmapMetric",
+      "value": "heat_index"
+    },
+    {
+      "key": "colorMetric",
+      "value": "heat_index"
+    },
+    {
+      "key": "polygonId",
+      "value": "1"
+    },
+    {
+      "key": "polygonImpactGridId",
+      "value": "1"
+    }
+  ],
+  "item": [
+    {
+      "name": "Users and Auth",
+      "item": [
+        {
+          "name": "Create User",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created or already exists', function () { pm.expect([201, 409]).to.include(pm.response.code); });",
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  pm.collectionVariables.set('userId', json.id);",
+                  "  if (json.access_token) pm.collectionVariables.set('accessToken', json.access_token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/users/"
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('logged in', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('accessToken', json.access_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "{{userEmail}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{userPassword}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/login/"
+          }
+        },
+        {
+          "name": "Get Current User",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/users/me"
+          }
+        },
+        {
+          "name": "Get User By ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/users/{{userId}}"
+          }
+        },
+        {
+          "name": "Change Current User Password",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"current_password\": \"{{userPassword}}\",\n  \"new_password\": \"{{userPassword}}\"\n}"
+            },
+            "url": "{{baseUrl}}/users/me/password"
+          }
+        },
+        {
+          "name": "Delete Current User",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "url": "{{baseUrl}}/users/me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Core POI Geometry",
+      "item": [
+        {
+          "name": "Get All Core POI Geometry",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dataset/core_poi_geometry_table",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Core POI Geometry",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('corePoiGeometryId', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"brands\": [{\"name\": \"Rice Test Cafe\"}],\n  \"category_tags\": [\"restaurant\", \"coffee\"],\n  \"city\": \"Houston\",\n  \"closed_on\": null,\n  \"domains\": [\"example.com\"],\n  \"enclosed\": false,\n  \"geometry_type\": \"POLYGON\",\n  \"includes_parking_lot\": true,\n  \"iso_country_code\": \"US\",\n  \"is_synthetic\": false,\n  \"latitude\": 29.7604,\n  \"location_name\": \"Rice Test Cafe\",\n  \"longitude\": -95.3698,\n  \"market\": \"Houston\",\n  \"naics_code\": 722513,\n  \"naics_code_2022\": 722513,\n  \"opened_on\": \"2024-01-01\",\n  \"open_hours\": {\"Mon\": [[\"09:00\", \"17:00\"]]},\n  \"parent_placekey\": null,\n  \"phone_number\": \"555-0100\",\n  \"placekey\": \"test-placekey-core-poi\",\n  \"polygon_class\": \"OWNED_POLYGON\",\n  \"polygon_wkt\": \"POLYGON((-95.3700 29.7600,-95.3690 29.7600,-95.3690 29.7610,-95.3700 29.7610,-95.3700 29.7600))\",\n  \"postal_code\": \"77005\",\n  \"region\": \"TX\",\n  \"safegraph_place_id\": \"sg:test-core-poi\",\n  \"store_id\": \"store-core-poi-001\",\n  \"street_address\": \"6100 Main St\",\n  \"sub_category\": \"Snack and Nonalcoholic Beverage Bars\",\n  \"sub_category_2022\": \"Snack and Nonalcoholic Beverage Bars\",\n  \"top_category\": \"Restaurants and Other Eating Places\",\n  \"top_category_2022\": \"Restaurants and Other Eating Places\",\n  \"tracking_closed_since\": null,\n  \"website\": \"https://example.com\",\n  \"wkt_area_sq_meters\": 1250.5\n}"
+            },
+            "url": "{{baseUrl}}/dataset/core_poi_geometry_table",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Core POI Geometry By ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dataset/core_poi_geometry_table/{{corePoiGeometryId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Core POI Geometry",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"brands\": [{\"name\": \"Rice Test Cafe Updated\"}],\n  \"category_tags\": [\"restaurant\", \"coffee\"],\n  \"city\": \"Houston\",\n  \"closed_on\": null,\n  \"domains\": [\"example.com\"],\n  \"enclosed\": false,\n  \"geometry_type\": \"POLYGON\",\n  \"includes_parking_lot\": true,\n  \"iso_country_code\": \"US\",\n  \"is_synthetic\": false,\n  \"latitude\": 29.7604,\n  \"location_name\": \"Rice Test Cafe Updated\",\n  \"longitude\": -95.3698,\n  \"market\": \"Houston\",\n  \"naics_code\": 722513,\n  \"naics_code_2022\": 722513,\n  \"opened_on\": \"2024-01-01\",\n  \"open_hours\": {\"Mon\": [[\"09:00\", \"18:00\"]]},\n  \"parent_placekey\": null,\n  \"phone_number\": \"555-0100\",\n  \"placekey\": \"test-placekey-core-poi\",\n  \"polygon_class\": \"OWNED_POLYGON\",\n  \"polygon_wkt\": \"POLYGON((-95.3700 29.7600,-95.3690 29.7600,-95.3690 29.7610,-95.3700 29.7610,-95.3700 29.7600))\",\n  \"postal_code\": \"77005\",\n  \"region\": \"TX\",\n  \"safegraph_place_id\": \"sg:test-core-poi\",\n  \"store_id\": \"store-core-poi-001\",\n  \"street_address\": \"6100 Main St\",\n  \"sub_category\": \"Snack and Nonalcoholic Beverage Bars\",\n  \"sub_category_2022\": \"Snack and Nonalcoholic Beverage Bars\",\n  \"top_category\": \"Restaurants and Other Eating Places\",\n  \"top_category_2022\": \"Restaurants and Other Eating Places\",\n  \"tracking_closed_since\": null,\n  \"website\": \"https://example.com\",\n  \"wkt_area_sq_meters\": 1250.5\n}"
+            },
+            "url": "{{baseUrl}}/dataset/core_poi_geometry_table/{{corePoiGeometryId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Core POI Geometry",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/dataset/core_poi_geometry_table/{{corePoiGeometryId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{accessToken}}",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Daily Spend Brand State",
+      "item": [
+        {
+          "name": "Get All Daily Spend Brand State",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dataset/daily_spend_brand_state",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Daily Spend Brand State",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('dailySpendBrandStateId', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"brand_id\": 1001,\n  \"brand_name\": \"Rice Test Brand\",\n  \"market\": \"Houston\",\n  \"spend_amount\": 12345.67,\n  \"state_abbr\": \"TX\",\n  \"trans_count\": 321.5,\n  \"trans_date\": \"2026-06-01\",\n  \"version\": \"test-v1\"\n}"
+            },
+            "url": "{{baseUrl}}/dataset/daily_spend_brand_state",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Daily Spend Brand State By ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dataset/daily_spend_brand_state/{{dailySpendBrandStateId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Daily Spend Brand State",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"brand_id\": 1001,\n  \"brand_name\": \"Rice Test Brand Updated\",\n  \"market\": \"Houston\",\n  \"spend_amount\": 23456.78,\n  \"state_abbr\": \"TX\",\n  \"trans_count\": 432.5,\n  \"trans_date\": \"2026-06-01\",\n  \"version\": \"test-v1\"\n}"
+            },
+            "url": "{{baseUrl}}/dataset/daily_spend_brand_state/{{dailySpendBrandStateId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Daily Spend Brand State",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/dataset/daily_spend_brand_state/{{dailySpendBrandStateId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{accessToken}}",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Daily Weather",
+      "item": [
+        {
+          "name": "Get All Daily Weather",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dataset/daily_weather",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Daily Weather",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('dailyWeatherId', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"average_dew_point_f\": 74.2,\n  \"average_relative_humidity\": 68.5,\n  \"average_sea_level_pressure_millibars\": 1012.3,\n  \"average_temperature_c\": 31.4,\n  \"average_visibility_km\": 15.2,\n  \"average_wind_speed_knots\": 8.4,\n  \"city_location_identifier\": \"HOUSTON_TX\",\n  \"cooling_degree_days_c\": 9.1,\n  \"heating_degree_days_c\": 0.0,\n  \"max_temperature_c\": 36.2,\n  \"min_temperature_c\": 26.1,\n  \"precipitation\": 0,\n  \"valid_date\": \"2026-06-01\"\n}"
+            },
+            "url": "{{baseUrl}}/dataset/daily_weather",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Daily Weather By ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dataset/daily_weather/{{dailyWeatherId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Daily Weather",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"average_dew_point_f\": 75.0,\n  \"average_relative_humidity\": 69.0,\n  \"average_sea_level_pressure_millibars\": 1011.9,\n  \"average_temperature_c\": 32.0,\n  \"average_visibility_km\": 14.8,\n  \"average_wind_speed_knots\": 8.9,\n  \"city_location_identifier\": \"HOUSTON_TX\",\n  \"cooling_degree_days_c\": 9.7,\n  \"heating_degree_days_c\": 0.0,\n  \"max_temperature_c\": 37.0,\n  \"min_temperature_c\": 26.5,\n  \"precipitation\": 0,\n  \"valid_date\": \"2026-06-01\"\n}"
+            },
+            "url": "{{baseUrl}}/dataset/daily_weather/{{dailyWeatherId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Daily Weather",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/dataset/daily_weather/{{dailyWeatherId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{accessToken}}",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Spending Patterns",
+      "item": [
+        {
+          "name": "Get All Spending Patterns",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dataset/spending_patterns",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Spending Patterns",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('spendingPatternsId', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"brands\": \"Rice Test Brand\",\n  \"bucketed_customer_frequency\": {\"1_visit\": 10, \"2_visits\": 4},\n  \"bucketed_customer_incomes\": {\"50000_75000\": 12},\n  \"city\": \"Houston\",\n  \"customer_home_city\": {\"Houston\": 22},\n  \"day_counts\": {\"Monday\": 1, \"Tuesday\": 1},\n  \"iso_country_code\": \"US\",\n  \"latitude\": 29.7604,\n  \"longitude\": -95.3698,\n  \"location_name\": \"Rice Test Store\",\n  \"market\": \"Houston\",\n  \"mean_spend_per_customer_by_frequency\": {\"1_visit\": 18.5},\n  \"mean_spend_per_customer_by_income\": {\"50000_75000\": 22.3},\n  \"median_spend_per_customer\": 19.75,\n  \"median_spend_per_transaction\": 11.25,\n  \"naics_code\": 722513,\n  \"online_spend\": 125.5,\n  \"online_transactions\": 8.0,\n  \"parent_placekey\": null,\n  \"placekey\": \"test-placekey-spend\",\n  \"postal_code\": \"77005\",\n  \"raw_num_customers\": 25.0,\n  \"raw_num_transactions\": 40.0,\n  \"raw_total_spend\": 450.0,\n  \"region\": \"TX\",\n  \"related_buynowpaylater_service_pct\": {\"Afterpay\": 0.02},\n  \"related_cross_shopping_local_brands_pct\": {\"Local Test\": 0.05},\n  \"related_cross_shopping_online_merchants_pct\": {\"Online Test\": 0.03},\n  \"related_cross_shopping_physical_brands_pct\": {\"Physical Test\": 0.04},\n  \"related_cross_shopping_same_category_brands_pct\": {\"Same Category Test\": 0.06},\n  \"related_delivery_service_pct\": {\"DoorDash\": 0.1},\n  \"related_payment_platform_pct\": {\"Apple Pay\": 0.2},\n  \"related_rideshare_service_pct\": {\"Uber\": 0.08},\n  \"related_streaming_cable_pct\": {\"Streaming Test\": 0.01},\n  \"related_wireless_carrier_pct\": {\"Wireless Test\": 0.02},\n  \"spend_by_day\": {\"2026-06-01\": 220.0, \"2026-06-02\": 230.0},\n  \"spend_by_day_of_week\": {\"Monday\": 220.0, \"Tuesday\": 230.0},\n  \"spend_by_transaction_intermediary\": {\"in_store\": 324.5, \"online\": 125.5},\n  \"spend_date_range_start\": \"2026-06-01\",\n  \"spend_date_range_end\": \"2026-06-30\",\n  \"spend_pct_change_vs_prev_month\": 0.12,\n  \"spend_pct_change_vs_prev_year\": 0.2,\n  \"spend_per_transaction_by_day\": {\"2026-06-01\": 11.0, \"2026-06-02\": 11.5},\n  \"spend_per_transaction_percentiles\": {\"p50\": 11.25, \"p90\": 35.0},\n  \"street_address\": \"6100 Main St\",\n  \"sub_category\": \"Snack and Nonalcoholic Beverage Bars\",\n  \"top_category\": \"Restaurants and Other Eating Places\",\n  \"transaction_intermediary\": {\"in_store\": 32, \"online\": 8}\n}"
+            },
+            "url": "{{baseUrl}}/dataset/spending_patterns",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Spending Patterns By ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dataset/spending_patterns/{{spendingPatternsId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Spending Patterns",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"brands\": \"Rice Test Brand Updated\",\n  \"bucketed_customer_frequency\": {\"1_visit\": 11, \"2_visits\": 5},\n  \"bucketed_customer_incomes\": {\"50000_75000\": 13},\n  \"city\": \"Houston\",\n  \"customer_home_city\": {\"Houston\": 24},\n  \"day_counts\": {\"Monday\": 1, \"Tuesday\": 1},\n  \"iso_country_code\": \"US\",\n  \"latitude\": 29.7604,\n  \"longitude\": -95.3698,\n  \"location_name\": \"Rice Test Store Updated\",\n  \"market\": \"Houston\",\n  \"mean_spend_per_customer_by_frequency\": {\"1_visit\": 19.5},\n  \"mean_spend_per_customer_by_income\": {\"50000_75000\": 23.3},\n  \"median_spend_per_customer\": 20.75,\n  \"median_spend_per_transaction\": 12.25,\n  \"naics_code\": 722513,\n  \"online_spend\": 135.5,\n  \"online_transactions\": 9.0,\n  \"parent_placekey\": null,\n  \"placekey\": \"test-placekey-spend\",\n  \"postal_code\": \"77005\",\n  \"raw_num_customers\": 26.0,\n  \"raw_num_transactions\": 42.0,\n  \"raw_total_spend\": 470.0,\n  \"region\": \"TX\",\n  \"related_buynowpaylater_service_pct\": {\"Afterpay\": 0.02},\n  \"related_cross_shopping_local_brands_pct\": {\"Local Test\": 0.05},\n  \"related_cross_shopping_online_merchants_pct\": {\"Online Test\": 0.03},\n  \"related_cross_shopping_physical_brands_pct\": {\"Physical Test\": 0.04},\n  \"related_cross_shopping_same_category_brands_pct\": {\"Same Category Test\": 0.06},\n  \"related_delivery_service_pct\": {\"DoorDash\": 0.1},\n  \"related_payment_platform_pct\": {\"Apple Pay\": 0.2},\n  \"related_rideshare_service_pct\": {\"Uber\": 0.08},\n  \"related_streaming_cable_pct\": {\"Streaming Test\": 0.01},\n  \"related_wireless_carrier_pct\": {\"Wireless Test\": 0.02},\n  \"spend_by_day\": {\"2026-06-01\": 230.0, \"2026-06-02\": 240.0},\n  \"spend_by_day_of_week\": {\"Monday\": 230.0, \"Tuesday\": 240.0},\n  \"spend_by_transaction_intermediary\": {\"in_store\": 334.5, \"online\": 135.5},\n  \"spend_date_range_start\": \"2026-06-01\",\n  \"spend_date_range_end\": \"2026-06-30\",\n  \"spend_pct_change_vs_prev_month\": 0.13,\n  \"spend_pct_change_vs_prev_year\": 0.21,\n  \"spend_per_transaction_by_day\": {\"2026-06-01\": 12.0, \"2026-06-02\": 12.5},\n  \"spend_per_transaction_percentiles\": {\"p50\": 12.25, \"p90\": 36.0},\n  \"street_address\": \"6100 Main St\",\n  \"sub_category\": \"Snack and Nonalcoholic Beverage Bars\",\n  \"top_category\": \"Restaurants and Other Eating Places\",\n  \"transaction_intermediary\": {\"in_store\": 33, \"online\": 9}\n}"
+            },
+            "url": "{{baseUrl}}/dataset/spending_patterns/{{spendingPatternsId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Spending Patterns",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/dataset/spending_patterns/{{spendingPatternsId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{accessToken}}",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Store Visits",
+      "item": [
+        {
+          "name": "Get All Store Visits",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dataset/store_visits",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Store Visits",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('storeVisitsId', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"brand\": \"Rice Test Brand\",\n  \"category\": \"Food Services\",\n  \"daily_visits\": 123,\n  \"local_date\": \"2026-06-01\",\n  \"market\": \"Houston\",\n  \"naics_code\": 722513,\n  \"business_name\": \"Rice Test Store\",\n  \"state\": \"TX\",\n  \"stock_exchange\": null,\n  \"stock_symbol\": null,\n  \"store_id\": \"store-visits-001\",\n  \"sub_category\": \"Snack and Nonalcoholic Beverage Bars\",\n  \"version_id\": 1\n}"
+            },
+            "url": "{{baseUrl}}/dataset/store_visits",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Store Visits By ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dataset/store_visits/{{storeVisitsId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Store Visits",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"brand\": \"Rice Test Brand Updated\",\n  \"category\": \"Food Services\",\n  \"daily_visits\": 150,\n  \"local_date\": \"2026-06-01\",\n  \"market\": \"Houston\",\n  \"naics_code\": 722513,\n  \"business_name\": \"Rice Test Store Updated\",\n  \"state\": \"TX\",\n  \"stock_exchange\": null,\n  \"stock_symbol\": null,\n  \"store_id\": \"store-visits-001\",\n  \"sub_category\": \"Snack and Nonalcoholic Beverage Bars\",\n  \"version_id\": 1\n}"
+            },
+            "url": "{{baseUrl}}/dataset/store_visits/{{storeVisitsId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Store Visits",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/dataset/store_visits/{{storeVisitsId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{accessToken}}",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Urban Heat Index",
+      "item": [
+        {
+          "name": "Get All Urban Heat Index",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dataset/urban_heat_index",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Urban Heat Index",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('urbanHeatIndexId', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 29.7604,\n  \"longitude\": -95.3698,\n  \"market\": \"Houston\",\n  \"point_geometry\": \"POINT(-95.3698 29.7604)\",\n  \"uhi\": 7\n}"
+            },
+            "url": "{{baseUrl}}/dataset/urban_heat_index",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Urban Heat Index By ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dataset/urban_heat_index/{{urbanHeatIndexId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Urban Heat Index",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 29.7604,\n  \"longitude\": -95.3698,\n  \"market\": \"Houston\",\n  \"point_geometry\": \"POINT(-95.3698 29.7604)\",\n  \"uhi\": 8\n}"
+            },
+            "url": "{{baseUrl}}/dataset/urban_heat_index/{{urbanHeatIndexId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Urban Heat Index",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/dataset/urban_heat_index/{{urbanHeatIndexId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{accessToken}}",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Grid Geometry",
+      "item": [
+        {
+          "name": "Generate N by N State Grid",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('generated', function () { pm.response.to.have.status(200); });",
+                  "pm.sendRequest(pm.collectionVariables.get('baseUrl') + '/grid/all', function (err, res) {",
+                  "  if (!err && res.code === 200) {",
+                  "    const json = res.json();",
+                  "    if (Array.isArray(json) && json.length > 0) {",
+                  "      pm.collectionVariables.set('gridId', json[0].id);",
+                  "      pm.collectionVariables.set('gridCellId', json[0].id);",
+                  "      pm.collectionVariables.set('gridCellIdText', json[0].cell_id);",
+                  "    }",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "url": "{{baseUrl}}/grid/generate_nxn_grid?state_name={{stateName}}&n={{gridSize}}"
+          }
+        },
+        {
+          "name": "Generate N by N City Grid",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('generated', function () { pm.response.to.have.status(200); });",
+                  "pm.sendRequest(pm.collectionVariables.get('baseUrl') + '/grid/all', function (err, res) {",
+                  "  if (!err && res.code === 200) {",
+                  "    const json = res.json();",
+                  "    if (Array.isArray(json) && json.length > 0) {",
+                  "      pm.collectionVariables.set('gridId', json[0].id);",
+                  "      pm.collectionVariables.set('gridCellId', json[0].id);",
+                  "      pm.collectionVariables.set('gridCellIdText', json[0].cell_id);",
+                  "    }",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "url": "{{baseUrl}}/grid/generate_nxn_grid_city?city={{cityName}}&state={{stateName}}&n={{gridSize}}"
+          }
+        },
+        {
+          "name": "Get All Grid Cells",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok', function () { pm.expect([200, 404]).to.include(pm.response.code); });",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (Array.isArray(json) && json.length > 0) {",
+                  "    pm.collectionVariables.set('gridId', json[0].id);",
+                  "    pm.collectionVariables.set('gridCellId', json[0].id);",
+                  "    pm.collectionVariables.set('gridCellIdText', json[0].cell_id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid/all"
+          }
+        },
+        {
+          "name": "Get Grid Cell By DB ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid/id/{{gridId}}"
+          }
+        },
+        {
+          "name": "Get Grid Cell By Cell ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid/cell/{{gridCellIdText}}"
+          }
+        },
+        {
+          "name": "Get Grid Cells By State",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid/state/{{stateName}}"
+          }
+        },
+        {
+          "name": "Get Grid Cells By City",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid/city?city={{cityName}}&state={{stateName}}"
+          }
+        },
+        {
+          "name": "Get Grid Map GeoJSON",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid/map/geojson"
+          }
+        },
+        {
+          "name": "Get State Grid GeoJSON",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid/state/{{stateName}}/geojson"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Polygon Impact Regions",
+      "item": [
+        {
+          "name": "Create Polygon",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created polygon', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('polygonId', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [\n      [\n        [\n          -95.4,\n          29.74\n        ],\n        [\n          -95.36,\n          29.74\n        ],\n        [\n          -95.36,\n          29.78\n        ],\n        [\n          -95.4,\n          29.78\n        ],\n        [\n          -95.4,\n          29.74\n        ]\n      ]\n    ]\n  }\n}"
+            },
+            "url": "{{baseUrl}}/polygon/create_new_polygon"
+          }
+        },
+        {
+          "name": "Create Polygon And Compute Impact Grids",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created polygon impacts', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('polygonId', json.polygon_id);",
+                  "if (json.impacted_grids && json.impacted_grids.length > 0) {",
+                  "  pm.collectionVariables.set('polygonImpactGridId', json.impacted_grids[0].id);",
+                  "  pm.collectionVariables.set('gridCellId', json.impacted_grids[0].grid_cell_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [\n      [\n        [\n          -95.4,\n          29.74\n        ],\n        [\n          -95.36,\n          29.74\n        ],\n        [\n          -95.36,\n          29.78\n        ],\n        [\n          -95.4,\n          29.78\n        ],\n        [\n          -95.4,\n          29.74\n        ]\n      ]\n    ]\n  }\n}"
+            },
+            "url": "{{baseUrl}}/polygon/compute_impact_grids?city={{cityName}}&state={{stateName}}"
+          }
+        },
+        {
+          "name": "Get All Polygons",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/polygon/"
+          }
+        },
+        {
+          "name": "Get Polygon By ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/polygon/{{polygonId}}"
+          }
+        },
+        {
+          "name": "Update Polygon And Recompute Impacts",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('updated polygon', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('polygonId', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"geometry\": {\n    \"type\": \"Polygon\",\n    \"coordinates\": [\n      [\n        [\n          -95.4,\n          29.74\n        ],\n        [\n          -95.36,\n          29.74\n        ],\n        [\n          -95.36,\n          29.78\n        ],\n        [\n          -95.4,\n          29.78\n        ],\n        [\n          -95.4,\n          29.74\n        ]\n      ]\n    ]\n  }\n}"
+            },
+            "url": "{{baseUrl}}/polygon/update_polygon/{{polygonId}}?recompute_impacts=true&city={{cityName}}&state={{stateName}}"
+          }
+        },
+        {
+          "name": "Compute Impact Grids For Saved Polygon",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('computed impacts', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('polygonId', json.polygon_id);",
+                  "if (json.impacted_grids && json.impacted_grids.length > 0) {",
+                  "  pm.collectionVariables.set('polygonImpactGridId', json.impacted_grids[0].id);",
+                  "  pm.collectionVariables.set('gridCellId', json.impacted_grids[0].grid_cell_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "url": "{{baseUrl}}/polygon/{{polygonId}}/compute_impact_grids?city={{cityName}}&state={{stateName}}&replace_existing=true"
+          }
+        },
+        {
+          "name": "Get Impacted Grid Summary For Polygon",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('polygonId', json.polygon_geometry_id);",
+                  "if (json.impacted_grid_cell_ids && json.impacted_grid_cell_ids.length > 0) {",
+                  "  pm.collectionVariables.set('gridCellId', json.impacted_grid_cell_ids[0]);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/polygon/{{polygonId}}/impacted_grids/summary"
+          }
+        },
+        {
+          "name": "Get Impacted Grids For Polygon",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok', function () { pm.expect([200, 404]).to.include(pm.response.code); });",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (Array.isArray(json) && json.length > 0) {",
+                  "    pm.collectionVariables.set('polygonImpactGridId', json[0].id);",
+                  "    pm.collectionVariables.set('gridCellId', json[0].grid_cell_id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/polygon/{{polygonId}}/impacted_grids"
+          }
+        },
+        {
+          "name": "Get All Impacted Grids",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/polygon/impacted_grids"
+          }
+        },
+        {
+          "name": "Delete Polygon",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "DELETE",
+            "url": "{{baseUrl}}/polygon/delete/{{polygonId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Grid Metrics",
+      "item": [
+        {
+          "name": "Set Grid Cell ID From Grid List",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('grid cells exist', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.expect(json).to.be.an('array').that.is.not.empty;",
+                  "pm.collectionVariables.set('gridId', json[0].id);",
+                  "pm.collectionVariables.set('gridCellId', json[0].id);",
+                  "pm.collectionVariables.set('gridCellIdText', json[0].cell_id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid/all"
+          }
+        },
+        {
+          "name": "Create Grid Metrics",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created', function () { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('gridMetricId', json.id);",
+                  "pm.collectionVariables.set('gridCellId', json.grid_cell_id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grid_cell_id\": {{gridCellId}},\n  \"timestamp\": \"{{metricTimestamp}}\",\n  \"heat_index\": 104.0,\n  \"heat_risk\": 0.82,\n  \"crowd_density\": 0.65,\n  \"population\": 12000.0,\n  \"cooling_centers\": 3,\n  \"cooling_centers_impact_radius\": 1.5,\n  \"infrastructure_strain\": 0.7,\n  \"heat_index_color\": \"#FF4500\",\n  \"heat_risk_color\": \"#FF0000\",\n  \"crowd_density_color\": \"#FFA500\",\n  \"population_color\": \"#FFD700\",\n  \"cooling_centers_color\": \"#00BFFF\",\n  \"infrastructure_strain_color\": \"#FF6347\",\n  \"overall_risk_color\": \"#FF0000\"\n}"
+            },
+            "url": "{{baseUrl}}/grid_metrics/create"
+          }
+        },
+        {
+          "name": "Assign Metrics To All Grid Cells",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('assigned', function () { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('gridMetricId', json.first_metric_id);",
+                  "pm.collectionVariables.set('gridCellId', json.first_grid_cell_id);",
+                  "pm.collectionVariables.set('gridCellIdText', json.first_grid_cell_cell_id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"timestamp\": \"{{metricTimestamp}}\",\n  \"heat_index\": 104.0,\n  \"heat_risk\": 0.82,\n  \"crowd_density\": 0.65,\n  \"population\": 12000.0,\n  \"cooling_centers\": 3,\n  \"cooling_centers_impact_radius\": 1.5,\n  \"infrastructure_strain\": 0.7,\n  \"heat_index_color\": \"#FF4500\",\n  \"heat_risk_color\": \"#FF0000\",\n  \"crowd_density_color\": \"#FFA500\",\n  \"population_color\": \"#FFD700\",\n  \"cooling_centers_color\": \"#00BFFF\",\n  \"infrastructure_strain_color\": \"#FF6347\",\n  \"overall_risk_color\": \"#FF0000\"\n}"
+            },
+            "url": "{{baseUrl}}/grid_metrics/assign_all?state={{stateName}}&replace_existing=true"
+          }
+        },
+        {
+          "name": "Get All Grid Metrics",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid_metrics/all"
+          }
+        },
+        {
+          "name": "Get Metrics By Grid Cell ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid_metrics/grid/{{gridCellId}}"
+          }
+        },
+        {
+          "name": "Get Latest Metrics By Grid Cell ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid_metrics/grid/{{gridCellId}}/latest"
+          }
+        },
+        {
+          "name": "Get Latest Metrics For All Grid Cells",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid_metrics/latest"
+          }
+        },
+        {
+          "name": "Get Metrics By State",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid_metrics/state/{{stateName}}"
+          }
+        },
+        {
+          "name": "Get Latest Metrics By State",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid_metrics/state/{{stateName}}/latest"
+          }
+        },
+        {
+          "name": "Update Grid Metrics",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grid_cell_id\": {{gridCellId}},\n  \"timestamp\": \"{{metricTimestamp}}\",\n  \"heat_index\": 104.0,\n  \"heat_risk\": 0.82,\n  \"crowd_density\": 0.65,\n  \"population\": 12000.0,\n  \"cooling_centers\": 3,\n  \"cooling_centers_impact_radius\": 1.5,\n  \"infrastructure_strain\": 0.7,\n  \"heat_index_color\": \"#FF4500\",\n  \"heat_risk_color\": \"#FF0000\",\n  \"crowd_density_color\": \"#FFA500\",\n  \"population_color\": \"#FFD700\",\n  \"cooling_centers_color\": \"#00BFFF\",\n  \"infrastructure_strain_color\": \"#FF6347\",\n  \"overall_risk_color\": \"#FF0000\"\n}"
+            },
+            "url": "{{baseUrl}}/grid_metrics/update/{{gridMetricId}}"
+          }
+        },
+        {
+          "name": "Delete Grid Metrics",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "DELETE",
+            "url": "{{baseUrl}}/grid_metrics/delete/{{gridMetricId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Grid Interpolation",
+      "item": [
+        {
+          "name": "Get City Grid Cells GeoJSON",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid_interpolation/grid_cells_city?city={{cityName}}&state={{stateName}}"
+          }
+        },
+        {
+          "name": "Interpolate City Grid",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('interpolated', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "if (Array.isArray(json) && json.length > 0) {",
+                  "  pm.collectionVariables.set('interpolatedPointId', json[0].id);",
+                  "  pm.collectionVariables.set('gridCellId', json[0].grid_cell_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"city\": \"{{cityName}}\",\n  \"state\": \"{{stateName}}\",\n  \"timestamp\": \"{{interpolationTimestamp}}\",\n  \"metric_key\": \"{{interpolationMetric}}\",\n  \"replace_existing\": true,\n  \"known_points\": []\n}"
+            },
+            "url": "{{baseUrl}}/grid_interpolation/interpolate"
+          }
+        },
+        {
+          "name": "Get All Interpolated Points GeoJSON",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok', function () { pm.expect([200, 404]).to.include(pm.response.code); });",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.features && json.features.length > 0) {",
+                  "    pm.collectionVariables.set('interpolatedPointId', json.features[0].properties.id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid_interpolation/all"
+          }
+        },
+        {
+          "name": "Get Interpolated Polygon Mesh GeoJSON",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok', function () { pm.expect([200, 404]).to.include(pm.response.code); });",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  pm.test('is FeatureCollection', function () { pm.expect(json.type).to.eql('FeatureCollection'); });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid_interpolation/mesh?city={{cityName}}&state={{stateName}}&timestamp={{interpolationTimestamp}}&color_metric={{colorMetric}}"
+          }
+        },
+        {
+          "name": "Get Interpolated Heatmap GeoJSON",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok', function () { pm.expect([200, 404]).to.include(pm.response.code); });",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  pm.test('is FeatureCollection', function () { pm.expect(json.type).to.eql('FeatureCollection'); });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid_interpolation/heatmap?city={{cityName}}&state={{stateName}}&timestamp={{interpolationTimestamp}}&metric_key={{heatmapMetric}}"
+          }
+        },
+        {
+          "name": "Update Interpolated Point By ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"heat_index\": 101.0,\n  \"heat_risk\": 0.7,\n  \"crowd_density\": 0.5,\n  \"population\": 10000.0,\n  \"cooling_centers\": 2.0,\n  \"infrastructure_strain\": 0.6,\n  \"interpolation_method\": \"manual_update\",\n  \"source_count\": 3,\n  \"confidence\": 0.95\n}"
+            },
+            "url": "{{baseUrl}}/grid_interpolation/update/{{interpolatedPointId}}"
+          }
+        },
+        {
+          "name": "Delete Interpolated Point By ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "DELETE",
+            "url": "{{baseUrl}}/grid_interpolation/delete/{{interpolatedPointId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "NWS Weather",
+      "item": [
+        {
+          "name": "Get All Weather Observations",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/weather/fetch/all"
+          }
+        },
+        {
+          "name": "Create Weather Observation From NWS",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('created', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('weatherObservationId', json.id);",
+                  "pm.collectionVariables.set('gridCellId', json.grid_cell_id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "url": "{{baseUrl}}/weather/fetch/create/{{gridCellId}}"
+          }
+        },
+        {
+          "name": "Get Weather By Grid Cell ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/weather/fetch/{{gridCellId}}"
+          }
+        },
+        {
+          "name": "Get Latest Weather For Grid Cell",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/weather/grid/{{gridCellId}}/latest"
+          }
+        },
+        {
+          "name": "Get Weather History For Grid Cell",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/weather/grid/{{gridCellId}}"
+          }
+        },
+        {
+          "name": "Assign Weather To All Grid Cells",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/weather/assign_all?max_workers=20&skip_existing=false",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "weather",
+                "assign_all"
+              ],
+              "query": [
+                {
+                  "key": "max_workers",
+                  "value": "20"
+                },
+                {
+                  "key": "skip_existing",
+                  "value": "false"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Assign Weather To State Grid Cells",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/weather/assign_state?state={{stateName}}&max_workers=20&skip_existing=false",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "weather",
+                "assign_state"
+              ],
+              "query": [
+                {
+                  "key": "state",
+                  "value": "{{stateName}}"
+                },
+                {
+                  "key": "max_workers",
+                  "value": "20"
+                },
+                {
+                  "key": "skip_existing",
+                  "value": "false"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Weather By Grid Cell ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grid_cell_id\": {{gridCellId}},\n  \"timestamp\": \"2026-06-28T12:00:00-05:00\",\n  \"temperature\": 95.0,\n  \"humidity\": 62.0,\n  \"dewpoint\": 76.0,\n  \"wind_direction\": \"S\",\n  \"precipitation_prob\": 20.0,\n  \"detailed_forecast\": \"Hot and humid test forecast for FIFA planning.\",\n  \"source\": \"POSTMAN\"\n}"
+            },
+            "url": "{{baseUrl}}/weather/fetch/update/{{gridCellId}}"
+          }
+        },
+        {
+          "name": "Delete Weather Observation By ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "DELETE",
+            "url": "{{baseUrl}}/weather/delete/{{weatherObservationId}}"
+          }
+        }
+      ]
+    }
+  ]
+}
