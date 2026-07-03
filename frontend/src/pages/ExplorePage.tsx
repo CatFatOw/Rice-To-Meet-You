@@ -52,6 +52,8 @@ const ExplorePage: React.FC = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
+  const [editingAreaId, setEditingAreaId] = useState<string | null>(null);
+  const [isAreaDragging, setIsAreaDragging] = useState(false);
   const [overallStatisticsProps, setOverallStatisticsProps] =
     useState<OverallStatisticsProps>();
   const [poiStatisticsProps, setPOIStatisticsProps] = useState<POIStatisticsProps>();
@@ -151,14 +153,19 @@ const ExplorePage: React.FC = () => {
     };
   }, [selectedCity]);
 
+  useEffect(() => {
+    setEditingAreaId(null);
+    setIsAreaDragging(false);
+  }, [selectedCity]);
+
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[#020817] text-white">
       <div className="shrink-0">
         <NavigationBar />
       </div>
 
-      <main className="flex-1 overflow-hidden p-4">
-        <div className="grid h-full grid-cols-[minmax(0,1fr)_420px] grid-rows-[minmax(0,1fr)_minmax(220px,30vh)] gap-4">
+      <main className="flex-1 overflow-hidden p-3">
+        <div className="grid h-full grid-cols-[minmax(0,1fr)_360px] grid-rows-[minmax(0,1fr)_minmax(180px,24vh)] gap-3">
           <section className="min-h-0 overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
             <Heatmap
               viewState={viewState}
@@ -196,6 +203,11 @@ const ExplorePage: React.FC = () => {
               setShowSuggestions={setShowSuggestions}
               selectedMetric={selectedMetric}
               setSelectedMetric={setSelectedMetric}
+              editingAreaId={editingAreaId}
+              setEditingAreaId={setEditingAreaId}
+              isAreaDragging={isAreaDragging}
+              setIsAreaDragging={setIsAreaDragging}
+            
             />
           </section>
 
