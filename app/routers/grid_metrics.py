@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from repository.grid_metrics_repository import (
+    assign_demo_metrics_to_existing_rows,
     create_grid_metric,
     create_metrics_for_grid_cells,
     delete_metric,
@@ -88,6 +89,28 @@ async def assign_metrics_all_grids(
         "first_metric_id": first_metric.id,
         "first_grid_cell_id": first_metric.grid_cell_id,
         "first_grid_cell_cell_id": first_metric.cell_id,
+    }
+
+
+# Update existing metric rows with varied demo values for heatmap previews.
+@router.post("/assign_demo", status_code=status.HTTP_200_OK)
+async def assign_demo_metrics(
+    state: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Randomize existing grid metric rows into realistic demo ranges."""
+    updated_count = assign_demo_metrics_to_existing_rows(state, db)
+    if not updated_count:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="NO EXISTING METRIC ROWS FOUND. Run /grid_metrics/assign_all first.",
+        )
+
+    return {
+        "message": "Demo metrics assigned successfully",
+        "state": state,
+        "metrics_updated": updated_count,
+        "note": "Existing grid_cell_metrics rows were updated in place; no grid cells or metric rows were deleted.",
     }
 
 

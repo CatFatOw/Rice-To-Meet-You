@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
 from database import get_db
-from repository.grid_interpolation_repository import get_interpolated_points_query
 from repository.grid_metrics_repository import (
     create_simulated_metrics_from_latest,
     get_latest_metrics_for_city,
@@ -26,7 +25,7 @@ from schemas.front_end_schemas.heatmap_schemas import (
 )
 from services.grid_interpolation_service import (
     INTERPOLATABLE_METRICS,
-    interpolated_points_to_metric_layers,
+    grid_metrics_to_metric_layers,
 )
 from services.grid_metrics_services import (
     build_overall_statistics,
@@ -76,13 +75,13 @@ def get_heatmap_metric_points(
     state: str | None = None,
     db: Session = Depends(get_db),
 ):
-    """Return interpolated metric rows as city-keyed frontend heatmap layers."""
+    """Return latest grid metrics as city-keyed frontend heatmap layers."""
     validate_city_state_filter(city, state)
-    interpolated_points = get_interpolated_points_query(db, city, state).all()
-    if not interpolated_points:
+    latest_metrics = get_latest_metrics_for_city(city, state, db)
+    if not latest_metrics:
         return {}
 
-    return interpolated_points_to_metric_layers(interpolated_points, INTERPOLATABLE_METRICS)
+    return grid_metrics_to_metric_layers(latest_metrics, INTERPOLATABLE_METRICS)
 
 
 @router.get("/statistics")

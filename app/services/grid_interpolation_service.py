@@ -518,3 +518,51 @@ def interpolated_points_to_metric_layers(interpolated_points, metric_keys=None):
         city_name: [layer for layer in city_layers.values() if layer["points"]]
         for city_name, city_layers in layers_by_city.items()
     }
+
+
+def grid_metrics_to_metric_layers(metrics, metric_keys=None):
+    """Convert latest grid metric rows into the frontend heatmap layer shape.
+
+    This uses the saved grid cell centroid as the rendered point location, so
+    the frontend can display a varied heatmap without requiring separate
+    interpolated point rows for every demo dataset refresh.
+    """
+    metric_keys = sorted(metric_keys or INTERPOLATABLE_METRICS)
+    ranges = {
+        metric_key: metric_value_range(metrics, metric_key)
+        for metric_key in metric_keys
+    }
+    layers_by_city = {}
+
+    for metric_key in metric_keys:
+        min_value, max_value = ranges[metric_key]
+        for metric in metrics:
+            raw_value = getattr(metric, metric_key, None)
+            if raw_value is None:
+                continue
+
+            grid_cell = getattr(metric, "grid_cell", None)
+            if not grid_cell:
+                continue
+
+            city_name = city_name_from_interpolated_point(metric)
+            city_layers = layers_by_city.setdefault(
+                city_name,
+                {key: {"metric": key, "points": []} for key in metric_keys},
+            )
+            individual_metrics = {
+                key: getattr(metric, key, None)
+                for key in metric_keys
+            }
+
+            city_layers[metric_key]["points"].append({
+                "value": metric_to_intensity(raw_value, min_value, max_value) * 100,
+                "location_name": grid_cell.cell_id or f"Grid Cell {metric.grid_cell_id}",
+                "location_coordinates": [grid_cell.grid_centroid_lon, grid_cell.grid_centroid_lat],
+                "individual_metrics": individual_metrics,
+            })
+
+    return {
+        city_name: [layer for layer in city_layers.values() if layer["points"]]
+        for city_name, city_layers in layers_by_city.items()
+    }
