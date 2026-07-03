@@ -446,3 +446,75 @@ def interpolated_points_to_polygon_geojson(interpolated_points, color_metric="he
         "type": "FeatureCollection",
         "features": features,
     }
+
+
+def city_name_from_interpolated_point(point):
+    """Infer the display city name from the generated grid cell id.
+
+    Interpolated points do not store city directly. Generated grid cell ids use
+    a city_state_row_col style prefix, so this keeps the frontend heatmap route
+    grouped by city without adding another database column.
+    """
+    grid_cell = getattr(point, "grid_cell", None)
+    cell_id = getattr(grid_cell, "cell_id", None)
+    state = getattr(grid_cell, "state", None)
+    if not cell_id:
+        return "Unknown"
+
+    parts = cell_id.split("_")
+    if state:
+        normalized_state = str(state).lower().replace(" ", "_")
+        state_index = "_".join(parts).find(f"_{normalized_state}_")
+        if state_index > 0:
+            return cell_id[:state_index].replace("_", " ").title()
+
+    if len(parts) >= 3:
+        return parts[0].replace("_", " ").title()
+    return "Unknown"
+
+
+def interpolated_points_to_metric_layers(interpolated_points, metric_keys=None):
+    """Convert interpolated rows into the frontend heatmap metric layer shape.
+
+    The lower-level interpolation endpoint returns GeoJSON. The React heatmap
+    component expects a city-keyed dictionary of metric layers, with each layer
+    containing normalized 0-100 weighted points. This adapter keeps that frontend
+    contract while reusing the saved interpolation rows as the source of truth.
+    """
+    metric_keys = sorted(metric_keys or INTERPOLATABLE_METRICS)
+    ranges = {
+        metric_key: metric_value_range(interpolated_points, metric_key)
+        for metric_key in metric_keys
+    }
+    layers_by_city = {}
+
+    for metric_key in metric_keys:
+        min_value, max_value = ranges[metric_key]
+        for point in interpolated_points:
+            raw_value = getattr(point, metric_key, None)
+            if raw_value is None:
+                continue
+
+            city_name = city_name_from_interpolated_point(point)
+            city_layers = layers_by_city.setdefault(
+                city_name,
+                {key: {"metric": key, "points": []} for key in metric_keys},
+            )
+            grid_cell = getattr(point, "grid_cell", None)
+            location_name = getattr(grid_cell, "cell_id", None) or f"Grid Cell {point.grid_cell_id}"
+            individual_metrics = {
+                key: getattr(point, key, None)
+                for key in metric_keys
+            }
+
+            city_layers[metric_key]["points"].append({
+                "value": metric_to_intensity(raw_value, min_value, max_value) * 100,
+                "location_name": location_name,
+                "location_coordinates": [point.longitude, point.latitude],
+                "individual_metrics": individual_metrics,
+            })
+
+    return {
+        city_name: [layer for layer in city_layers.values() if layer["points"]]
+        for city_name, city_layers in layers_by_city.items()
+    }
