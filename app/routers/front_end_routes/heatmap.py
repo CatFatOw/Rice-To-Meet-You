@@ -7,6 +7,7 @@ reuse repository/service helpers instead of maintaining separate mock data paths
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timezone
 
 from database import get_db
@@ -17,6 +18,7 @@ from repository.grid_metrics_repository import (
 )
 from repository.polygon_repository import get_polygons_for_city_state, create_new_polygon, create_impact_grids
 from repository.polygon_repository import get_impacted_grid_cell_ids_by_polygon_id, get_key_pois, get_polygon_by_id
+from repository.poi_polygon_repository import get_poi_by_id, get_poi_polygons_for_city_state
 from schemas.front_end_schemas.heatmap_schemas import (
     HeatmapMetricPoint,
     LocationPOIResponse,
@@ -33,6 +35,7 @@ from services.grid_metrics_services import (
     simulation_adjustments_from_objects,
 )
 from services.polygon_services import polygon_from_geojson
+from services.poi_polygon_services import poi_to_frontend_polygon
 from schemas import polygon_schemas
 
 router = APIRouter(prefix="/heatmap", tags=["heatmap"])
@@ -52,11 +55,13 @@ def validate_city_state_filter(city: str | None, state: str | None):
 def get_location_pois(
     city: str | None = None,
     state: str | None = None,
+    include_core_pois: bool = True,
+    core_poi_limit: int = 250,
     db: Session = Depends(get_db),
 ):
-    """Return saved polygon POIs in the frontend overlay format."""
+    """Return saved polygon and core dataset POIs in the frontend overlay format."""
     polygons = get_polygons_for_city_state(city, state, db)
-    return [
+    saved_polygons = [
         {
             "id": f"polygon-{polygon.id}",
             "name": polygon.name or f"Region {polygon.id}",
@@ -68,6 +73,47 @@ def get_location_pois(
         for polygon in polygons
     ]
 
+    if not include_core_pois:
+        return saved_polygons
+
+    pois = get_poi_polygons_for_city_state(
+        None if city == "Nationally" else city,
+        state,
+        db,
+        limit=core_poi_limit,
+    )
+    return [*saved_polygons, *[poi_to_frontend_polygon(poi) for poi in pois]]
+
+
+@router.get("/core-pois", response_model=list[LocationPOIResponse])
+def get_core_pois(
+    city: str | None = None,
+    state: str | None = None,
+    category: str | None = None,
+    limit: int = 250,
+    db: Session = Depends(get_db),
+):
+    """Return core POI footprints in the frontend overlay format."""
+    pois = get_poi_polygons_for_city_state(
+        None if city == "Nationally" else city,
+        state,
+        db,
+        category=category,
+        limit=limit,
+    )
+    return [poi_to_frontend_polygon(poi) for poi in pois]
+
+
+@router.get("/core-pois/{poi_id}", response_model=LocationPOIResponse)
+def get_core_poi_details(poi_id: int, db: Session = Depends(get_db)):
+    """Return one core POI polygon with click-panel metadata and statistics."""
+    poi = get_poi_by_id(poi_id, db)
+    if not poi:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="POI not found")
+    if not poi.polygon_wkt:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="POI has no polygon")
+    return poi_to_frontend_polygon(poi)
+
 
 @router.get("/metrics/points", response_model=dict[str, list[HeatmapMetricPoint]])
 def get_heatmap_metric_points(
@@ -77,7 +123,10 @@ def get_heatmap_metric_points(
 ):
     """Return latest grid metrics as city-keyed frontend heatmap layers."""
     validate_city_state_filter(city, state)
-    latest_metrics = get_latest_metrics_for_city(city, state, db)
+    try:
+        latest_metrics = get_latest_metrics_for_city(city, state, db)
+    except SQLAlchemyError:
+        return {}
     if not latest_metrics:
         return {}
 
@@ -91,8 +140,12 @@ def get_statistics(
     db: Session = Depends(get_db),
 ):
     """Return dashboard summary and POI table statistics for a city/state view."""
-    latest_metrics = get_latest_metrics_for_city(city, state, db)
-    pois = get_key_pois(None if city == "Nationally" else city, state, db)
+    try:
+        latest_metrics = get_latest_metrics_for_city(city, state, db)
+        pois = get_key_pois(None if city == "Nationally" else city, state, db)
+    except SQLAlchemyError:
+        latest_metrics = []
+        pois = []
 
     return {
         "overallStatistics": build_overall_statistics(city, latest_metrics),

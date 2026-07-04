@@ -1,7 +1,7 @@
 """Pydantic response schemas for frontend heatmap endpoints."""
 
 from pydantic import BaseModel, Field
-from typing import List
+from typing import Any, List
 from datetime import datetime
 
 
@@ -11,8 +11,11 @@ class HeatmapPolygonBase(BaseModel):
     name: str
     cityName: str
     stateName: str | None = None
+    category: str | None = None
+    poi_id: int | None = None
     color: List[int] = Field(..., min_length=4, max_length=4)
     polygon: List[List[float]]
+    properties: dict[str, Any] | None = None
 
 
 class HeatmapPolygonCreate(HeatmapPolygonBase):

@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session 
 import database 
 import models
-from routers import dataset, grid_geometry, grid_interpolation, grid_metrics, login, nws_weather, polygon, users
+from routers import dataset, grid_geometry, grid_interpolation, grid_metrics, login, nws_weather, poi_polygons, polygon, users
 from routers.front_end_routes import heatmap
 
 
@@ -31,6 +31,7 @@ app.include_router(nws_weather.router)
 app.include_router(grid_geometry.router)
 app.include_router(grid_metrics.router)
 app.include_router(grid_interpolation.router)
+app.include_router(poi_polygons.router)
 app.include_router(polygon.router)
 app.include_router(heatmap.router)
 

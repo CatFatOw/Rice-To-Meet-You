@@ -19,11 +19,17 @@ async function fetchBackendJson<T>(path: string): Promise<T> {
 
 export interface CityPOIArea {
   id: string;
+  poi_id?: number;
   name: string;
   cityName: string;
   stateName?: string | null;
+  category?: string | null;
   color: [number, number, number, number];
   polygon: Polygon;
+  properties?: {
+    statistics?: Record<string, string | number | boolean | null>;
+    [key: string]: unknown;
+  } | null;
   polygon_geometry_id?: number;
   impacted_count?: number;
   impacted_grid_cell_ids?: number[];
@@ -66,10 +72,17 @@ export async function callMockLocationPOIs(): Promise<CityPOIArea[]> {
   // or the database has not been seeded, fall back to the original demo POIs so
   // the copied frontend remains usable on its own.
   try {
-    const backendPOIs = await fetchBackendJson<CityPOIArea[]>('/heatmap/location-pois');
+    const backendPOIs = await fetchBackendJson<CityPOIArea[]>('/heatmap/core-pois?limit=500');
     if (backendPOIs.length > 0) return backendPOIs;
   } catch (error) {
-    console.warn('Falling back to mock location POIs', error);
+    console.warn('Falling back to saved/mock location POIs', error);
+  }
+
+  try {
+    const savedPOIs = await fetchBackendJson<CityPOIArea[]>('/heatmap/location-pois');
+    if (savedPOIs.length > 0) return savedPOIs;
+  } catch {
+    /* Keep the original demo fallback below. */
   }
 
   return [
@@ -100,6 +113,7 @@ export interface HeatmapMetricValue {
   location_name: string;
   location_coordinates: [number, number]; // [lon, lat]
   individual_metrics?: Record<string, number | null | undefined>;
+  is_interpolated?: boolean;
 }
 
 // One metric layer (e.g. "heat_risk_score") and all of its points.
@@ -142,6 +156,14 @@ export interface SimulationApplyResponse {
   metrics_created: number;
   impacted_count: number;
   impacted_grid_cell_ids: number[];
+}
+
+export interface CorePOIImportResponse {
+  filename: string;
+  imported_count: number;
+  skipped_count: number;
+  total_rows: number;
+  errors: string[];
 }
 
 function anchor(
@@ -502,6 +524,22 @@ export async function callHeatmapMetricsPoints(): Promise<HeatmapMetricsPointRes
       },
     ],
   };
+}
+
+export async function importCorePOIFile(file: File): Promise<CorePOIImportResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_BASE_URL}/core_poi_polygons/import`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Core POI import failed: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json() as Promise<CorePOIImportResponse>;
 }
 
 export async function createSimulationPolygon(
