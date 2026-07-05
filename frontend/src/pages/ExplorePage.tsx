@@ -5,12 +5,12 @@ import NavigationBar from '../components/NavigationBar';
 import OverallStatistics, { type OverallStatisticsProps } from '../components/OverallStatistics';
 import POIStatistics, { type POIStatisticsProps } from '../components/POIStatistics';
 import {
-  callHeatmapMetricsPoints,
+  callHeatmapMetricsGrid,
   callMockLocationPOIs,
   importCorePOIFile,
   type CityPOIArea,
   type HeatmapMetricValue,
-  type HeatmapMetricsPointResponse,
+  type HeatmapMetricGridResponse,
 } from '../api/map';
 import { callMockStatistics } from '../api/statistics';
 import { determineCityView } from '../utils/cityViews';
@@ -56,8 +56,8 @@ const ExplorePage: React.FC = () => {
 
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [cityPOIAreas, setCityPOIAreas] = useState<CityPOIArea[]>([]);
-  const [heatmapPointsByCity, setHeatmapPointsByCity] =
-    useState<HeatmapMetricsPointResponse>({});
+  const [metricGridsByCity, setMetricGridsByCity] =
+    useState<HeatmapMetricGridResponse>({});
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -136,18 +136,18 @@ const ExplorePage: React.FC = () => {
   useEffect(() => {
     let isMounted = true;
 
-    const loadHeatmapPoints = async () => {
+    const loadMetricGrids = async () => {
       try {
-        const pointsByCity = await callHeatmapMetricsPoints();
+        const gridsByCity = await callHeatmapMetricsGrid();
         if (isMounted) {
-          setHeatmapPointsByCity(pointsByCity);
+          setMetricGridsByCity(gridsByCity);
         }
       } catch (error) {
-        console.error('Failed to load heatmap metric points', error);
+        console.error('Failed to load heatmap metric grids', error);
       }
     };
 
-    loadHeatmapPoints();
+    loadMetricGrids();
 
     return () => {
       isMounted = false;
@@ -222,8 +222,11 @@ const ExplorePage: React.FC = () => {
     ? userPOIAreas.filter((poi) => poi.cityName === selectedCity).length
     : userPOIAreas.length;
   const activeMetricCount = selectedCity
-    ? (heatmapPointsByCity[selectedCity]?.length ?? 0)
-    : Object.values(heatmapPointsByCity).reduce((sum, layers) => sum + layers.length, 0);
+    ? Object.keys(metricGridsByCity[selectedCity]?.metrics ?? {}).length
+    : Object.values(metricGridsByCity).reduce(
+        (sum, grid) => sum + Object.keys(grid.metrics).length,
+        0,
+      );
   const parsedNearestPoint = useMemo<[number, number] | null>(() => {
     const lon = Number.parseFloat(nearestLongitude);
     const lat = Number.parseFloat(nearestLatitude);
@@ -285,7 +288,7 @@ const ExplorePage: React.FC = () => {
               selectedCity={selectedCity}
               setSelectedCity={setSelectedCity}
               cityPOIAreas={cityPOIAreas}
-              heatmapPointsByCity={heatmapPointsByCity}
+              metricGridsByCity={metricGridsByCity}
               showAllCityHeatmaps={showAllCityHeatmaps}
               mapContainerRef={mapContainerRef}
               mapRef={mapRef}

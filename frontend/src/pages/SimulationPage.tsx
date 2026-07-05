@@ -5,10 +5,10 @@ import NavigationBar from '../components/NavigationBar';
 import OverallStatistics, { type OverallStatisticsProps } from '../components/OverallStatistics';
 import POIStatistics, { type POIStatisticsProps } from '../components/POIStatistics';
 import {
-  callHeatmapMetricsPoints,
+  callHeatmapMetricsGrid,
   callMockLocationPOIs,
   type CityPOIArea,
-  type HeatmapMetricsPointResponse,
+  type HeatmapMetricGridResponse,
 } from '../api/map';
 import { callMockStatistics } from '../api/statistics';
 import { determineCityView } from '../utils/cityViews';
@@ -37,8 +37,8 @@ const SimulationPage: React.FC = () => {
 
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [cityPOIAreas, setCityPOIAreas] = useState<CityPOIArea[]>([]);
-  const [heatmapPointsByCity, setHeatmapPointsByCity] =
-    useState<HeatmapMetricsPointResponse>({});
+  const [metricGridsByCity, setMetricGridsByCity] =
+    useState<HeatmapMetricGridResponse>({});
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -82,18 +82,18 @@ const SimulationPage: React.FC = () => {
   useEffect(() => {
     let isMounted = true;
 
-    const loadHeatmapPoints = async () => {
+    const loadMetricGrids = async () => {
       try {
-        const pointsByCity = await callHeatmapMetricsPoints();
+        const gridsByCity = await callHeatmapMetricsGrid();
         if (isMounted) {
-          setHeatmapPointsByCity(pointsByCity);
+          setMetricGridsByCity(gridsByCity);
         }
       } catch (error) {
-        console.error('Failed to load heatmap metric points', error);
+        console.error('Failed to load heatmap metric grids', error);
       }
     };
 
-    loadHeatmapPoints();
+    loadMetricGrids();
 
     return () => {
       isMounted = false;
@@ -173,7 +173,7 @@ const SimulationPage: React.FC = () => {
               selectedCity={selectedCity}
               setSelectedCity={setSelectedCity}
               cityPOIAreas={cityPOIAreas}
-              heatmapPointsByCity={heatmapPointsByCity}
+              metricGridsByCity={metricGridsByCity}
               mapContainerRef={mapContainerRef}
               mapRef={mapRef}
               mapSyncFrameRef={mapSyncFrameRef}
