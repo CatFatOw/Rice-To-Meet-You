@@ -11,6 +11,8 @@ export interface CityStatisticsResponse {
   poiStatistics: POIStatisticsProps;
 }
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
+
 interface CitySeedData {
   averageHeatRisk: number;
   totalVisitors: string;
@@ -416,6 +418,22 @@ function buildStatCards(seed: CitySeedData): StatCardInfo[] {
 
 export async function callMockStatistics(city: string): Promise<CityStatisticsResponse> {
   await new Promise((resolve) => setTimeout(resolve, 300));
+
+  // The backend statistics route now returns the same shape as the original
+  // mock helper. Keep the helper name so the copied frontend needs fewer code
+  // changes, but prefer live FastAPI data whenever the backend responds.
+  try {
+    const query = new URLSearchParams({ city, state: 'Texas' });
+    const response = await fetch(`${API_BASE_URL}/heatmap/statistics?${query.toString()}`, {
+      headers: { Accept: 'application/json' },
+    });
+
+    if (response.ok) {
+      return response.json() as Promise<CityStatisticsResponse>;
+    }
+  } catch (error) {
+    console.warn('Falling back to mock city statistics', error);
+  }
 
   const fallbackCity = 'Nationally';
   const selectedCity = CITY_STATISTICS_SEED[city] ? city : fallbackCity;
