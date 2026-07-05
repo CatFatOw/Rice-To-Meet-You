@@ -4,6 +4,8 @@ import Heatmap, { type GeocodeResult, type TooltipState } from '../components/He
 import NavigationBar from '../components/NavigationBar';
 import OverallStatistics, { type OverallStatisticsProps } from '../components/OverallStatistics';
 import POIStatistics, { type POIStatisticsProps } from '../components/POIStatistics';
+import SelectDate from '../components/SelectDate';
+import SimulateButton from '../components/SimulateButton';
 import {
   callHeatmapMetricsPoints,
   callMockLocationPOIs,
@@ -54,6 +56,7 @@ const SimulationPage: React.FC = () => {
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
   const [editingAreaId, setEditingAreaId] = useState<string | null>(null);
   const [isAreaDragging, setIsAreaDragging] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string | null>('2026-07-04');
   const [overallStatisticsProps, setOverallStatisticsProps] =
     useState<OverallStatisticsProps>();
   const [poiStatisticsProps, setPOIStatisticsProps] = useState<POIStatisticsProps>();
@@ -211,9 +214,21 @@ const SimulationPage: React.FC = () => {
             />
           </section>
 
-          <section className="min-h-0 h-full">
-            <POIStatistics {...poiStatisticsProps} />
-          </section>
+          <div className="min-h-0 flex h-full flex-col gap-3">
+            <div className="shrink-0 flex items-start gap-3">
+              <SelectDate label="Date" value={selectedDate} onChange={setSelectedDate} />
+              <SimulateButton
+                label="Simulate"
+                onClick={() => {
+                  console.log('Simulate clicked', selectedDate);
+                }}
+              />
+            </div>
+
+            <section className="min-h-0 flex-1">
+              <POIStatistics {...poiStatisticsProps} />
+            </section>
+          </div>
 
           <section className="col-span-2 min-h-0 overflow-auto">
             <OverallStatistics {...overallStatisticsProps} />

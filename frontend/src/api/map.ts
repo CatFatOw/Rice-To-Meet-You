@@ -1,3 +1,7 @@
+// ============================================================================
+// Calling POI Polygon Inputs
+// ============================================================================
+
 type Polygon = [number, number][];
 
 export interface CityPOIArea {
@@ -59,9 +63,9 @@ export async function callMockLocationPOIs(): Promise<CityPOIArea[]> {
   ];
 }
 
-// ---------------------------------------------------------------------------
-// callHeatmapMetricsPoints()
-// ---------------------------------------------------------------------------
+// ============================================================================
+// Calling Heatmap Metrics Point
+// ============================================================================
 
 // A single measured / interpolated reading at one coordinate.
 export interface HeatmapMetricValue {
@@ -442,12 +446,6 @@ export async function callHeatmapMetricsPoints(): Promise<HeatmapMetricsPointRes
 // Mock API: getCoordinateValue
 // Returns a list of metrics. Each metric carries coordinate -> value points.
 //
-// This version generates a DENSE FIELD: a value at every lattice point across
-// the entire Houston metro bounding box, so every grid cell has a value to map.
-// The lattice step matches a 2-decimal coordinate key (~0.01° ≈ 1.1 km), so
-// each cell centroid (rounded to 2 decimals) finds a matching point. Values are
-// temperature (°F) shaped as an urban heat island: hottest near downtown,
-// cooler toward Galveston Bay.
 // ============================================================================
 
 export type MetricType = 'heat_profile'; // bundled per-point heat attributes

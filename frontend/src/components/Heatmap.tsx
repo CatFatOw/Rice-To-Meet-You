@@ -1,36 +1,25 @@
 import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
-import {
-  Expand,
-  Shrink,
-  Pencil,
-  Check,
-  Undo2,
-  X,
-  Trash2,
-  Search,
-  MapPin,
-  Crosshair,
-  Loader2,
-  Snowflake,
-  Umbrella,
-  Droplets,
-  Fan,
-  Cross,
-  TreePine,
-} from 'lucide-react';
+import { Expand, Shrink } from 'lucide-react';
 import DeckGL from '@deck.gl/react';
-import { ScatterplotLayer, PolygonLayer, PathLayer, TextLayer, IconLayer } from '@deck.gl/layers';
-import { HeatmapLayer } from '@deck.gl/aggregation-layers';
 import {
   type CityPOIArea,
   type HeatmapMetricPoint,
   type HeatmapMetricValue,
   type HeatmapMetricsPointResponse,
 } from '../api/map';
-import { cities, type City } from '../data/hostCities';
+import { type City } from '../data/hostCities';
 import { getColor } from '../utils/colors';
+import { type PlacedObject, TOOLBOX_DRAG_MIME } from '../utils/toolbox';
+import { useHeatmapLayers } from '../hooks/useHeatmapLayers';
+import SearchBar from './SearchBar';
+import Toolbox from './Toolbox';
+import HeatRiskScale from './HeatRiskScale';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+
+// Re-exported so existing imports (`import Heatmap, { type GeocodeResult }`)
+// keep working now that the search UI lives in its own component.
+export type { GeocodeResult } from './SearchBar';
 
 interface ViewState {
   longitude: number;
@@ -41,6 +30,7 @@ interface ViewState {
 }
 
 interface HeatmapProps {
+  
   viewState: ViewState;
   setViewState: React.Dispatch<React.SetStateAction<ViewState>>;
   selectedCity: string | null;
@@ -50,6 +40,10 @@ interface HeatmapProps {
   mapContainerRef: React.RefObject<HTMLDivElement | null>;
   mapRef: React.MutableRefObject<maplibregl.Map | null>;
   mapSyncFrameRef: React.MutableRefObject<number | null>;
+  // Element to request fullscreen on instead of the Heatmap's own root. Pass
+  // the map panel/section so page-level overlays (e.g. the date picker) stay
+  // visible in fullscreen. Falls back to the Heatmap root when omitted.
+  fullscreenTargetRef?: React.RefObject<HTMLElement | null>;
   tooltip: TooltipState | null;
   setTooltip: React.Dispatch<React.SetStateAction<TooltipState | null>>;
   isFullscreen: boolean;
@@ -84,7 +78,7 @@ interface HeatmapProps {
    * When true, the left panel renders as a full toolbox: a palette of
    * placeable objects (cooling stations, shade canopy, ...) that can be
    * dragged onto the map, followed by the Create POI Area section. When
-   * false (default) only the Create POI Area section is shown.
+   * false (default) only the metric toggle and Create POI Area are shown.
    */
   displayToolbox?: boolean;
 }
@@ -96,12 +90,9 @@ export interface TooltipState {
   y: number;
 }
 
-// A single resolved place from the geocoder (or a coordinate/city match).
-export interface GeocodeResult {
-  label: string;
-  lng: number;
-  lat: number;
-}
+// GeocodeResult is defined in ./SearchBar and re-exported above; import the
+// type here so it can be referenced in HeatmapProps.
+import type { GeocodeResult } from './SearchBar';
 
 function metricLabel(metricKey: string): string {
   switch (metricKey) {
@@ -141,150 +132,6 @@ function hexToRgb(hex: string): [number, number, number] {
     Number.isNaN(g) ? 0 : g,
     Number.isNaN(b) ? 0 : b,
   ];
-}
-
-// Parse a "lat, lng" string into [lng, lat] deck.gl order, or null if it isn't
-// a valid coordinate pair. Tolerates degree symbols and optional hemisphere
-// letters, e.g. "29.717154, -95.404182°", "29.71° N, 95.40° W".
-function parseCoordinates(query: string): [number, number] | null {
-  const match = query
-    .trim()
-    .match(
-      /^\s*(-?\d+(?:\.\d+)?)\s*°?\s*([NSns])?\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*°?\s*([EWew])?\s*$/,
-    );
-  if (!match) return null;
-
-  let lat = parseFloat(match[1]);
-  let lng = parseFloat(match[3]);
-  const latHem = match[2]?.toUpperCase();
-  const lngHem = match[4]?.toUpperCase();
-
-  if (latHem === 'S') lat = -Math.abs(lat);
-  if (latHem === 'N') lat = Math.abs(lat);
-  if (lngHem === 'W') lng = -Math.abs(lng);
-  if (lngHem === 'E') lng = Math.abs(lng);
-
-  if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
-    return [lng, lat];
-  }
-  return null;
-}
-
-// Free-form place lookup via OpenStreetMap Nominatim. Swap this out for
-// MapTiler / Mapbox / Google Geocoding in production (rate limits + API key).
-async function geocode(query: string, signal?: AbortSignal): Promise<GeocodeResult[]> {
-  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(
-    query,
-  )}`;
-  const res = await fetch(url, { signal, headers: { Accept: 'application/json' } });
-  if (!res.ok) return [];
-  const data = (await res.json()) as Array<{ display_name: string; lon: string; lat: string }>;
-  return data.map((d) => ({
-    label: d.display_name,
-    lng: parseFloat(d.lon),
-    lat: parseFloat(d.lat),
-  }));
-}
-
-// Colored soccer-ball SVG for city markers. Rendered via IconLayer (not
-// TextLayer) so it keeps its colors — TextLayer's grayscale glyph atlas turns
-// color emoji into a flat white ball.
-const FOOTBALL_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
-  <circle cx="24" cy="24" r="22" fill="#ffffff" stroke="#0f172a" stroke-width="2.5"/>
-  <line x1="24" y1="16" x2="24" y2="2" stroke="#0f172a" stroke-width="2"/>
-  <line x1="31.6" y1="21.5" x2="44.9" y2="17.2" stroke="#0f172a" stroke-width="2"/>
-  <line x1="28.7" y1="30.5" x2="36.9" y2="41.8" stroke="#0f172a" stroke-width="2"/>
-  <line x1="19.3" y1="30.5" x2="11.1" y2="41.8" stroke="#0f172a" stroke-width="2"/>
-  <line x1="16.4" y1="21.5" x2="3.1" y2="17.2" stroke="#0f172a" stroke-width="2"/>
-  <polygon points="24,16 31.6,21.5 28.7,30.5 19.3,30.5 16.4,21.5" fill="#0f172a"/>
-</svg>`;
-
-const FOOTBALL_ICON = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(FOOTBALL_SVG)}`;
-
-// --- Toolbox: placeable objects that can be dragged onto the map ---
-
-// Definition of a draggable structure available in the toolbox palette.
-interface ToolboxItemDef {
-  type: string;
-  label: string;
-  color: string; // hex; drives both the palette chip and the map pin
-  Icon: React.ComponentType<{ size?: number | string; color?: string }>;
-}
-
-// A placed instance of a toolbox item, positioned in map (lng/lat) space.
-interface PlacedObject {
-  id: string;
-  type: string;
-  longitude: number;
-  latitude: number;
-}
-
-const TOOLBOX_ITEMS: ToolboxItemDef[] = [
-  { type: 'cooling_station', label: 'Cooling Station', color: '#38bdf8', Icon: Snowflake },
-  { type: 'shade_canopy', label: 'Shade Canopy', color: '#a3e635', Icon: Umbrella },
-  { type: 'water_station', label: 'Water Station', color: '#22d3ee', Icon: Droplets },
-  { type: 'misting_fan', label: 'Misting Fan', color: '#818cf8', Icon: Fan },
-  { type: 'first_aid', label: 'First Aid', color: '#f87171', Icon: Cross },
-  { type: 'tree_planting', label: 'Tree Planting', color: '#4ade80', Icon: TreePine },
-];
-
-const TOOLBOX_BY_TYPE: Record<string, ToolboxItemDef> = Object.fromEntries(
-  TOOLBOX_ITEMS.map((item) => [item.type, item]),
-);
-
-// Custom MIME type used to carry the toolbox item type through an HTML5 drag.
-const TOOLBOX_DRAG_MIME = 'application/x-heatmap-toolbox-item';
-
-// White-on-color glyph fragments, drawn centered on the origin, inside the pin.
-function toolboxGlyph(type: string, color: string): string {
-  switch (type) {
-    case 'cooling_station':
-      return `<g stroke="${color}" stroke-width="1.8" stroke-linecap="round">
-        <line x1="0" y1="-8.5" x2="0" y2="8.5"/>
-        <line x1="-7.4" y1="-4.25" x2="7.4" y2="4.25"/>
-        <line x1="-7.4" y1="4.25" x2="7.4" y2="-4.25"/>
-      </g>`;
-    case 'shade_canopy':
-      return `<g fill="${color}">
-        <path d="M-9 1 A9 9 0 0 1 9 1 Z"/>
-        <rect x="-0.9" y="1" width="1.8" height="8" rx="0.9"/>
-      </g>`;
-    case 'water_station':
-      return `<path d="M0 -9 C5 -2.5 7.5 1 7.5 4.2 A7.5 7.5 0 1 1 -7.5 4.2 C-7.5 1 -5 -2.5 0 -9 Z" fill="${color}"/>`;
-    case 'misting_fan':
-      return `<g fill="${color}">
-        <circle r="2.2"/>
-        <path d="M0 -2.4 C-6 -9 -9 -4 -2.2 -1 Z"/>
-        <path d="M2.4 0 C9 -6 4 -9 1 -2.2 Z"/>
-        <path d="M0 2.4 C6 9 9 4 2.2 1 Z"/>
-        <path d="M-2.4 0 C-9 6 -4 9 -1 2.2 Z"/>
-      </g>`;
-    case 'first_aid':
-      return `<g fill="${color}">
-        <rect x="-2.6" y="-8" width="5.2" height="16" rx="1.6"/>
-        <rect x="-8" y="-2.6" width="16" height="5.2" rx="1.6"/>
-      </g>`;
-    case 'tree_planting':
-      return `<g fill="${color}">
-        <polygon points="0,-9 6.5,3.5 -6.5,3.5"/>
-        <rect x="-1.5" y="3.5" width="3" height="5" rx="0.6"/>
-      </g>`;
-    default:
-      return `<circle r="5" fill="${color}"/>`;
-  }
-}
-
-// Teardrop map pin (tip at the bottom) with a white disc and a colored glyph.
-function toolboxMarkerSvg(type: string, color: string): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 60" width="48" height="60">
-    <path d="M24 2 C13 2 4 11 4 22 C4 36 24 57 24 57 C24 57 44 36 44 22 C44 11 35 2 24 2 Z" fill="${color}" stroke="#0f172a" stroke-width="2.5"/>
-    <circle cx="24" cy="22" r="13" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
-    <g transform="translate(24,22)">${toolboxGlyph(type, color)}</g>
-  </svg>`;
-}
-
-function toolboxMarkerDataUrl(type: string, color: string): string {
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(toolboxMarkerSvg(type, color))}`;
 }
 
 function colorMetricKey(metric: string): string {
@@ -330,14 +177,6 @@ function formatMetricName(metricKey: string): string {
     .join(' ');
 }
 
-function translatePolygon(
-  points: [number, number][],
-  deltaLng: number,
-  deltaLat: number,
-): [number, number][] {
-  return points.map(([lng, lat]) => [lng + deltaLng, lat + deltaLat]);
-}
-
 const Heatmap: React.FC<HeatmapProps> = ({
   viewState,
   setViewState,
@@ -348,6 +187,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
   mapContainerRef,
   mapRef,
   mapSyncFrameRef,
+  fullscreenTargetRef,
   tooltip,
   setTooltip,
   isFullscreen,
@@ -381,27 +221,11 @@ const Heatmap: React.FC<HeatmapProps> = ({
   displayToolbox = false,
 }) => {
   const heatmapRootRef = useRef<HTMLDivElement>(null);
-  const blurTimeoutRef = useRef<number | null>(null);
 
   // Objects placed onto the map from the toolbox. Kept local to the component
   // since they're a self-contained overlay; lift into props if you need them
   // shared with the parent (e.g. for persistence).
   const [placedObjects, setPlacedObjects] = useState<PlacedObject[]>([]);
-
-  const dragContextRef = useRef<
-    | {
-        mode: 'draft';
-        start: [number, number];
-        originalDraft: [number, number][];
-      }
-    | {
-        mode: 'existing';
-        areaId: string;
-        start: [number, number];
-        originalPolygon: [number, number][];
-      }
-    | null
-  >(null);
 
   // Fly the map + shared view state to a location. Pass cityName to also mark a
   // city as selected (so its heatmap points load); omit for generic places.
@@ -417,99 +241,6 @@ const Heatmap: React.FC<HeatmapProps> = ({
     },
     [setViewState, setSelectedCity, mapRef],
   );
-
-  // Local matches against the known host cities (instant, no network).
-  const cityMatches = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return [];
-    return cities.filter((c) => c.name.toLowerCase().includes(q)).slice(0, 5);
-  }, [searchQuery]);
-
-  const parsedCoords = useMemo(() => parseCoordinates(searchQuery), [searchQuery]);
-
-  // Debounced geocoding for free-form destinations (skipped for coords / short
-  // queries). Aborts stale requests so only the latest query resolves.
-  useEffect(() => {
-    const q = searchQuery.trim();
-    if (q.length < 3 || parseCoordinates(q)) {
-      setGeoResults([]);
-      return;
-    }
-
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      try {
-        setIsSearching(true);
-        const results = await geocode(q, controller.signal);
-        setGeoResults(results);
-      } catch {
-        /* aborted or failed — ignore */
-      } finally {
-        setIsSearching(false);
-      }
-    }, 350);
-
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [searchQuery]);
-
-  const selectCity = useCallback(
-    (city: City) => {
-      flyTo(city.longitude, city.latitude, 10, city.name);
-      setSearchQuery(city.name);
-      setShowSuggestions(false);
-    },
-    [flyTo],
-  );
-
-  const selectPlace = useCallback(
-    (place: GeocodeResult) => {
-      flyTo(place.lng, place.lat, 12);
-      setSearchQuery(place.label);
-      setShowSuggestions(false);
-    },
-    [flyTo],
-  );
-
-  // Enter / search-button: resolve in priority order coords -> city -> geocode.
-  const handleSearchSubmit = useCallback(async () => {
-    const q = searchQuery.trim();
-    if (!q) return;
-
-    if (parsedCoords) {
-      flyTo(parsedCoords[0], parsedCoords[1], 12);
-      setShowSuggestions(false);
-      return;
-    }
-    if (cityMatches.length > 0) {
-      selectCity(cityMatches[0]);
-      return;
-    }
-    if (geoResults.length > 0) {
-      selectPlace(geoResults[0]);
-      return;
-    }
-
-    // Nothing cached yet — geocode synchronously on submit.
-    try {
-      setIsSearching(true);
-      const results = await geocode(q);
-      if (results.length > 0) selectPlace(results[0]);
-    } catch {
-      /* ignore */
-    } finally {
-      setIsSearching(false);
-      setShowSuggestions(false);
-    }
-  }, [searchQuery, parsedCoords, cityMatches, geoResults, flyTo, selectCity, selectPlace]);
-
-  const clearSearch = useCallback(() => {
-    setSearchQuery('');
-    setGeoResults([]);
-    setShowSuggestions(false);
-  }, []);
 
   const handleCityClick = useCallback(
     (city: City) => {
@@ -543,17 +274,17 @@ const Heatmap: React.FC<HeatmapProps> = ({
     if (!selectedCity) return;
     setDraftPoints([]);
     setIsDrawing(true);
-  }, [selectedCity]);
+  }, [selectedCity, setDraftPoints, setIsDrawing]);
 
   const cancelDrawing = useCallback(() => {
     setDraftPoints([]);
     setDraftName('');
     setIsDrawing(false);
-  }, []);
+  }, [setDraftPoints, setDraftName, setIsDrawing]);
 
   const undoLastPoint = useCallback(() => {
     setDraftPoints((prev) => prev.slice(0, -1));
-  }, []);
+  }, [setDraftPoints]);
 
   const finishArea = useCallback(() => {
     if (!selectedCity || draftPoints.length < 3) return;
@@ -571,11 +302,21 @@ const Heatmap: React.FC<HeatmapProps> = ({
     setDraftPoints([]);
     setDraftName('');
     setIsDrawing(false);
-  }, [selectedCity, draftPoints, draftColorHex, draftName, userPOIAreas.length]);
+  }, [
+    selectedCity,
+    draftPoints,
+    draftColorHex,
+    draftName,
+    userPOIAreas.length,
+    setUserPOIAreas,
+    setDraftPoints,
+    setDraftName,
+    setIsDrawing,
+  ]);
 
   const clearMyAreas = useCallback(() => {
     setUserPOIAreas((prev) => prev.filter((a) => a.cityName !== selectedCity));
-  }, [selectedCity]);
+  }, [selectedCity, setUserPOIAreas]);
 
   // Add a vertex on any map click while drawing.
   const handleDeckClick = useCallback(
@@ -633,72 +374,6 @@ const Heatmap: React.FC<HeatmapProps> = ({
 
   const clearPlacedObjects = useCallback(() => setPlacedObjects([]), []);
 
-  // Football icon marking each city (replaces the old red dots). Uses an
-  // IconLayer with a colored SVG so it renders in full color.
-  const cityIconLayer = useMemo(
-    () =>
-      new IconLayer({
-        id: 'city-icon-layer',
-        data: cities,
-        pickable: !isDrawing,
-        getPosition: (d: City) => [d.longitude, d.latitude],
-        getIcon: () => ({
-          url: FOOTBALL_ICON,
-          width: 48,
-          height: 48,
-          anchorX: 24,
-          anchorY: 24,
-          id: 'football',
-        }),
-        getSize: 30,
-        sizeUnits: 'pixels',
-        getPixelOffset: [0, -14],
-        onClick: (info: any) => {
-          if (info.object) {
-            handleCityClick(info.object as City);
-          }
-        },
-      }),
-    [handleCityClick, isDrawing],
-  );
-
-  // City name label under each football icon.
-  const cityLabelLayer = useMemo(
-    () =>
-      new TextLayer({
-        id: 'city-label-layer',
-        data: cities,
-        pickable: !isDrawing,
-        characterSet: 'auto',
-        fontFamily: '"Inter", system-ui, sans-serif',
-        fontWeight: 700,
-        getPosition: (d: City) => [d.longitude, d.latitude],
-        getText: (d: City) => d.name,
-        getSize: 14,
-        sizeUnits: 'pixels',
-        getPixelOffset: [0, 6],
-        getTextAnchor: 'middle',
-        getAlignmentBaseline: 'top',
-        getColor: (d: City) =>
-          selectedCity === d.name ? [56, 189, 248, 255] : [248, 250, 252, 255],
-        background: true,
-        getBackgroundColor: [2, 8, 23, 200],
-        backgroundPadding: [6, 3, 6, 3],
-        fontSettings: { sdf: true },
-        outlineWidth: 2,
-        outlineColor: [2, 8, 23, 255],
-        updateTriggers: {
-          getColor: [selectedCity],
-        },
-        onClick: (info: any) => {
-          if (info.object) {
-            handleCityClick(info.object as City);
-          }
-        },
-      }),
-    [handleCityClick, isDrawing, selectedCity],
-  );
-
   const availableMetricLayers: HeatmapMetricPoint[] = useMemo(
     () => (selectedCity ? (heatmapPointsByCity[selectedCity] ?? []) : []),
     [selectedCity, heatmapPointsByCity],
@@ -739,6 +414,15 @@ const Heatmap: React.FC<HeatmapProps> = ({
     [activeMetricKey],
   );
 
+  // Cycle to the next available metric (drives the Toolbox metric toggle).
+  const cycleMetric = useCallback(() => {
+    if (availableMetricLayers.length <= 1) return;
+    const idx = availableMetricLayers.findIndex((m) => m.metric === selectedMetric);
+    const next =
+      availableMetricLayers[(idx + 1 + availableMetricLayers.length) % availableMetricLayers.length];
+    setSelectedMetric(next.metric);
+  }, [availableMetricLayers, selectedMetric, setSelectedMetric]);
+
   const displayedPOIAreas: CityPOIArea[] = useMemo(() => {
     if (!selectedCity) return [];
     return [
@@ -747,251 +431,32 @@ const Heatmap: React.FC<HeatmapProps> = ({
     ];
   }, [selectedCity, cityPOIAreas, userPOIAreas]);
 
-  // Continuous, interpolated density surface (GPU kernel-density estimation).
-  // Larger radius + lower threshold = smoother blending between points.
-  const interpolatedHeatmapLayer = useMemo(
-    () =>
-      new HeatmapLayer({
-        id: 'interpolated-heatmap-layer',
-        data: displayedHeatmapPoints,
-        pickable: false,
-        getPosition: (d: HeatmapMetricValue) => d.location_coordinates,
-        getWeight: (d: HeatmapMetricValue) => d.value,
-        aggregation: 'SUM',
-        radiusPixels: 60,
-        intensity: 1.2,
-        threshold: 0.03,
-        weightsTextureSize: 1024,
-        colorRange: activeMetricColorRange as any,
-      }),
-    [displayedHeatmapPoints, activeMetricColorRange],
-  );
-
-  const heatmapPickLayer = useMemo(
-    () =>
-      new ScatterplotLayer({
-        id: 'heatmap-pick-layer',
-        data: displayedHeatmapPoints,
-        pickable: !isDrawing,
-        opacity: 0,
-        radiusMinPixels: 14,
-        radiusMaxPixels: 14,
-        getPosition: (d: HeatmapMetricValue) => d.location_coordinates,
-        getFillColor: [0, 0, 0, 0],
-        onHover: (info: any) => {
-          if (info.object) {
-            setHoveringHeatmap(true);
-            setTooltip({
-              point: info.object as HeatmapMetricValue,
-              metric: activeMetricKey,
-              x: info.x,
-              y: info.y,
-            });
-          } else {
-            setHoveringHeatmap(false);
-            setTooltip(null);
-          }
-        },
-      }),
-    [displayedHeatmapPoints, isDrawing, setHoveringHeatmap, setTooltip, activeMetricKey],
-  );
-
-  // Toolbox objects dropped onto the map. Click a pin to remove it.
-  const placedObjectLayer = useMemo(
-    () =>
-      new IconLayer({
-        id: 'placed-object-layer',
-        data: placedObjects,
-        pickable: !isDrawing,
-        getPosition: (d: PlacedObject) => [d.longitude, d.latitude],
-        getIcon: (d: PlacedObject) => {
-          const def = TOOLBOX_BY_TYPE[d.type];
-          const color = def?.color ?? '#f8fafc';
-          return {
-            url: toolboxMarkerDataUrl(d.type, color),
-            width: 48,
-            height: 60,
-            anchorX: 24,
-            anchorY: 58,
-            id: d.type,
-          };
-        },
-        getSize: 46,
-        sizeUnits: 'pixels',
-        onClick: (info: any) => {
-          if (info.object) removePlacedObject((info.object as PlacedObject).id);
-        },
-      }),
-    [placedObjects, isDrawing, removePlacedObject],
-  );
-
-  const poiAreaLayer = useMemo(
-    () =>
-      new PolygonLayer({
-        id: 'poi-area-layer',
-        data: displayedPOIAreas,
-        pickable: true,
-        stroked: true,
-        filled: true,
-        opacity: 0.55,
-        getPolygon: (d: CityPOIArea) => d.polygon,
-        getFillColor: (d: CityPOIArea) => d.color,
-        getLineColor: (d: CityPOIArea) =>
-          d.id === editingAreaId ? [56, 189, 248, 255] : [255, 255, 255, 255],
-        getLineWidth: 2,
-        lineWidthUnits: 'pixels',
-        onClick: (info: any) => {
-          const area = info.object as CityPOIArea | undefined;
-          if (!area) return;
-
-          if (info.tapCount >= 2) {
-            const isUserArea = userPOIAreas.some((a) => a.id === area.id);
-            if (isUserArea) {
-              setEditingAreaId(area.id);
-              setIsDrawing(false);
-            }
-          }
-        },
-        onDragStart: (info: any) => {
-          const area = info.object as CityPOIArea | undefined;
-          if (!area || !info.coordinate) return;
-          if (editingAreaId !== area.id) return;
-
-          dragContextRef.current = {
-            mode: 'existing',
-            areaId: area.id,
-            start: [info.coordinate[0], info.coordinate[1]],
-            originalPolygon: area.polygon,
-          };
-          setIsAreaDragging(true);
-        },
-        onDrag: (info: any) => {
-          const ctx = dragContextRef.current;
-          if (!ctx || ctx.mode !== 'existing' || !info.coordinate) return;
-
-          const deltaLng = info.coordinate[0] - ctx.start[0];
-          const deltaLat = info.coordinate[1] - ctx.start[1];
-          const translated = translatePolygon(ctx.originalPolygon, deltaLng, deltaLat);
-
-          setUserPOIAreas((prev) =>
-            prev.map((area) =>
-              area.id === ctx.areaId ? { ...area, polygon: translated } : area,
-            ),
-          );
-        },
-        onDragEnd: () => {
-          dragContextRef.current = null;
-          setIsAreaDragging(false);
-        },
-      }),
-    [
-      displayedPOIAreas,
-      editingAreaId,
-      userPOIAreas,
-      setEditingAreaId,
-      setIsDrawing,
-      setIsAreaDragging,
-      setUserPOIAreas,
-    ],
-  );
-
-  // --- Draft (in-progress) drawing layers ---
   const draftRgb = useMemo(() => hexToRgb(draftColorHex), [draftColorHex]);
 
-  const draftPolygonLayer = useMemo(
-    () =>
-      new PolygonLayer({
-        id: 'draft-polygon-layer',
-        data: draftPoints.length >= 3 ? [{ polygon: draftPoints }] : [],
-        pickable: isDrawing,
-        stroked: true,
-        filled: true,
-        opacity: 0.5,
-        getPolygon: (d: { polygon: [number, number][] }) => d.polygon,
-        getFillColor: [...draftRgb, 120],
-        getLineColor: [...draftRgb, 255],
-        getLineWidth: 2,
-        lineWidthUnits: 'pixels',
-        onDragStart: (info: any) => {
-          if (!isDrawing || draftPoints.length < 3 || !info.coordinate) return;
-          dragContextRef.current = {
-            mode: 'draft',
-            start: [info.coordinate[0], info.coordinate[1]],
-            originalDraft: draftPoints,
-          };
-          setIsAreaDragging(true);
-        },
-        onDrag: (info: any) => {
-          const ctx = dragContextRef.current;
-          if (!ctx || ctx.mode !== 'draft' || !info.coordinate) return;
-
-          const deltaLng = info.coordinate[0] - ctx.start[0];
-          const deltaLat = info.coordinate[1] - ctx.start[1];
-          setDraftPoints(translatePolygon(ctx.originalDraft, deltaLng, deltaLat));
-        },
-        onDragEnd: () => {
-          dragContextRef.current = null;
-          setIsAreaDragging(false);
-        },
-      }),
-    [draftPoints, draftRgb, isDrawing, setDraftPoints, setIsAreaDragging],
-  );
-
-  const draftPathLayer = useMemo(
-    () =>
-      new PathLayer({
-        id: 'draft-path-layer',
-        data: draftPoints.length >= 2 ? [{ path: draftPoints }] : [],
-        pickable: false,
-        getPath: (d: { path: [number, number][] }) => d.path,
-        getColor: [...draftRgb, 255],
-        getWidth: 2,
-        widthUnits: 'pixels',
-      }),
-    [draftPoints, draftRgb],
-  );
-
-  const draftPointsLayer = useMemo(
-    () =>
-      new ScatterplotLayer({
-        id: 'draft-points-layer',
-        data: draftPoints,
-        pickable: false,
-        radiusMinPixels: 5,
-        radiusMaxPixels: 5,
-        getPosition: (d: [number, number]) => d,
-        getFillColor: [...draftRgb, 255],
-        getLineColor: [255, 255, 255, 255],
-        lineWidthMinPixels: 1,
-        stroked: true,
-      }),
-    [draftPoints, draftRgb],
-  );
-
-  const layers = useMemo(
-    () => [
-      interpolatedHeatmapLayer,
-      poiAreaLayer,
-      draftPolygonLayer,
-      draftPathLayer,
-      draftPointsLayer,
-      heatmapPickLayer,
-      placedObjectLayer,
-      cityIconLayer,
-      cityLabelLayer,
-    ],
-    [
-      interpolatedHeatmapLayer,
-      poiAreaLayer,
-      draftPolygonLayer,
-      draftPathLayer,
-      draftPointsLayer,
-      heatmapPickLayer,
-      placedObjectLayer,
-      cityIconLayer,
-      cityLabelLayer,
-    ],
-  );
+  // All deck.gl layers (city markers, heatmap surface, POI areas, placed
+  // objects, and the in-progress draft) are built in this hook.
+  const layers = useHeatmapLayers({
+    isDrawing,
+    selectedCity,
+    displayedHeatmapPoints,
+    activeMetricColorRange,
+    activeMetricKey,
+    displayedPOIAreas,
+    userPOIAreas,
+    editingAreaId,
+    placedObjects,
+    draftPoints,
+    draftRgb,
+    onCityClick: handleCityClick,
+    onRemovePlacedObject: removePlacedObject,
+    setTooltip,
+    setHoveringHeatmap,
+    setEditingAreaId,
+    setIsDrawing,
+    setIsAreaDragging,
+    setUserPOIAreas,
+    setDraftPoints,
+  });
 
   // Crosshair while drawing or hovering the heatmap; grab/grabbing otherwise
   // so normal map panning still reads correctly.
@@ -1007,7 +472,8 @@ const Heatmap: React.FC<HeatmapProps> = ({
 
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(document.fullscreenElement === heatmapRootRef.current);
+      const target = fullscreenTargetRef?.current ?? heatmapRootRef.current;
+      setIsFullscreen(document.fullscreenElement === target);
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
@@ -1015,22 +481,22 @@ const Heatmap: React.FC<HeatmapProps> = ({
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
-  }, []);
+  }, [setIsFullscreen, fullscreenTargetRef]);
 
   const toggleFullscreen = useCallback(async () => {
-    const root = heatmapRootRef.current;
-    if (!root) return;
+    const target = fullscreenTargetRef?.current ?? heatmapRootRef.current;
+    if (!target) return;
 
     try {
-      if (document.fullscreenElement === root) {
+      if (document.fullscreenElement === target) {
         await document.exitFullscreen();
       } else {
-        await root.requestFullscreen();
+        await target.requestFullscreen();
       }
     } catch (error) {
       console.error('Failed to toggle fullscreen heatmap', error);
     }
-  }, []);
+  }, [fullscreenTargetRef]);
 
   const handleViewStateChange = useCallback(
     (e: any) => {
@@ -1081,250 +547,6 @@ const Heatmap: React.FC<HeatmapProps> = ({
     [setViewState, mapRef, mapSyncFrameRef],
   );
 
-  const toolbarButtonStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    padding: '8px 10px',
-    borderRadius: 8,
-    border: '1px solid rgba(148, 163, 184, 0.45)',
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: 'pointer',
-    width: '100%',
-  };
-
-  const hasSuggestions =
-    parsedCoords !== null || cityMatches.length > 0 || geoResults.length > 0;
-
-  // The Create POI Area controls — shared between the standalone panel and the
-  // full toolbox layout.
-  const createPOISection = (
-    <>
-      <div style={{ fontSize: 13, fontWeight: 700 }}>Create POI Area</div>
-
-      {!selectedCity && (
-        <div style={{ fontSize: 12, color: '#fca5a5' }}>
-          Click a city marker first to pick a city.
-        </div>
-      )}
-
-      {selectedCity && (
-        <div style={{ fontSize: 12, color: '#94a3b8' }}>
-          City: <span style={{ color: '#e2e8f0', fontWeight: 600 }}>{selectedCity}</span>
-        </div>
-      )}
-
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
-        Area name
-        <input
-          type="text"
-          value={draftName}
-          onChange={(e) => setDraftName(e.target.value)}
-          placeholder="e.g. Downtown Core"
-          style={{
-            padding: '6px 8px',
-            borderRadius: 6,
-            border: '1px solid rgba(148, 163, 184, 0.45)',
-            backgroundColor: 'rgba(15, 23, 42, 0.9)',
-            color: '#f1f5f9',
-            fontSize: 13,
-          }}
-        />
-      </label>
-
-      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12, color: '#cbd5e1' }}>
-        Area color
-        <input
-          type="color"
-          value={draftColorHex}
-          onChange={(e) => setDraftColorHex(e.target.value)}
-          style={{
-            width: 44,
-            height: 28,
-            border: '1px solid rgba(148, 163, 184, 0.45)',
-            borderRadius: 6,
-            background: 'transparent',
-            cursor: 'pointer',
-          }}
-        />
-      </label>
-
-      {!isDrawing ? (
-        <button
-          type="button"
-          onClick={startDrawing}
-          disabled={!selectedCity}
-          style={{
-            ...toolbarButtonStyle,
-            backgroundColor: selectedCity ? '#2563eb' : 'rgba(71, 85, 105, 0.6)',
-            color: '#f8fafc',
-            cursor: selectedCity ? 'pointer' : 'not-allowed',
-          }}
-        >
-          <Pencil size={15} /> Draw new area
-        </button>
-      ) : (
-        <>
-          <div style={{ fontSize: 12, color: '#cbd5e1' }}>
-            Click the map to add points ({draftPoints.length} placed, need 3+).
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              type="button"
-              onClick={finishArea}
-              disabled={draftPoints.length < 3}
-              style={{
-                ...toolbarButtonStyle,
-                backgroundColor: draftPoints.length >= 3 ? '#16a34a' : 'rgba(71, 85, 105, 0.6)',
-                color: '#f8fafc',
-                cursor: draftPoints.length >= 3 ? 'pointer' : 'not-allowed',
-              }}
-            >
-              <Check size={15} /> Finish
-            </button>
-            <button
-              type="button"
-              onClick={undoLastPoint}
-              disabled={draftPoints.length === 0}
-              style={{
-                ...toolbarButtonStyle,
-                backgroundColor: 'rgba(30, 41, 59, 0.9)',
-                color: '#e2e8f0',
-                cursor: draftPoints.length === 0 ? 'not-allowed' : 'pointer',
-              }}
-            >
-              <Undo2 size={15} /> Undo
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={cancelDrawing}
-            style={{
-              ...toolbarButtonStyle,
-              backgroundColor: 'rgba(30, 41, 59, 0.9)',
-              color: '#fca5a5',
-            }}
-          >
-            <X size={15} /> Cancel
-          </button>
-        </>
-      )}
-
-      {userPOIAreas.some((a) => a.cityName === selectedCity) && (
-        <button
-          type="button"
-          onClick={clearMyAreas}
-          style={{
-            ...toolbarButtonStyle,
-            backgroundColor: 'rgba(30, 41, 59, 0.9)',
-            color: '#fca5a5',
-          }}
-        >
-          <Trash2 size={15} /> Clear my areas
-        </button>
-      )}
-
-      {editingAreaId && (
-        <button
-          type="button"
-          onClick={() => {
-            setEditingAreaId(null);
-            setIsAreaDragging(false);
-          }}
-          style={{
-            ...toolbarButtonStyle,
-            backgroundColor: 'rgba(14, 116, 144, 0.85)',
-            color: '#e0f2fe',
-          }}
-        >
-          <Check size={15} /> Finish Edit
-        </button>
-      )}
-    </>
-  );
-
-  // The draggable object palette — only rendered in the full toolbox layout.
-  const toolboxObjectsSection = (
-    <>
-      <div style={{ fontSize: 13, fontWeight: 700 }}>Toolbox</div>
-      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: -4 }}>
-        Drag an item onto the map to place it. Click a placed pin to remove it.
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        {TOOLBOX_ITEMS.map((item) => {
-          const Icon = item.Icon;
-          return (
-            <div
-              key={item.type}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData(TOOLBOX_DRAG_MIME, item.type);
-                e.dataTransfer.effectAllowed = 'copy';
-              }}
-              title={`Drag to place ${item.label}`}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 6,
-                padding: '10px 6px',
-                borderRadius: 8,
-                border: '1px solid rgba(148, 163, 184, 0.35)',
-                backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                cursor: 'grab',
-                userSelect: 'none',
-                textAlign: 'center',
-              }}
-            >
-              <span
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: 30,
-                  height: 30,
-                  borderRadius: 999,
-                  backgroundColor: `${item.color}22`,
-                  border: `1px solid ${item.color}`,
-                }}
-              >
-                <Icon size={17} color={item.color} />
-              </span>
-              <span style={{ fontSize: 11, lineHeight: 1.2, color: '#e2e8f0' }}>
-                {item.label}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-
-      {placedObjects.length > 0 && (
-        <button
-          type="button"
-          onClick={clearPlacedObjects}
-          style={{
-            ...toolbarButtonStyle,
-            backgroundColor: 'rgba(30, 41, 59, 0.9)',
-            color: '#fca5a5',
-          }}
-        >
-          <Trash2 size={15} /> Clear objects ({placedObjects.length})
-        </button>
-      )}
-
-      <div
-        style={{
-          height: 1,
-          backgroundColor: 'rgba(148, 163, 184, 0.3)',
-          margin: '2px 0',
-        }}
-      />
-    </>
-  );
-
   return (
     <div
       ref={heatmapRootRef}
@@ -1346,213 +568,44 @@ const Heatmap: React.FC<HeatmapProps> = ({
         style={{ position: 'absolute', width: '100%', height: '100%' }}
       />
 
-      {/* --- Search bar (top center) --- */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 20,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          zIndex: 35,
-          width: 360,
-          maxWidth: 'calc(100% - 320px)',
-        }}
-        onBlur={() => {
-          // Delay so a click on a suggestion still registers before closing.
-          blurTimeoutRef.current = window.setTimeout(() => setShowSuggestions(false), 120);
-        }}
-        onFocus={() => {
-          if (blurTimeoutRef.current) window.clearTimeout(blurTimeoutRef.current);
-          setShowSuggestions(true);
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '8px 12px',
-            borderRadius: 10,
-            border: '1px solid rgba(148, 163, 184, 0.45)',
-            backgroundColor: 'rgba(2, 8, 23, 0.92)',
-            boxShadow: '0 4px 14px rgba(0, 0, 0, 0.35)',
-          }}
-        >
-          {isSearching ? (
-            <Loader2 size={16} color="#94a3b8" style={{ animation: 'spin 1s linear infinite' }} />
-          ) : (
-            <Search size={16} color="#94a3b8" />
-          )}
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setShowSuggestions(true);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSearchSubmit();
-              if (e.key === 'Escape') setShowSuggestions(false);
-            }}
-            placeholder="Search city, place, or lat, lng"
-            style={{
-              flex: 1,
-              border: 'none',
-              outline: 'none',
-              background: 'transparent',
-              color: '#f1f5f9',
-              fontSize: 14,
-            }}
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={clearSearch}
-              aria-label="Clear search"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                background: 'transparent',
-                border: 'none',
-                color: '#94a3b8',
-                cursor: 'pointer',
-                padding: 2,
-              }}
-            >
-              <X size={15} />
-            </button>
-          )}
-        </div>
+      <SearchBar
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        geoResults={geoResults}
+        setGeoResults={setGeoResults}
+        isSearching={isSearching}
+        setIsSearching={setIsSearching}
+        showSuggestions={showSuggestions}
+        setShowSuggestions={setShowSuggestions}
+        flyTo={flyTo}
+      />
 
-        {/* Suggestions dropdown */}
-        {showSuggestions && searchQuery.trim() && hasSuggestions && (
-          <div
-            style={{
-              marginTop: 6,
-              borderRadius: 10,
-              border: '1px solid rgba(148, 163, 184, 0.45)',
-              backgroundColor: 'rgba(2, 8, 23, 0.96)',
-              boxShadow: '0 6px 18px rgba(0, 0, 0, 0.4)',
-              overflow: 'hidden',
-            }}
-          >
-            {parsedCoords && (
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  flyTo(parsedCoords[0], parsedCoords[1], 12);
-                  setShowSuggestions(false);
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  width: '100%',
-                  padding: '10px 12px',
-                  background: 'transparent',
-                  border: 'none',
-                  borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
-                  color: '#f1f5f9',
-                  cursor: 'pointer',
-                  fontSize: 13,
-                  textAlign: 'left',
-                }}
-              >
-                <Crosshair size={15} color="#38bdf8" />
-                Go to {parsedCoords[1].toFixed(4)}, {parsedCoords[0].toFixed(4)}
-              </button>
-            )}
-
-            {cityMatches.map((city) => (
-              <button
-                key={`city-${city.name}`}
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => selectCity(city)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  width: '100%',
-                  padding: '10px 12px',
-                  background: 'transparent',
-                  border: 'none',
-                  borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
-                  color: '#f1f5f9',
-                  cursor: 'pointer',
-                  fontSize: 13,
-                  textAlign: 'left',
-                }}
-              >
-                <MapPin size={15} color="#f87171" />
-                <span>{city.name}</span>
-                <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748b' }}>City</span>
-              </button>
-            ))}
-
-            {geoResults.map((place, i) => (
-              <button
-                key={`geo-${i}`}
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => selectPlace(place)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  width: '100%',
-                  padding: '10px 12px',
-                  background: 'transparent',
-                  border: 'none',
-                  borderBottom: i === geoResults.length - 1 ? 'none' : '1px solid rgba(148, 163, 184, 0.2)',
-                  color: '#cbd5e1',
-                  cursor: 'pointer',
-                  fontSize: 13,
-                  textAlign: 'left',
-                }}
-              >
-                <Search size={14} color="#94a3b8" style={{ flexShrink: 0 }} />
-                <span
-                  style={{
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {place.label}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* --- Left panel: toolbox (objects + Create POI Area) or POI-only --- */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 20,
-          left: 20,
-          zIndex: 30,
-          width: 240,
-          maxHeight: 'calc(100% - 40px)',
-          overflowY: 'auto',
-          border: '1px solid rgba(148, 163, 184, 0.45)',
-          backgroundColor: 'rgba(2, 8, 23, 0.9)',
-          borderRadius: 10,
-          padding: '12px 14px',
-          color: '#f1f5f9',
-          boxShadow: '0 4px 14px rgba(0, 0, 0, 0.35)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
+      <Toolbox
+        displayToolbox={displayToolbox}
+        metricLabel={metricLabelText}
+        canToggleMetric={availableMetricLayers.length > 1}
+        onToggleMetric={cycleMetric}
+        placedCount={placedObjects.length}
+        onClearObjects={clearPlacedObjects}
+        selectedCity={selectedCity}
+        draftName={draftName}
+        setDraftName={setDraftName}
+        draftColorHex={draftColorHex}
+        setDraftColorHex={setDraftColorHex}
+        isDrawing={isDrawing}
+        draftPointCount={draftPoints.length}
+        onStartDrawing={startDrawing}
+        onFinishArea={finishArea}
+        onUndoLastPoint={undoLastPoint}
+        onCancelDrawing={cancelDrawing}
+        hasUserAreasInCity={userPOIAreas.some((a) => a.cityName === selectedCity)}
+        onClearMyAreas={clearMyAreas}
+        editingAreaId={editingAreaId}
+        onFinishEdit={() => {
+          setEditingAreaId(null);
+          setIsAreaDragging(false);
         }}
-      >
-        {displayToolbox && toolboxObjectsSection}
-        {createPOISection}
-      </div>
+      />
 
       <button
         type="button"
@@ -1579,92 +632,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
         {isFullscreen ? <Shrink size={20} /> : <Expand size={20} />}
       </button>
 
-      {availableMetricLayers.length > 0 && (
-        <button
-          type="button"
-          onClick={() => {
-            if (availableMetricLayers.length <= 1) return;
-            const idx = availableMetricLayers.findIndex((m) => m.metric === selectedMetric);
-            const next = availableMetricLayers[(idx + 1 + availableMetricLayers.length) % availableMetricLayers.length];
-            setSelectedMetric(next.metric);
-          }}
-          style={{
-            position: 'absolute',
-            top: 68,
-            right: 20,
-            zIndex: 30,
-            border: '1px solid rgba(148, 163, 184, 0.55)',
-            backgroundColor: 'rgba(2, 8, 23, 0.88)',
-            color: '#f8fafc',
-            borderRadius: '8px',
-            padding: '8px 10px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            cursor: availableMetricLayers.length > 1 ? 'pointer' : 'default',
-            fontSize: 12,
-            fontWeight: 600,
-          }}
-          title="Toggle metric"
-        >
-          <Crosshair size={14} />
-          <span>{metricLabelText}</span>
-        </button>
-      )}
-
-      <div
-        style={{
-          position: 'absolute',
-          right: 20,
-          bottom: 20,
-          zIndex: 25,
-          width: 240,
-          border: '1px solid rgba(148, 163, 184, 0.45)',
-          backgroundColor: 'rgba(2, 8, 23, 0.88)',
-          borderRadius: 10,
-          padding: '10px 12px',
-          color: '#f1f5f9',
-          boxShadow: '0 4px 14px rgba(0, 0, 0, 0.35)',
-        }}
-      >
-        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{metricLabelText} Scale</div>
-        <div
-          style={{
-            height: 12,
-            width: '100%',
-            borderRadius: 999,
-            background: activeMetricLegendGradient,
-            border: '1px solid rgba(148, 163, 184, 0.35)',
-          }}
-        />
-        <div
-          style={{
-            marginTop: 6,
-            display: 'flex',
-            justifyContent: 'space-between',
-            fontSize: 11,
-            color: '#cbd5e1',
-          }}
-        >
-          <span>0</span>
-          <span>25</span>
-          <span>50</span>
-          <span>75</span>
-          <span>100</span>
-        </div>
-        <div
-          style={{
-            marginTop: 6,
-            display: 'flex',
-            justifyContent: 'space-between',
-            fontSize: 11,
-            color: '#94a3b8',
-          }}
-        >
-          <span>Low</span>
-          <span>High</span>
-        </div>
-      </div>
+      <HeatRiskScale label={metricLabelText} gradient={activeMetricLegendGradient} />
 
       {tooltip && (
         <div
@@ -1690,18 +658,40 @@ const Heatmap: React.FC<HeatmapProps> = ({
 
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: '#cbd5e1' }}>
             <span>{metricLabelText} Score</span>
-            <span style={{ fontWeight: 600, color: tooltip.point.value >= 85 ? '#ef4444' : tooltip.point.value >= 70 ? '#f97316' : '#facc15' }}>
+            <span
+              style={{
+                fontWeight: 600,
+                color:
+                  tooltip.point.value >= 85
+                    ? '#ef4444'
+                    : tooltip.point.value >= 70
+                      ? '#f97316'
+                      : '#facc15',
+              }}
+            >
               {tooltip.point.value}
             </span>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: '#cbd5e1', marginTop: 4 }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 16,
+              color: '#cbd5e1',
+              marginTop: 4,
+            }}
+          >
             <span>Metric</span>
-            <span style={{ fontWeight: 600, color: '#94a3b8' }}>{formatMetricName(tooltip.metric)}</span>
+            <span style={{ fontWeight: 600, color: '#94a3b8' }}>
+              {formatMetricName(tooltip.metric)}
+            </span>
           </div>
 
           {tooltip.point.individual_metrics && (
-            <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(148, 163, 184, 0.35)' }}>
+            <div
+              style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(148, 163, 184, 0.35)' }}
+            >
               {Object.entries(tooltip.point.individual_metrics).map(([key, value]) => (
                 <div
                   key={key}
