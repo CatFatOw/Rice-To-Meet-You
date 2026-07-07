@@ -309,6 +309,27 @@ const ExplorePage: React.FC = () => {
     ]);
   };
 
+  const handleCameraAnalysisMarkerRemove = useCallback((id: string) => {
+    setCameraAnalysisMarkers((previousMarkers) =>
+      previousMarkers.filter((marker) => marker.id !== id),
+    );
+  }, []);
+
+  const handleCameraAnalysisMarkerSelect = useCallback(
+    (marker: CameraAnalysisMarker) => {
+      setNearestLongitude(marker.longitude.toFixed(5));
+      setNearestLatitude(marker.latitude.toFixed(5));
+      setNearestSourceLabel(marker.label);
+      setPOISortMode('nearest');
+      mapRef.current?.flyTo({
+        center: [marker.longitude, marker.latitude],
+        zoom: Math.max(viewState.zoom, 14),
+        duration: 700,
+      });
+    },
+    [viewState.zoom],
+  );
+
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[#050914] text-white">
       <div className="shrink-0">
@@ -356,11 +377,7 @@ const ExplorePage: React.FC = () => {
               selectedMetric={selectedMetric}
               setSelectedMetric={setSelectedMetric}
               cameraAnalysisMarkers={cameraAnalysisMarkers}
-              onCameraAnalysisMarkerRemove={(id) => {
-                setCameraAnalysisMarkers((previousMarkers) =>
-                  previousMarkers.filter((marker) => marker.id !== id),
-                );
-              }}
+              onCameraAnalysisMarkerRemove={handleCameraAnalysisMarkerRemove}
               editingAreaId={editingAreaId}
               setEditingAreaId={setEditingAreaId}
               isAreaDragging={isAreaDragging}
@@ -441,6 +458,59 @@ const ExplorePage: React.FC = () => {
                 </div>
               )}
             </div>
+            {cameraAnalysisMarkers.length > 0 && (
+              <div className="shrink-0 rounded-lg border border-slate-800 bg-[#07111f] p-4 shadow-lg">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Analysis Points
+                    </div>
+                    <div className="mt-1 text-sm font-semibold text-slate-100">
+                      {cameraAnalysisMarkers.length} temporary point
+                      {cameraAnalysisMarkers.length === 1 ? '' : 's'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCameraAnalysisMarkers([])}
+                    className="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs font-semibold text-red-100 transition hover:bg-red-500/20"
+                  >
+                    Clear all
+                  </button>
+                </div>
+
+                <div className="max-h-32 overflow-y-auto rounded-md border border-slate-800">
+                  {cameraAnalysisMarkers.map((marker) => (
+                    <div
+                      key={marker.id}
+                      className="flex items-center gap-2 border-b border-slate-800 px-2 py-2 last:border-b-0"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleCameraAnalysisMarkerSelect(marker)}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <div className="truncate text-xs font-semibold text-cyan-100">
+                          {marker.label}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-slate-500">
+                          {marker.latitude.toFixed(5)}, {marker.longitude.toFixed(5)}
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleCameraAnalysisMarkerRemove(marker.id)}
+                        className="rounded border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-300 transition hover:border-red-400/50 hover:text-red-100"
+                        aria-label={`Delete analysis point ${marker.label}`}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <LiveTrafficPanel
               latitude={nearestLatitude}
               longitude={nearestLongitude}

@@ -21,6 +21,7 @@ interface ImageSize {
 }
 
 type OverlayMode = 'both' | 'bbox' | 'segmentation';
+type TrafficPanelTab = 'traffic' | 'inference';
 
 const MIN_IMAGE_ZOOM = 1;
 const MAX_IMAGE_ZOOM = 8;
@@ -141,6 +142,7 @@ const LiveTrafficPanel: React.FC<LiveTrafficPanelProps> = ({
   const [imageZoom, setImageZoom] = useState(1);
   const [isImageFullscreen, setIsImageFullscreen] = useState(false);
   const [overlayMode, setOverlayMode] = useState<OverlayMode>('both');
+  const [activeTab, setActiveTab] = useState<TrafficPanelTab>('traffic');
   const [isLoading, setIsLoading] = useState(false);
   const [googleTrafficStatus, setGoogleTrafficStatus] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -193,6 +195,7 @@ const LiveTrafficPanel: React.FC<LiveTrafficPanelProps> = ({
         setImageUrl(cachedResult.imageUrl);
         setImageSize(null);
         setImageZoom(1);
+        setActiveTab('inference');
         setPrediction(cachedResult.prediction);
         return;
       }
@@ -206,6 +209,7 @@ const LiveTrafficPanel: React.FC<LiveTrafficPanelProps> = ({
       setImageUrl(nextImageUrl);
       setImageSize(null);
       setImageZoom(1);
+      setActiveTab('inference');
       setPrediction(nextPrediction);
     } catch (error) {
       console.error('Failed to load live traffic prediction', error);
@@ -425,7 +429,27 @@ const LiveTrafficPanel: React.FC<LiveTrafficPanelProps> = ({
         {isLoading ? 'Loading traffic...' : 'Analyze Nearest Camera'}
       </button>
 
-      <div className="mb-3 grid grid-cols-3 gap-2">
+      <div className="mb-3 grid grid-cols-2 gap-2">
+        {([
+          ['traffic', 'Google traffic'],
+          ['inference', 'Inferred image'],
+        ] as [TrafficPanelTab, string][]).map(([tab, label]) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className={`rounded-md border px-2 py-2 text-xs font-semibold transition ${
+              activeTab === tab
+                ? 'border-cyan-500/50 bg-cyan-500/15 text-cyan-100'
+                : 'border-slate-800 bg-slate-950/70 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className={activeTab === 'inference' ? 'mb-3 grid grid-cols-3 gap-2' : 'hidden'}>
         {(['both', 'bbox', 'segmentation'] as OverlayMode[]).map((mode) => (
           <button
             key={mode}
@@ -449,7 +473,11 @@ const LiveTrafficPanel: React.FC<LiveTrafficPanelProps> = ({
       )}
 
       {imageUrl && (
-        <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-slate-800 bg-slate-950/70 px-2 py-1.5">
+        <div
+          className={`mb-2 items-center justify-between gap-2 rounded-md border border-slate-800 bg-slate-950/70 px-2 py-1.5 ${
+            activeTab === 'inference' ? 'flex' : 'hidden'
+          }`}
+        >
           <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             Image Zoom {Math.round(imageZoom * 100)}%
           </span>
@@ -488,9 +516,13 @@ const LiveTrafficPanel: React.FC<LiveTrafficPanelProps> = ({
         </div>
       )}
 
-      {renderTrafficImage()}
+      <div className={activeTab === 'inference' ? 'block' : 'hidden'}>{renderTrafficImage()}</div>
 
-      <div className="mt-3 overflow-hidden rounded-md border border-slate-800 bg-slate-950">
+      <div
+        className={`overflow-hidden rounded-md border border-slate-800 bg-slate-950 ${
+          activeTab === 'traffic' ? 'block' : 'hidden'
+        }`}
+      >
         <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2">
           <span className="text-xs font-semibold text-slate-200">Google traffic layer</span>
           <span className="text-[10px] uppercase tracking-wide text-slate-500">Real time</span>
@@ -513,7 +545,7 @@ const LiveTrafficPanel: React.FC<LiveTrafficPanelProps> = ({
         )}
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-2">
+      <div className={activeTab === 'inference' ? 'mt-3 grid grid-cols-3 gap-2' : 'hidden'}>
         <div className="rounded-md border border-slate-800 bg-slate-950/70 p-2">
           <div className="text-[10px] uppercase text-slate-500">Vehicles</div>
           <div className="mt-1 text-base font-bold text-cyan-100">
@@ -534,7 +566,11 @@ const LiveTrafficPanel: React.FC<LiveTrafficPanelProps> = ({
         </div>
       </div>
 
-      <div className="mt-3 rounded-md border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs text-slate-300">
+      <div
+        className={`mt-3 rounded-md border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs text-slate-300 ${
+          activeTab === 'inference' ? 'block' : 'hidden'
+        }`}
+      >
         <div className="truncate">{vehicleSummary}</div>
         {snapshotTimeLabel && (
           <div className="mt-1 text-slate-500">
@@ -548,7 +584,7 @@ const LiveTrafficPanel: React.FC<LiveTrafficPanelProps> = ({
         )}
       </div>
 
-      {topDetections.length > 0 && (
+      {activeTab === 'inference' && topDetections.length > 0 && (
         <div className="mt-2 max-h-24 overflow-y-auto rounded-md border border-slate-800">
           {topDetections.map((detection, index) => (
             <div
