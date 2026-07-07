@@ -22,8 +22,13 @@ interface ImageSize {
 
 type OverlayMode = 'both' | 'bbox' | 'segmentation';
 
+const MIN_IMAGE_ZOOM = 1;
+const MAX_IMAGE_ZOOM = 8;
+const IMAGE_ZOOM_STEP = 0.5;
+
 interface GoogleMapInstance {
   setCenter(center: { lat: number; lng: number }): void;
+  setZoom(zoom: number): void;
 }
 
 interface GoogleTrafficLayerInstance {
@@ -54,6 +59,17 @@ declare global {
 }
 
 let googleMapsLoadPromise: Promise<void> | null = null;
+
+interface CachedTrafficResult {
+  imageUrl: string;
+  prediction: NearestTrafficPrediction;
+}
+
+const trafficResultCache = new Map<string, CachedTrafficResult>();
+
+function trafficCacheKey(lat: number, lon: number): string {
+  return `${lat.toFixed(5)},${lon.toFixed(5)}`;
+}
 
 function loadGoogleMaps(apiKey: string): Promise<void> {
   if (window.google?.maps) return Promise.resolve();
@@ -122,6 +138,8 @@ const LiveTrafficPanel: React.FC<LiveTrafficPanelProps> = ({
   const [prediction, setPrediction] = useState<NearestTrafficPrediction | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageSize, setImageSize] = useState<ImageSize | null>(null);
+  const [imageZoom, setImageZoom] = useState(1);
+  const [isImageFullscreen, setIsImageFullscreen] = useState(false);
   const [overlayMode, setOverlayMode] = useState<OverlayMode>('both');
   const [isLoading, setIsLoading] = useState(false);
   const [googleTrafficStatus, setGoogleTrafficStatus] = useState<string | null>(null);
@@ -169,16 +187,25 @@ const LiveTrafficPanel: React.FC<LiveTrafficPanelProps> = ({
     setErrorMessage(null);
 
     try {
+      const cacheKey = trafficCacheKey(parsedLatitude, parsedLongitude);
+      const cachedResult = trafficResultCache.get(cacheKey);
+      if (cachedResult) {
+        setImageUrl(cachedResult.imageUrl);
+        setImageSize(null);
+        setImageZoom(1);
+        setPrediction(cachedResult.prediction);
+        return;
+      }
+
       const [nextImageUrl, nextPrediction] = await Promise.all([
         callNearestTrafficImage(parsedLatitude, parsedLongitude),
         callNearestTrafficPrediction(parsedLatitude, parsedLongitude),
       ]);
 
-      setImageUrl((previousUrl) => {
-        if (previousUrl) URL.revokeObjectURL(previousUrl);
-        return nextImageUrl;
-      });
+      trafficResultCache.set(cacheKey, { imageUrl: nextImageUrl, prediction: nextPrediction });
+      setImageUrl(nextImageUrl);
       setImageSize(null);
+      setImageZoom(1);
       setPrediction(nextPrediction);
     } catch (error) {
       console.error('Failed to load live traffic prediction', error);
@@ -208,12 +235,6 @@ const LiveTrafficPanel: React.FC<LiveTrafficPanelProps> = ({
   }, [canLoad, loadTraffic, sourceLabel]);
 
   useEffect(() => {
-    return () => {
-      if (imageUrl) URL.revokeObjectURL(imageUrl);
-    };
-  }, [imageUrl]);
-
-  useEffect(() => {
     if (!googleTrafficContainerRef.current) return;
     if (!canLoad) return;
     if (!googleMapsApiKey) return;
@@ -222,7 +243,7 @@ const LiveTrafficPanel: React.FC<LiveTrafficPanelProps> = ({
 
     const setupGoogleTraffic = async () => {
       try {
-        setGoogleTrafficStatus('Loading Google traffic...');
+        setGoogleTrafficStatus('Loading Google live traffic...');
         await loadGoogleMaps(googleMapsApiKey);
         if (!isMounted || !googleTrafficContainerRef.current || !window.google?.maps) return;
 
@@ -231,28 +252,25 @@ const LiveTrafficPanel: React.FC<LiveTrafficPanelProps> = ({
         if (!googleMapRef.current) {
           googleMapRef.current = new window.google.maps.Map(googleTrafficContainerRef.current, {
             center,
-            zoom: 13,
+            zoom: 14,
             disableDefaultUI: true,
             clickableIcons: false,
             gestureHandling: 'cooperative',
-            styles: [
-              { elementType: 'geometry', stylers: [{ color: '#0f172a' }] },
-              { elementType: 'labels.text.fill', stylers: [{ color: '#cbd5e1' }] },
-              { elementType: 'labels.text.stroke', stylers: [{ color: '#020617' }] },
-              { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1e293b' }] },
-              { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#082f49' }] },
-            ],
+            styles: [],
           });
           googleTrafficLayerRef.current = new window.google.maps.TrafficLayer();
           googleTrafficLayerRef.current.setMap(googleMapRef.current);
         } else {
           googleMapRef.current.setCenter(center);
+          googleMapRef.current.setZoom(14);
         }
 
         setGoogleTrafficStatus(null);
       } catch (error) {
         console.error('Failed to load Google traffic layer', error);
-        setGoogleTrafficStatus('Google traffic could not load. Check the API key and Maps JS API.');
+        setGoogleTrafficStatus(
+          'Google traffic could not load. Check that Maps JavaScript API is enabled and this localhost URL is allowed for the key.',
+        );
       }
     };
 
@@ -265,7 +283,82 @@ const LiveTrafficPanel: React.FC<LiveTrafficPanelProps> = ({
 
   const trafficStatusMessage =
     googleTrafficStatus ??
-    (!googleMapsApiKey ? 'Set VITE_GOOGLE_MAPS_API_KEY to enable Google live traffic.' : null);
+    (!googleMapsApiKey
+      ? 'Set VITE_GOOGLE_MAPS_API_KEY to enable Google live traffic. The TxDOT camera + YOLO panel still works without it.'
+      : null);
+
+  const zoomOut = () => setImageZoom((zoom) => Math.max(MIN_IMAGE_ZOOM, zoom - IMAGE_ZOOM_STEP));
+  const zoomIn = () => setImageZoom((zoom) => Math.min(MAX_IMAGE_ZOOM, zoom + IMAGE_ZOOM_STEP));
+  const resetZoom = () => setImageZoom(1);
+  const renderTrafficImage = (isFullscreen = false) => (
+    <div
+      className={`relative overflow-auto rounded-md border border-slate-800 bg-slate-950 ${
+        isFullscreen ? 'h-[calc(100vh-150px)]' : 'max-h-[420px]'
+      }`}
+    >
+      {imageUrl ? (
+        <div
+          className="relative"
+          style={{
+            width: `${imageZoom * 100}%`,
+            minWidth: '100%',
+            aspectRatio: imageSize ? `${imageSize.width} / ${imageSize.height}` : undefined,
+          }}
+        >
+          <img
+            src={imageUrl}
+            alt="Nearest live traffic camera"
+            className="block h-auto w-full"
+            onLoad={(event) => {
+              setImageSize({
+                width: event.currentTarget.naturalWidth,
+                height: event.currentTarget.naturalHeight,
+              });
+            }}
+          />
+          {imageSize && (
+            <svg
+              className="pointer-events-none absolute inset-0 h-full w-full"
+              viewBox={`0 0 ${imageSize.width} ${imageSize.height}`}
+              preserveAspectRatio="none"
+            >
+              {sortedDetections.map((detection, index) => {
+                const [x1, y1, x2, y2] = detection.bbox;
+                const polygon = detection.segmentation?.polygon;
+                return (
+                  <g key={`${detection.label}-${index}`}>
+                    {shouldShowSegmentation && polygon && polygon.length > 2 && (
+                      <polygon
+                        points={polygonPoints(polygon)}
+                        fill="rgba(34, 211, 238, 0.22)"
+                        stroke="rgba(34, 211, 238, 0.75)"
+                        strokeWidth="2"
+                      />
+                    )}
+                    {shouldShowBoxes && (
+                      <rect
+                        x={x1}
+                        y={y1}
+                        width={x2 - x1}
+                        height={y2 - y1}
+                        fill="none"
+                        stroke="rgba(250, 204, 21, 0.95)"
+                        strokeWidth="2"
+                      />
+                    )}
+                  </g>
+                );
+              })}
+            </svg>
+          )}
+        </div>
+      ) : (
+        <div className="flex aspect-video items-center justify-center text-xs text-slate-500">
+          No camera image loaded
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="rounded-lg border border-slate-800 bg-[#07111f] p-4 shadow-lg">
@@ -355,69 +448,64 @@ const LiveTrafficPanel: React.FC<LiveTrafficPanelProps> = ({
         </div>
       )}
 
-      <div className="relative overflow-hidden rounded-md border border-slate-800 bg-slate-950">
-        {imageUrl ? (
-          <>
-            <img
-              src={imageUrl}
-              alt="Nearest live traffic camera"
-              className="block aspect-video w-full object-cover"
-              onLoad={(event) => {
-                setImageSize({
-                  width: event.currentTarget.naturalWidth,
-                  height: event.currentTarget.naturalHeight,
-                });
-              }}
-            />
-            {imageSize && (
-              <svg
-                className="pointer-events-none absolute inset-0 h-full w-full"
-                viewBox={`0 0 ${imageSize.width} ${imageSize.height}`}
-                preserveAspectRatio="none"
-              >
-                {sortedDetections.map((detection, index) => {
-                  const [x1, y1, x2, y2] = detection.bbox;
-                  const polygon = detection.segmentation?.polygon;
-                  return (
-                    <g key={`${detection.label}-${index}`}>
-                      {shouldShowSegmentation && polygon && polygon.length > 2 && (
-                        <polygon
-                          points={polygonPoints(polygon)}
-                          fill="rgba(34, 211, 238, 0.22)"
-                          stroke="rgba(34, 211, 238, 0.75)"
-                          strokeWidth="2"
-                        />
-                      )}
-                      {shouldShowBoxes && (
-                        <rect
-                          x={x1}
-                          y={y1}
-                          width={x2 - x1}
-                          height={y2 - y1}
-                          fill="none"
-                          stroke="rgba(250, 204, 21, 0.95)"
-                          strokeWidth="2"
-                        />
-                      )}
-                    </g>
-                  );
-                })}
-              </svg>
-            )}
-          </>
-        ) : (
-          <div className="flex aspect-video items-center justify-center text-xs text-slate-500">
-            No camera image loaded
+      {imageUrl && (
+        <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-slate-800 bg-slate-950/70 px-2 py-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Image Zoom {Math.round(imageZoom * 100)}%
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={zoomOut}
+              disabled={imageZoom <= MIN_IMAGE_ZOOM}
+              className="rounded border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 transition hover:border-cyan-500/50 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              -
+            </button>
+            <button
+              type="button"
+              onClick={resetZoom}
+              className="rounded border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 transition hover:border-cyan-500/50 hover:text-cyan-100"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsImageFullscreen(true)}
+              className="rounded border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 transition hover:border-cyan-500/50 hover:text-cyan-100"
+            >
+              Full
+            </button>
+            <button
+              type="button"
+              onClick={zoomIn}
+              disabled={imageZoom >= MAX_IMAGE_ZOOM}
+              className="rounded border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 transition hover:border-cyan-500/50 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              +
+            </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {renderTrafficImage()}
 
       <div className="mt-3 overflow-hidden rounded-md border border-slate-800 bg-slate-950">
         <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2">
           <span className="text-xs font-semibold text-slate-200">Google traffic layer</span>
           <span className="text-[10px] uppercase tracking-wide text-slate-500">Real time</span>
         </div>
-        <div ref={googleTrafficContainerRef} className="h-36 w-full" />
+        <div className="relative">
+          <div ref={googleTrafficContainerRef} className="h-56 w-full" />
+          {canLoad && (
+            <div className="pointer-events-none absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-full flex-col items-center">
+              <div className="rounded-full border border-white bg-cyan-400 px-1.5 py-0.5 text-[10px] font-bold text-slate-950 shadow-lg shadow-black/40">
+                Camera
+              </div>
+              <div className="h-3 w-3 rotate-45 border-b border-r border-white bg-cyan-400 shadow-lg shadow-black/40" />
+            </div>
+          )}
+        </div>
         {trafficStatusMessage && (
           <div className="border-t border-slate-800 px-3 py-2 text-xs text-slate-400">
             {trafficStatusMessage}
@@ -471,6 +559,54 @@ const LiveTrafficPanel: React.FC<LiveTrafficPanelProps> = ({
               <span className="text-slate-500">{confidencePercent(detection.confidence)}</span>
             </div>
           ))}
+        </div>
+      )}
+
+      {isImageFullscreen && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/95 p-4 backdrop-blur">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Camera Analysis
+              </div>
+              <div className="mt-1 text-sm font-semibold text-slate-100">
+                {prediction?.camera.name ?? 'Nearest TxDOT camera'}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={zoomOut}
+                disabled={imageZoom <= MIN_IMAGE_ZOOM}
+                className="rounded border border-slate-700 px-3 py-1.5 text-sm font-semibold text-slate-200 transition hover:border-cyan-500/50 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                -
+              </button>
+              <button
+                type="button"
+                onClick={resetZoom}
+                className="rounded border border-slate-700 px-3 py-1.5 text-sm font-semibold text-slate-200 transition hover:border-cyan-500/50 hover:text-cyan-100"
+              >
+                Reset {Math.round(imageZoom * 100)}%
+              </button>
+              <button
+                type="button"
+                onClick={zoomIn}
+                disabled={imageZoom >= MAX_IMAGE_ZOOM}
+                className="rounded border border-slate-700 px-3 py-1.5 text-sm font-semibold text-slate-200 transition hover:border-cyan-500/50 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                +
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsImageFullscreen(false)}
+                className="rounded border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm font-semibold text-slate-100 transition hover:border-cyan-500/50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+          {renderTrafficImage(true)}
         </div>
       )}
     </div>

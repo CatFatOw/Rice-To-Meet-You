@@ -55,6 +55,16 @@ interface ViewState {
   bearing: number;
 }
 
+export interface CameraAnalysisMarker {
+  id: string;
+  longitude: number;
+  latitude: number;
+  label: string;
+  metric: string | null;
+  value: number | null;
+  individualMetrics: Record<string, number>;
+}
+
 interface HeatmapProps {
   viewState: ViewState;
   setViewState: React.Dispatch<React.SetStateAction<ViewState>>;
@@ -92,6 +102,8 @@ interface HeatmapProps {
   setShowSuggestions: React.Dispatch<React.SetStateAction<boolean>>;
   selectedMetric: string | null;
   setSelectedMetric: React.Dispatch<React.SetStateAction<string | null>>;
+  cameraAnalysisMarkers?: CameraAnalysisMarker[];
+  onCameraAnalysisMarkerRemove?: (id: string) => void;
   editingAreaId: string | null;
   setEditingAreaId: React.Dispatch<React.SetStateAction<string | null>>;
   isAreaDragging: boolean;
@@ -237,6 +249,17 @@ const FOOTBALL_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 64
 </svg>`;
 
 const FOOTBALL_ICON = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(FOOTBALL_SVG)}`;
+
+const CAMERA_ANALYSIS_MARKER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 44" width="36" height="44">
+  <path d="M18 2 C9.2 2 2 9.1 2 18 C2 29.8 18 42 18 42 C18 42 34 29.8 34 18 C34 9.1 26.8 2 18 2 Z" fill="#22d3ee" stroke="#f8fafc" stroke-width="2"/>
+  <circle cx="18" cy="18" r="9.2" fill="#020617" stroke="#67e8f9" stroke-width="1.5"/>
+  <path d="M11 16.2 H15 L16.5 14 H21.2 L22.8 16.2 H25 C25.9 16.2 26.6 16.9 26.6 17.8 V23.2 C26.6 24.1 25.9 24.8 25 24.8 H11 C10.1 24.8 9.4 24.1 9.4 23.2 V17.8 C9.4 16.9 10.1 16.2 11 16.2 Z" fill="#e0f2fe"/>
+  <circle cx="18" cy="20.5" r="3.2" fill="#0f172a" stroke="#22d3ee" stroke-width="1.2"/>
+</svg>`;
+
+const CAMERA_ANALYSIS_MARKER_ICON = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+  CAMERA_ANALYSIS_MARKER_SVG,
+)}`;
 
 // --- Toolbox: placeable objects that can be dragged onto the map ---
 
@@ -395,6 +418,8 @@ const Heatmap: React.FC<HeatmapProps> = ({
   setShowSuggestions,
   selectedMetric,
   setSelectedMetric,
+  cameraAnalysisMarkers = [],
+  onCameraAnalysisMarkerRemove,
   editingAreaId,
   setEditingAreaId,
   isAreaDragging,
@@ -412,6 +437,11 @@ const Heatmap: React.FC<HeatmapProps> = ({
   const [placedObjects, setPlacedObjects] = useState<PlacedObject[]>([]);
   const [hoveredPOIArea, setHoveredPOIArea] = useState<{
     area: CityPOIArea;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [hoveredCameraAnalysisMarker, setHoveredCameraAnalysisMarker] = useState<{
+    marker: CameraAnalysisMarker;
     x: number;
     y: number;
   } | null>(null);
@@ -966,6 +996,35 @@ const Heatmap: React.FC<HeatmapProps> = ({
     [placedObjects, isDrawing, removePlacedObject],
   );
 
+  const cameraAnalysisPointLayer = useMemo(
+    () =>
+      new IconLayer({
+        id: 'camera-analysis-point-layer',
+        data: cameraAnalysisMarkers,
+        pickable: !isDrawing,
+        getPosition: (d: CameraAnalysisMarker) => [d.longitude, d.latitude],
+        getIcon: () => ({
+          url: CAMERA_ANALYSIS_MARKER_ICON,
+          width: 36,
+          height: 44,
+          anchorX: 18,
+          anchorY: 42,
+          id: 'camera-analysis',
+        }),
+        getSize: 34,
+        sizeUnits: 'pixels',
+        onHover: (info: any) => {
+          setHoveredCameraAnalysisMarker(
+            info.object ? { marker: info.object as CameraAnalysisMarker, x: info.x, y: info.y } : null,
+          );
+        },
+        onClick: (info: any) => {
+          if (info.object) onCameraAnalysisMarkerRemove?.((info.object as CameraAnalysisMarker).id);
+        },
+      }),
+    [cameraAnalysisMarkers, isDrawing, onCameraAnalysisMarkerRemove],
+  );
+
   const poiAreaLayer = useMemo(
     () =>
       new PolygonLayer({
@@ -1129,6 +1188,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
       draftPathLayer,
       draftPointsLayer,
       placedObjectLayer,
+      cameraAnalysisPointLayer,
       cityIconLayer,
       cityLabelLayer,
     ],
@@ -1139,6 +1199,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
       draftPathLayer,
       draftPointsLayer,
       placedObjectLayer,
+      cameraAnalysisPointLayer,
       cityIconLayer,
       cityLabelLayer,
     ],
@@ -1511,6 +1572,62 @@ const Heatmap: React.FC<HeatmapProps> = ({
         getCursor={getCursor}
         style={{ position: 'absolute', width: '100%', height: '100%' }}
       />
+
+      {hoveredCameraAnalysisMarker && (
+        <div
+          style={{
+            position: 'absolute',
+            left: hoveredCameraAnalysisMarker.x + 14,
+            top: hoveredCameraAnalysisMarker.y + 14,
+            zIndex: 50,
+            width: 260,
+            pointerEvents: 'none',
+            border: '1px solid rgba(34, 211, 238, 0.55)',
+            backgroundColor: 'rgba(2, 8, 23, 0.95)',
+            borderRadius: 10,
+            padding: '10px 12px',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
+            color: '#f8fafc',
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#a5f3fc' }}>
+            Camera analysis point
+          </div>
+          <div style={{ marginTop: 5, fontSize: 12, lineHeight: 1.45, color: '#cbd5e1' }}>
+            {hoveredCameraAnalysisMarker.marker.latitude.toFixed(5)},{' '}
+            {hoveredCameraAnalysisMarker.marker.longitude.toFixed(5)}
+          </div>
+          {hoveredCameraAnalysisMarker.marker.metric && (
+            <div style={{ marginTop: 7, fontSize: 12, color: '#e2e8f0' }}>
+              <span style={{ color: '#94a3b8' }}>
+                {formatMetricName(hoveredCameraAnalysisMarker.marker.metric)}:
+              </span>{' '}
+              <strong>{hoveredCameraAnalysisMarker.marker.value ?? '-'}</strong>
+            </div>
+          )}
+          {Object.entries(hoveredCameraAnalysisMarker.marker.individualMetrics)
+            .slice(0, 6)
+            .map(([metricKey, value]) => (
+              <div
+                key={metricKey}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                  marginTop: 3,
+                  fontSize: 11,
+                  color: '#94a3b8',
+                }}
+              >
+                <span>{formatMetricName(metricKey)}</span>
+                <span style={{ color: '#e2e8f0' }}>{value}</span>
+              </div>
+            ))}
+          <div style={{ marginTop: 8, fontSize: 11, color: '#67e8f9' }}>
+            Click marker to delete
+          </div>
+        </div>
+      )}
 
       {hoveredPOIArea && (
         <div

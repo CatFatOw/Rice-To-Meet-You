@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
-import Heatmap, { type GeocodeResult, type TooltipState } from '../components/Heatmap';
+import Heatmap, {
+  type CameraAnalysisMarker,
+  type GeocodeResult,
+  type TooltipState,
+} from '../components/Heatmap';
 import LiveTrafficPanel from '../components/LiveTrafficPanel';
 import NavigationBar from '../components/NavigationBar';
 import OverallStatistics, { type OverallStatisticsProps } from '../components/OverallStatistics';
@@ -83,6 +87,7 @@ const ExplorePage: React.FC = () => {
   const [nearestLongitude, setNearestLongitude] = useState('');
   const [nearestLatitude, setNearestLatitude] = useState('');
   const [nearestSourceLabel, setNearestSourceLabel] = useState<string | null>(null);
+  const [cameraAnalysisMarkers, setCameraAnalysisMarkers] = useState<CameraAnalysisMarker[]>([]);
   const [poiSortMode, setPOISortMode] = useState<'x' | 'nearest'>('x');
   const [showAllCityHeatmaps, setShowAllCityHeatmaps] = useState(true);
 
@@ -285,6 +290,23 @@ const ExplorePage: React.FC = () => {
     setNearestLatitude(lat.toFixed(5));
     setNearestSourceLabel(point.location_name);
     setPOISortMode('nearest');
+    const marker: CameraAnalysisMarker = {
+      id: `${lon.toFixed(5)},${lat.toFixed(5)}`,
+      longitude: lon,
+      latitude: lat,
+      label: point.location_name,
+      metric: selectedMetric,
+      value: point.value,
+      individualMetrics: Object.fromEntries(
+        Object.entries(point.individual_metrics ?? {}).filter(
+          (entry): entry is [string, number] => typeof entry[1] === 'number',
+        ),
+      ),
+    };
+    setCameraAnalysisMarkers((previousMarkers) => [
+      marker,
+      ...previousMarkers.filter((existingMarker) => existingMarker.id !== marker.id),
+    ]);
   };
 
   return (
@@ -333,6 +355,12 @@ const ExplorePage: React.FC = () => {
               setShowSuggestions={setShowSuggestions}
               selectedMetric={selectedMetric}
               setSelectedMetric={setSelectedMetric}
+              cameraAnalysisMarkers={cameraAnalysisMarkers}
+              onCameraAnalysisMarkerRemove={(id) => {
+                setCameraAnalysisMarkers((previousMarkers) =>
+                  previousMarkers.filter((marker) => marker.id !== id),
+                );
+              }}
               editingAreaId={editingAreaId}
               setEditingAreaId={setEditingAreaId}
               isAreaDragging={isAreaDragging}
