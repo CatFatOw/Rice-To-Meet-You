@@ -497,6 +497,105 @@ function buildField(
   }));
 }
 
+// ---------------------------------------------------------------------------
+// callHeatmapMetricsGrid()
+// ---------------------------------------------------------------------------
+
+// One metric's interpolated value lattice for a city. values[row][col] holds
+// the metric value at that grid cell centroid; row 0 is the southernmost row.
+export interface MetricGrid {
+  min: number;
+  max: number;
+  values: (number | null)[][];
+}
+
+// A city's full interpolated raster grid for continuous map rendering.
+export interface CityMetricGrid {
+  state?: string | null;
+  bounds: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
+  rows: number;
+  cols: number;
+  timestamp: string;
+  metrics: Record<string, MetricGrid>;
+}
+
+// City name -> interpolated raster grid available for that city.
+export type HeatmapMetricGridResponse = Record<string, CityMetricGrid>;
+
+const MOCK_GRID_ROWS = 64;
+const MOCK_GRID_COLS = 64;
+
+// Sample the hand-authored IDW anchor field onto a regular lattice so the mock
+// keeps the same raster-grid shape the backend serves.
+function buildMockMetricGrid(
+  anchors: HeatmapMetricValue[],
+  power: number,
+  bounds: [number, number, number, number],
+): MetricGrid {
+  const [minLon, minLat, maxLon, maxLat] = bounds;
+  const lonStep = (maxLon - minLon) / MOCK_GRID_COLS;
+  const latStep = (maxLat - minLat) / MOCK_GRID_ROWS;
+  const values: number[][] = [];
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+
+  for (let row = 0; row < MOCK_GRID_ROWS; row += 1) {
+    const lat = minLat + (row + 0.5) * latStep;
+    const rowValues: number[] = [];
+    for (let col = 0; col < MOCK_GRID_COLS; col += 1) {
+      const lon = minLon + (col + 0.5) * lonStep;
+      const value = clamp(
+        Math.round(interpolate(lon, lat, anchors, power)),
+        MIN_SCORE,
+        MAX_SCORE,
+      );
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+      rowValues.push(value);
+    }
+    values.push(rowValues);
+  }
+
+  return { min, max, values };
+}
+
+function buildMockHeatmapMetricsGrid(): HeatmapMetricGridResponse {
+  const bounds: [number, number, number, number] = [
+    INTERP_CENTER[0] - INTERP_HALF_SPAN_LON,
+    INTERP_CENTER[1] - INTERP_HALF_SPAN_LAT,
+    INTERP_CENTER[0] + INTERP_HALF_SPAN_LON,
+    INTERP_CENTER[1] + INTERP_HALF_SPAN_LAT,
+  ];
+
+  return {
+    Houston: {
+      state: 'Texas',
+      bounds,
+      rows: MOCK_GRID_ROWS,
+      cols: MOCK_GRID_COLS,
+      timestamp: 'mock',
+      metrics: {
+        heat_risk_score: buildMockMetricGrid(ALL_HEAT_ANCHORS, HEAT_IDW_POWER, bounds),
+        visitor_activity: buildMockMetricGrid(HOUSTON_VISITOR_ANCHORS, VISITOR_IDW_POWER, bounds),
+      },
+    },
+  };
+}
+
+export async function callHeatmapMetricsGrid(): Promise<HeatmapMetricGridResponse> {
+  // Use interpolated raster grids from the backend when available. Empty `{}`
+  // is treated as "not seeded yet" so the map still displays the mock Houston
+  // surface during local demos.
+  try {
+    const cityGrids = await fetchBackendJson<HeatmapMetricGridResponse>('/heatmap/metrics/grid');
+    if (Object.keys(cityGrids).length > 0) return cityGrids;
+  } catch (error) {
+    console.warn('Falling back to mock heatmap metric grid', error);
+  }
+
+  return buildMockHeatmapMetricsGrid();
+}
+
 export async function callHeatmapMetricsPoints(): Promise<HeatmapMetricsPointResponse> {
   await new Promise((resolve) => setTimeout(resolve, 500));
 

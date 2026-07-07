@@ -1,16 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import Heatmap, { type GeocodeResult, type TooltipState } from '../components/Heatmap';
+import LiveTrafficPanel from '../components/LiveTrafficPanel';
 import NavigationBar from '../components/NavigationBar';
 import OverallStatistics, { type OverallStatisticsProps } from '../components/OverallStatistics';
 import POIStatistics, { type POIStatisticsProps } from '../components/POIStatistics';
 import {
-  callHeatmapMetricsPoints,
+  callHeatmapMetricsGrid,
   callMockLocationPOIs,
   importCorePOIFile,
   type CityPOIArea,
   type HeatmapMetricValue,
-  type HeatmapMetricsPointResponse,
+  type HeatmapMetricGridResponse,
 } from '../api/map';
 import { callMockStatistics } from '../api/statistics';
 import { determineCityView } from '../utils/cityViews';
@@ -56,8 +57,8 @@ const ExplorePage: React.FC = () => {
 
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [cityPOIAreas, setCityPOIAreas] = useState<CityPOIArea[]>([]);
-  const [heatmapPointsByCity, setHeatmapPointsByCity] =
-    useState<HeatmapMetricsPointResponse>({});
+  const [metricGridsByCity, setMetricGridsByCity] =
+    useState<HeatmapMetricGridResponse>({});
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -136,18 +137,18 @@ const ExplorePage: React.FC = () => {
   useEffect(() => {
     let isMounted = true;
 
-    const loadHeatmapPoints = async () => {
+    const loadMetricGrids = async () => {
       try {
-        const pointsByCity = await callHeatmapMetricsPoints();
+        const gridsByCity = await callHeatmapMetricsGrid();
         if (isMounted) {
-          setHeatmapPointsByCity(pointsByCity);
+          setMetricGridsByCity(gridsByCity);
         }
       } catch (error) {
-        console.error('Failed to load heatmap metric points', error);
+        console.error('Failed to load heatmap metric grids', error);
       }
     };
 
-    loadHeatmapPoints();
+    loadMetricGrids();
 
     return () => {
       isMounted = false;
@@ -222,8 +223,11 @@ const ExplorePage: React.FC = () => {
     ? userPOIAreas.filter((poi) => poi.cityName === selectedCity).length
     : userPOIAreas.length;
   const activeMetricCount = selectedCity
-    ? (heatmapPointsByCity[selectedCity]?.length ?? 0)
-    : Object.values(heatmapPointsByCity).reduce((sum, layers) => sum + layers.length, 0);
+    ? Object.keys(metricGridsByCity[selectedCity]?.metrics ?? {}).length
+    : Object.values(metricGridsByCity).reduce(
+        (sum, grid) => sum + Object.keys(grid.metrics).length,
+        0,
+      );
   const parsedNearestPoint = useMemo<[number, number] | null>(() => {
     const lon = Number.parseFloat(nearestLongitude);
     const lat = Number.parseFloat(nearestLatitude);
@@ -257,9 +261,22 @@ const ExplorePage: React.FC = () => {
   const handlePOIDirectorySelect = (poi: CityPOIArea) => {
     setSelectedPOIArea(poi);
     const [lon, lat] = poiCenter(poi);
+    setNearestLongitude(lon.toFixed(5));
+    setNearestLatitude(lat.toFixed(5));
+    setNearestSourceLabel(poi.name);
+    setPOISortMode('nearest');
     const nextState = { longitude: lon, latitude: lat, zoom: 14, pitch: 0, bearing: 0 };
     setViewState(nextState);
     mapRef.current?.flyTo({ center: [lon, lat], zoom: 14, duration: 900 });
+  };
+
+  const handlePOIAreaSelect = (poi: CityPOIArea) => {
+    setSelectedPOIArea(poi);
+    const [lon, lat] = poiCenter(poi);
+    setNearestLongitude(lon.toFixed(5));
+    setNearestLatitude(lat.toFixed(5));
+    setNearestSourceLabel(poi.name);
+    setPOISortMode('nearest');
   };
 
   const handleMetricPointSelect = (point: HeatmapMetricValue) => {
@@ -285,7 +302,7 @@ const ExplorePage: React.FC = () => {
               selectedCity={selectedCity}
               setSelectedCity={setSelectedCity}
               cityPOIAreas={cityPOIAreas}
-              heatmapPointsByCity={heatmapPointsByCity}
+              metricGridsByCity={metricGridsByCity}
               showAllCityHeatmaps={showAllCityHeatmaps}
               mapContainerRef={mapContainerRef}
               mapRef={mapRef}
@@ -320,13 +337,13 @@ const ExplorePage: React.FC = () => {
               setEditingAreaId={setEditingAreaId}
               isAreaDragging={isAreaDragging}
               setIsAreaDragging={setIsAreaDragging}
-              onPOIAreaSelect={setSelectedPOIArea}
+              onPOIAreaSelect={handlePOIAreaSelect}
               onMetricPointSelect={handleMetricPointSelect}
             
             />
           </section>
 
-          <section className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+          <section className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain pr-1">
             <div className="shrink-0 rounded-lg border border-slate-800 bg-[#07111f] p-4 shadow-lg">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div>
@@ -396,6 +413,16 @@ const ExplorePage: React.FC = () => {
                 </div>
               )}
             </div>
+            <LiveTrafficPanel
+              latitude={nearestLatitude}
+              longitude={nearestLongitude}
+              sourceLabel={nearestSourceLabel}
+              onCoordinateChange={({ latitude, longitude, sourceLabel }) => {
+                setNearestLatitude(latitude);
+                setNearestLongitude(longitude);
+                setNearestSourceLabel(sourceLabel);
+              }}
+            />
             <div className="flex min-h-0 flex-[1.05_1_0] flex-col rounded-lg border border-slate-800 bg-[#07111f] p-4 shadow-lg">
               <div className="mb-3 flex items-start justify-between gap-3">
                 <div>

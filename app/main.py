@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session 
 import database 
 import models
-from routers import dataset, grid_geometry, grid_interpolation, grid_metrics, login, nws_weather, poi_polygons, polygon, users
+from routers import dataset, grid_geometry, grid_interpolation, grid_metrics, login, nws_weather, poi_polygons, polygon, traffic_prediction, users
 from routers.front_end_routes import heatmap
 
 
@@ -34,6 +34,7 @@ app.include_router(grid_interpolation.router)
 app.include_router(poi_polygons.router)
 app.include_router(polygon.router)
 app.include_router(heatmap.router)
+app.include_router(traffic_prediction.router)
 
 # Show which tables are gonna be created
 print(database.Base.metadata.tables.keys())
