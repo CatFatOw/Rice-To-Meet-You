@@ -44,6 +44,23 @@ class HeatmapMetricPoint(BaseModel):
     points: List[HeatmapMetricValue]
 
 
+class MetricGrid(BaseModel):
+    """One metric's interpolated value lattice for a city (row 0 = south)."""
+    min: float
+    max: float
+    values: List[List[float | None]]
+
+
+class CityMetricGrid(BaseModel):
+    """A city's full interpolated raster grid for continuous map rendering."""
+    state: str | None = None
+    bounds: List[float] = Field(..., min_length=4, max_length=4)
+    rows: int
+    cols: int
+    timestamp: str
+    metrics: dict[str, MetricGrid]
+
+
 class SimulationPolygonCreate(BaseModel):
     """Frontend drawing payload for creating a simulation polygon."""
     name: str | None = None

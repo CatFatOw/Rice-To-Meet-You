@@ -19,16 +19,31 @@ import {
   TreePine,
 } from 'lucide-react';
 import DeckGL from '@deck.gl/react';
-import { ScatterplotLayer, PolygonLayer, PathLayer, TextLayer, IconLayer } from '@deck.gl/layers';
-import { HeatmapLayer } from '@deck.gl/aggregation-layers';
 import {
+  ScatterplotLayer,
+  PolygonLayer,
+  PathLayer,
+  TextLayer,
+  IconLayer,
+  BitmapLayer,
+} from '@deck.gl/layers';
+import {
+  applySimulation,
+  createSimulationPolygon,
+  type CityMetricGrid,
   type CityPOIArea,
-  type HeatmapMetricPoint,
+  type HeatmapMetricGridResponse,
   type HeatmapMetricValue,
-  type HeatmapMetricsPointResponse,
+  type SimulationPlacedObject,
 } from '../api/map';
 import { cities, type City } from '../data/hostCities';
-import { getColor } from '../utils/colors';
+import { getSmoothColor } from '../utils/colors';
+import {
+  buildCityMetricRaster,
+  isInsideRaster,
+  metricScore,
+  sampleMetricGrid,
+} from '../utils/metricRaster';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -46,7 +61,8 @@ interface HeatmapProps {
   selectedCity: string | null;
   setSelectedCity: React.Dispatch<React.SetStateAction<string | null>>;
   cityPOIAreas: CityPOIArea[];
-  heatmapPointsByCity: HeatmapMetricsPointResponse;
+  metricGridsByCity: HeatmapMetricGridResponse;
+  showAllCityHeatmaps?: boolean;
   mapContainerRef: React.RefObject<HTMLDivElement | null>;
   mapRef: React.MutableRefObject<maplibregl.Map | null>;
   mapSyncFrameRef: React.MutableRefObject<number | null>;
@@ -80,6 +96,8 @@ interface HeatmapProps {
   setEditingAreaId: React.Dispatch<React.SetStateAction<string | null>>;
   isAreaDragging: boolean;
   setIsAreaDragging: React.Dispatch<React.SetStateAction<boolean>>;
+  onPOIAreaSelect?: (area: CityPOIArea) => void;
+  onMetricPointSelect?: (point: HeatmapMetricValue, metric: string) => void;
   /**
    * When true, the left panel renders as a full toolbox: a palette of
    * placeable objects (cooling stations, shade canopy, ...) that can be
@@ -105,6 +123,18 @@ export interface GeocodeResult {
 
 function metricLabel(metricKey: string): string {
   switch (metricKey) {
+    case 'heat_index':
+      return 'Heat Index';
+    case 'heat_risk':
+      return 'Heat Risk';
+    case 'crowd_density':
+      return 'Crowd Density';
+    case 'population':
+      return 'Population';
+    case 'cooling_centers':
+      return 'Cooling Centers';
+    case 'infrastructure_strain':
+      return 'Infra. Strain';
     case 'temperatureF':
       return 'Air Temp';
     case 'heatIndexF':
@@ -186,17 +216,24 @@ async function geocode(query: string, signal?: AbortSignal): Promise<GeocodeResu
   }));
 }
 
-// Colored soccer-ball SVG for city markers. Rendered via IconLayer (not
-// TextLayer) so it keeps its colors — TextLayer's grayscale glyph atlas turns
-// color emoji into a flat white ball.
-const FOOTBALL_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
-  <circle cx="24" cy="24" r="22" fill="#ffffff" stroke="#0f172a" stroke-width="2.5"/>
-  <line x1="24" y1="16" x2="24" y2="2" stroke="#0f172a" stroke-width="2"/>
-  <line x1="31.6" y1="21.5" x2="44.9" y2="17.2" stroke="#0f172a" stroke-width="2"/>
-  <line x1="28.7" y1="30.5" x2="36.9" y2="41.8" stroke="#0f172a" stroke-width="2"/>
-  <line x1="19.3" y1="30.5" x2="11.1" y2="41.8" stroke="#0f172a" stroke-width="2"/>
-  <line x1="16.4" y1="21.5" x2="3.1" y2="17.2" stroke="#0f172a" stroke-width="2"/>
-  <polygon points="24,16 31.6,21.5 28.7,30.5 19.3,30.5 16.4,21.5" fill="#0f172a"/>
+// Subtle host-city football badge. It borrows the visual language of a global
+// tournament marker without using official tournament branding.
+const FOOTBALL_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 64" width="56" height="64">
+  <defs>
+    <radialGradient id="badgeGlow" cx="50%" cy="35%" r="70%">
+      <stop offset="0%" stop-color="#fef3c7"/>
+      <stop offset="55%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#92400e"/>
+    </radialGradient>
+  </defs>
+  <path d="M28 3 C16.5 3 7 12.2 7 23.7 C7 40.3 28 61 28 61 C28 61 49 40.3 49 23.7 C49 12.2 39.5 3 28 3 Z" fill="url(#badgeGlow)" stroke="#f8fafc" stroke-width="1.4" opacity="0.94"/>
+  <circle cx="28" cy="24" r="14.5" fill="#07111f" stroke="#fef3c7" stroke-width="1.4"/>
+  <path d="M18 27.5 C22 21 34 21 38 27.5" fill="none" stroke="#38bdf8" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M19.5 31.5 H36.5" stroke="#94a3b8" stroke-width="1" stroke-linecap="round" opacity="0.8"/>
+  <circle cx="28" cy="24" r="5.3" fill="#f8fafc" stroke="#0f172a" stroke-width="1"/>
+  <polygon points="28,20.2 31.8,23 30.4,27.3 25.6,27.3 24.2,23" fill="#0f172a"/>
+  <path d="M28 18.7 V12.5 M32.8 21.2 L38.3 18.5 M31.3 28.1 L35.2 33 M24.7 28.1 L20.8 33 M23.2 21.2 L17.7 18.5" stroke="#f8fafc" stroke-width="1" stroke-linecap="round" opacity="0.75"/>
+  <path d="M20.5 43 H35.5" stroke="#fff7ed" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
 </svg>`;
 
 const FOOTBALL_ICON = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(FOOTBALL_SVG)}`;
@@ -287,33 +324,16 @@ function toolboxMarkerDataUrl(type: string, color: string): string {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(toolboxMarkerSvg(type, color))}`;
 }
 
-function colorMetricKey(metric: string): string {
-  if (metric === 'heat_risk_score') return 'temperature';
-  return metric;
-}
-
 function rgbaCss(rgb: [number, number, number], alpha: number): string {
   return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
 }
 
-function metricColorRange(metric: string): [number, number, number, number][] {
-  const colorMetric = colorMetricKey(metric);
-  const stops = [0, 20, 40, 60, 80, 100];
-
-  return stops.map((value, index) => {
-    const [r, g, b] = getColor(value, colorMetric);
-    const alpha = index === 0 ? 0 : 230;
-    return [r, g, b, alpha];
-  });
-}
-
 function metricLegendGradient(metric: string): string {
-  const colorMetric = colorMetricKey(metric);
-  const stops = [0, 20, 40, 60, 80, 100];
+  const stops = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
   const pctStep = 100 / (stops.length - 1);
 
   const segments = stops.map((value, index) => {
-    const color = getColor(value, colorMetric);
+    const color = getSmoothColor(value, metric);
     const pct = Math.round(index * pctStep);
     return `${rgbaCss(color, 0.95)} ${pct}%`;
   });
@@ -344,7 +364,8 @@ const Heatmap: React.FC<HeatmapProps> = ({
   selectedCity,
   setSelectedCity,
   cityPOIAreas,
-  heatmapPointsByCity,
+  metricGridsByCity,
+  showAllCityHeatmaps = false,
   mapContainerRef,
   mapRef,
   mapSyncFrameRef,
@@ -378,6 +399,8 @@ const Heatmap: React.FC<HeatmapProps> = ({
   setEditingAreaId,
   isAreaDragging,
   setIsAreaDragging,
+  onPOIAreaSelect,
+  onMetricPointSelect,
   displayToolbox = false,
 }) => {
   const heatmapRootRef = useRef<HTMLDivElement>(null);
@@ -387,6 +410,11 @@ const Heatmap: React.FC<HeatmapProps> = ({
   // since they're a self-contained overlay; lift into props if you need them
   // shared with the parent (e.g. for persistence).
   const [placedObjects, setPlacedObjects] = useState<PlacedObject[]>([]);
+  const [hoveredPOIArea, setHoveredPOIArea] = useState<{
+    area: CityPOIArea;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const dragContextRef = useRef<
     | {
@@ -568,6 +596,23 @@ const Heatmap: React.FC<HeatmapProps> = ({
     } as CityPOIArea;
 
     setUserPOIAreas((prev) => [...prev, newArea]);
+    // Persist the newly drawn area in the backend copy. We optimistically show
+    // the local polygon immediately, then replace it with the saved backend
+    // version once impacted grid ids come back.
+    void createSimulationPolygon({
+      name: newArea.name,
+      cityName: selectedCity,
+      color: newArea.color,
+      polygon: draftPoints,
+    })
+      .then((savedArea) => {
+        setUserPOIAreas((prev) =>
+          prev.map((area) => (area.id === newArea.id ? { ...area, ...savedArea } : area)),
+        );
+      })
+      .catch((error) => {
+        console.error('Failed to save simulation polygon', error);
+      });
     setDraftPoints([]);
     setDraftName('');
     setIsDrawing(false);
@@ -576,16 +621,6 @@ const Heatmap: React.FC<HeatmapProps> = ({
   const clearMyAreas = useCallback(() => {
     setUserPOIAreas((prev) => prev.filter((a) => a.cityName !== selectedCity));
   }, [selectedCity]);
-
-  // Add a vertex on any map click while drawing.
-  const handleDeckClick = useCallback(
-    (info: any) => {
-      if (!isDrawing || isAreaDragging || editingAreaId || !info?.coordinate) return;
-      const [lng, lat] = info.coordinate;
-      setDraftPoints((prev) => [...prev, [lng, lat]]);
-    },
-    [isDrawing, isAreaDragging, editingAreaId, setDraftPoints],
-  );
 
   // --- Toolbox object placement (HTML5 drag from palette -> drop on map) ---
 
@@ -633,8 +668,36 @@ const Heatmap: React.FC<HeatmapProps> = ({
 
   const clearPlacedObjects = useCallback(() => setPlacedObjects([]), []);
 
-  // Football icon marking each city (replaces the old red dots). Uses an
-  // IconLayer with a colored SVG so it renders in full color.
+  const applyPlacedObjects = useCallback(() => {
+    if (placedObjects.length === 0) return;
+
+    // If the user has drawn/saved POI areas in this city, scope the simulation
+    // to those impacted grid ids. Otherwise the backend applies the objects to
+    // the current city/state metric set.
+    const impactedGridCellIds = userPOIAreas
+      .filter((area) => !selectedCity || area.cityName === selectedCity)
+      .flatMap((area) => area.impacted_grid_cell_ids ?? []);
+
+    void applySimulation({
+      cityName: selectedCity ?? undefined,
+      impactedGridCellIds: impactedGridCellIds.length > 0 ? impactedGridCellIds : undefined,
+      placedObjects: placedObjects.map((object): SimulationPlacedObject => ({
+        id: object.id,
+        type: object.type,
+        longitude: object.longitude,
+        latitude: object.latitude,
+      })),
+    })
+      .then((result) => {
+        console.info('Simulation applied', result);
+      })
+      .catch((error) => {
+        console.error('Failed to apply simulation', error);
+      });
+  }, [placedObjects, selectedCity, userPOIAreas]);
+
+  // Tournament-style host marker. Kept intentionally quiet at national zoom so
+  // the planning surfaces remain the primary map signal.
   const cityIconLayer = useMemo(
     () =>
       new IconLayer({
@@ -644,25 +707,29 @@ const Heatmap: React.FC<HeatmapProps> = ({
         getPosition: (d: City) => [d.longitude, d.latitude],
         getIcon: () => ({
           url: FOOTBALL_ICON,
-          width: 48,
-          height: 48,
-          anchorX: 24,
-          anchorY: 24,
+          width: 56,
+          height: 64,
+          anchorX: 28,
+          anchorY: 58,
           id: 'football',
         }),
-        getSize: 30,
+        getSize: (d: City) => {
+          if (selectedCity === d.name) return 34;
+          if (viewState.zoom < 4.5) return 24;
+          return 28;
+        },
         sizeUnits: 'pixels',
-        getPixelOffset: [0, -14],
+        getPixelOffset: [0, -11],
         onClick: (info: any) => {
           if (info.object) {
             handleCityClick(info.object as City);
           }
         },
       }),
-    [handleCityClick, isDrawing],
+    [handleCityClick, isDrawing, selectedCity, viewState.zoom],
   );
 
-  // City name label under each football icon.
+  // City labels stay attached to markers, but become quieter at national zoom.
   const cityLabelLayer = useMemo(
     () =>
       new TextLayer({
@@ -671,24 +738,31 @@ const Heatmap: React.FC<HeatmapProps> = ({
         pickable: !isDrawing,
         characterSet: 'auto',
         fontFamily: '"Inter", system-ui, sans-serif',
-        fontWeight: 700,
+        fontWeight: 650,
         getPosition: (d: City) => [d.longitude, d.latitude],
         getText: (d: City) => d.name,
-        getSize: 14,
+        getSize: (d: City) => {
+          if (selectedCity === d.name) return 11;
+          if (viewState.zoom < 4.5) return 8;
+          return 9;
+        },
         sizeUnits: 'pixels',
-        getPixelOffset: [0, 6],
+        getPixelOffset: [0, -2],
         getTextAnchor: 'middle',
         getAlignmentBaseline: 'top',
         getColor: (d: City) =>
-          selectedCity === d.name ? [56, 189, 248, 255] : [248, 250, 252, 255],
+          selectedCity === d.name ? [254, 243, 199, 235] : [226, 232, 240, viewState.zoom < 4.5 ? 95 : 130],
         background: true,
-        getBackgroundColor: [2, 8, 23, 200],
-        backgroundPadding: [6, 3, 6, 3],
+        getBackgroundColor: (d: City) =>
+          selectedCity === d.name ? [15, 23, 42, 185] : [2, 8, 23, viewState.zoom < 4.5 ? 45 : 75],
+        backgroundPadding: [3, 1, 3, 1],
         fontSettings: { sdf: true },
-        outlineWidth: 2,
-        outlineColor: [2, 8, 23, 255],
+        outlineWidth: 1,
+        outlineColor: [2, 8, 23, 180],
         updateTriggers: {
-          getColor: [selectedCity],
+          getSize: [selectedCity, viewState.zoom],
+          getColor: [selectedCity, viewState.zoom],
+          getBackgroundColor: [selectedCity, viewState.zoom],
         },
         onClick: (info: any) => {
           if (info.object) {
@@ -696,44 +770,65 @@ const Heatmap: React.FC<HeatmapProps> = ({
           }
         },
       }),
-    [handleCityClick, isDrawing, selectedCity],
+    [handleCityClick, isDrawing, selectedCity, viewState.zoom],
   );
 
-  const availableMetricLayers: HeatmapMetricPoint[] = useMemo(
-    () => (selectedCity ? (heatmapPointsByCity[selectedCity] ?? []) : []),
-    [selectedCity, heatmapPointsByCity],
-  );
+  // City grids currently in view: the selected city's, or every city's when
+  // the all-cities toggle is on. Cities without backend data contribute none,
+  // so nothing renders outside seeded cities.
+  const visibleCityGrids = useMemo(() => {
+    const entries: [string, CityMetricGrid][] = [];
+    for (const [cityName, grid] of Object.entries(metricGridsByCity)) {
+      if (showAllCityHeatmaps || cityName === selectedCity) entries.push([cityName, grid]);
+    }
+    return entries;
+  }, [metricGridsByCity, selectedCity, showAllCityHeatmaps]);
+
+  const availableMetrics = useMemo(() => {
+    const metrics = new Set<string>();
+    for (const [, grid] of visibleCityGrids) {
+      for (const metricKey of Object.keys(grid.metrics)) metrics.add(metricKey);
+    }
+    return Array.from(metrics).sort();
+  }, [visibleCityGrids]);
 
   useEffect(() => {
-    if (availableMetricLayers.length === 0) {
+    if (availableMetrics.length === 0) {
       setSelectedMetric(null);
       return;
     }
 
-    setSelectedMetric((prev) => {
-      if (prev && availableMetricLayers.some((m) => m.metric === prev)) return prev;
-      return availableMetricLayers[0].metric;
-    });
-  }, [availableMetricLayers, setSelectedMetric]);
+    setSelectedMetric((prev) =>
+      prev && availableMetrics.includes(prev) ? prev : availableMetrics[0],
+    );
+  }, [availableMetrics, setSelectedMetric]);
 
-  const activeMetricLayer = useMemo(
+  const activeMetricKey =
+    selectedMetric && availableMetrics.includes(selectedMetric)
+      ? selectedMetric
+      : (availableMetrics[0] ?? 'heat_risk');
+
+  // One geographically-anchored raster per visible city for the active metric.
+  // The image is fixed-resolution and pinned to its lon/lat bounds, so the
+  // rendered surface never changes with zoom.
+  const metricRasters = useMemo(
     () =>
-      availableMetricLayers.find((m) => m.metric === selectedMetric) ??
-      availableMetricLayers[0],
-    [availableMetricLayers, selectedMetric],
+      visibleCityGrids
+        .filter(([, grid]) => grid.metrics[activeMetricKey])
+        .map(([cityName, grid]) => ({
+          cityName,
+          grid,
+          raster: buildCityMetricRaster(cityName, grid, activeMetricKey),
+        })),
+    [visibleCityGrids, activeMetricKey],
   );
 
-  const displayedHeatmapPoints: HeatmapMetricValue[] = useMemo(
-    () => activeMetricLayer?.points ?? [],
-    [activeMetricLayer],
+  const heatmapCellCount = useMemo(
+    () => metricRasters.reduce((sum, { grid }) => sum + grid.rows * grid.cols, 0),
+    [metricRasters],
   );
-
-  const activeMetricKey = activeMetricLayer?.metric ?? 'heat_risk_score';
+  const heatmapCountScopeLabel = showAllCityHeatmaps ? 'All cities' : selectedCity ?? 'Current city';
   const metricLabelText = formatMetricName(activeMetricKey);
-  const activeMetricColorRange = useMemo(
-    () => metricColorRange(activeMetricKey),
-    [activeMetricKey],
-  );
   const activeMetricLegendGradient = useMemo(
     () => metricLegendGradient(activeMetricKey),
     [activeMetricKey],
@@ -747,53 +842,99 @@ const Heatmap: React.FC<HeatmapProps> = ({
     ];
   }, [selectedCity, cityPOIAreas, userPOIAreas]);
 
-  // Continuous, interpolated density surface (GPU kernel-density estimation).
-  // Larger radius + lower threshold = smoother blending between points.
-  const interpolatedHeatmapLayer = useMemo(
-    () =>
-      new HeatmapLayer({
-        id: 'interpolated-heatmap-layer',
-        data: displayedHeatmapPoints,
-        pickable: false,
-        getPosition: (d: HeatmapMetricValue) => d.location_coordinates,
-        getWeight: (d: HeatmapMetricValue) => d.value,
-        aggregation: 'SUM',
-        radiusPixels: 60,
-        intensity: 1.2,
-        threshold: 0.03,
-        weightsTextureSize: 1024,
-        colorRange: activeMetricColorRange as any,
-      }),
-    [displayedHeatmapPoints, activeMetricColorRange],
+  // Sample every metric at a coordinate. Returns a synthesized tooltip point
+  // when the coordinate lands inside a city raster, or null outside all cities
+  // (so places without data never show values).
+  const sampleRasterPoint = useCallback(
+    (lon: number, lat: number): HeatmapMetricValue | null => {
+      for (const { cityName, grid, raster } of metricRasters) {
+        if (!isInsideRaster(raster, lon, lat)) continue;
+        const raw = sampleMetricGrid(grid, activeMetricKey, lon, lat);
+        if (raw === null) continue;
+
+        const individualMetrics: Record<string, number> = {};
+        for (const metricKey of Object.keys(grid.metrics)) {
+          const value = sampleMetricGrid(grid, metricKey, lon, lat);
+          if (value !== null) individualMetrics[metricKey] = Number(value.toFixed(1));
+        }
+
+        const { min, max } = grid.metrics[activeMetricKey];
+        return {
+          value: Math.round(metricScore(raw, min, max)),
+          location_name: `${cityName} · ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
+          location_coordinates: [lon, lat],
+          individual_metrics: individualMetrics,
+          is_interpolated: true,
+        };
+      }
+      return null;
+    },
+    [metricRasters, activeMetricKey],
   );
 
-  const heatmapPickLayer = useMemo(
+  // Hover anywhere: the tooltip reads the interpolated surface at the exact
+  // cursor coordinate instead of snapping to discrete points.
+  const handleDeckHover = useCallback(
+    (info: any) => {
+      if (isDrawing || isAreaDragging || !info?.coordinate) {
+        setHoveringHeatmap(false);
+        setTooltip(null);
+        return;
+      }
+
+      const [lon, lat] = info.coordinate as [number, number];
+      const point = sampleRasterPoint(lon, lat);
+      if (!point) {
+        setHoveringHeatmap(false);
+        setTooltip(null);
+        return;
+      }
+
+      setHoveringHeatmap(true);
+      setTooltip({ point, metric: activeMetricKey, x: info.x, y: info.y });
+    },
+    [isDrawing, isAreaDragging, sampleRasterPoint, activeMetricKey, setHoveringHeatmap, setTooltip],
+  );
+
+  // Adds a draft vertex while drawing; otherwise reports the interpolated
+  // values at the clicked coordinate to the parent page.
+  const handleDeckClick = useCallback(
+    (info: any) => {
+      if (isAreaDragging || editingAreaId || !info?.coordinate) return;
+      const [lng, lat] = info.coordinate;
+
+      if (isDrawing) {
+        setDraftPoints((prev) => [...prev, [lng, lat]]);
+        return;
+      }
+
+      const point = sampleRasterPoint(lng, lat);
+      if (point) onMetricPointSelect?.(point, activeMetricKey);
+    },
+    [
+      isDrawing,
+      isAreaDragging,
+      editingAreaId,
+      setDraftPoints,
+      sampleRasterPoint,
+      onMetricPointSelect,
+      activeMetricKey,
+    ],
+  );
+
+  const metricRasterLayers = useMemo(
     () =>
-      new ScatterplotLayer({
-        id: 'heatmap-pick-layer',
-        data: displayedHeatmapPoints,
-        pickable: !isDrawing,
-        opacity: 0,
-        radiusMinPixels: 14,
-        radiusMaxPixels: 14,
-        getPosition: (d: HeatmapMetricValue) => d.location_coordinates,
-        getFillColor: [0, 0, 0, 0],
-        onHover: (info: any) => {
-          if (info.object) {
-            setHoveringHeatmap(true);
-            setTooltip({
-              point: info.object as HeatmapMetricValue,
-              metric: activeMetricKey,
-              x: info.x,
-              y: info.y,
-            });
-          } else {
-            setHoveringHeatmap(false);
-            setTooltip(null);
-          }
-        },
-      }),
-    [displayedHeatmapPoints, isDrawing, setHoveringHeatmap, setTooltip, activeMetricKey],
+      metricRasters.map(
+        ({ cityName, raster }) =>
+          new BitmapLayer({
+            id: `metric-raster-${cityName}`,
+            image: raster.canvas,
+            bounds: raster.bounds,
+            opacity: 0.82,
+            pickable: false,
+          }),
+      ),
+    [metricRasters],
   );
 
   // Toolbox objects dropped onto the map. Click a pin to remove it.
@@ -838,11 +979,20 @@ const Heatmap: React.FC<HeatmapProps> = ({
         getFillColor: (d: CityPOIArea) => d.color,
         getLineColor: (d: CityPOIArea) =>
           d.id === editingAreaId ? [56, 189, 248, 255] : [255, 255, 255, 255],
-        getLineWidth: 2,
+        getLineWidth: (d: CityPOIArea) => (d.id === editingAreaId ? 3 : 1),
         lineWidthUnits: 'pixels',
+        onHover: (info: any) => {
+          const area = info.object as CityPOIArea | undefined;
+          if (!area) {
+            setHoveredPOIArea(null);
+            return;
+          }
+          setHoveredPOIArea({ area, x: info.x, y: info.y });
+        },
         onClick: (info: any) => {
           const area = info.object as CityPOIArea | undefined;
           if (!area) return;
+          onPOIAreaSelect?.(area);
 
           if (info.tapCount >= 2) {
             const isUserArea = userPOIAreas.some((a) => a.id === area.id);
@@ -892,8 +1042,11 @@ const Heatmap: React.FC<HeatmapProps> = ({
       setIsDrawing,
       setIsAreaDragging,
       setUserPOIAreas,
+      onPOIAreaSelect,
     ],
   );
+
+  const hoveredPOIStats = hoveredPOIArea?.area.properties?.statistics;
 
   // --- Draft (in-progress) drawing layers ---
   const draftRgb = useMemo(() => hexToRgb(draftColorHex), [draftColorHex]);
@@ -970,23 +1123,21 @@ const Heatmap: React.FC<HeatmapProps> = ({
 
   const layers = useMemo(
     () => [
-      interpolatedHeatmapLayer,
+      ...metricRasterLayers,
       poiAreaLayer,
       draftPolygonLayer,
       draftPathLayer,
       draftPointsLayer,
-      heatmapPickLayer,
       placedObjectLayer,
       cityIconLayer,
       cityLabelLayer,
     ],
     [
-      interpolatedHeatmapLayer,
+      metricRasterLayers,
       poiAreaLayer,
       draftPolygonLayer,
       draftPathLayer,
       draftPointsLayer,
-      heatmapPickLayer,
       placedObjectLayer,
       cityIconLayer,
       cityLabelLayer,
@@ -1302,17 +1453,31 @@ const Heatmap: React.FC<HeatmapProps> = ({
       </div>
 
       {placedObjects.length > 0 && (
-        <button
-          type="button"
-          onClick={clearPlacedObjects}
-          style={{
-            ...toolbarButtonStyle,
-            backgroundColor: 'rgba(30, 41, 59, 0.9)',
-            color: '#fca5a5',
-          }}
-        >
-          <Trash2 size={15} /> Clear objects ({placedObjects.length})
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={applyPlacedObjects}
+            style={{
+              ...toolbarButtonStyle,
+              backgroundColor: '#16a34a',
+              color: '#f8fafc',
+            }}
+          >
+            <Check size={15} /> Apply simulation
+          </button>
+
+          <button
+            type="button"
+            onClick={clearPlacedObjects}
+            style={{
+              ...toolbarButtonStyle,
+              backgroundColor: 'rgba(30, 41, 59, 0.9)',
+              color: '#fca5a5',
+            }}
+          >
+            <Trash2 size={15} /> Clear objects ({placedObjects.length})
+          </button>
+        </>
       )}
 
       <div
@@ -1340,11 +1505,47 @@ const Heatmap: React.FC<HeatmapProps> = ({
         viewState={viewState}
         onViewStateChange={handleViewStateChange}
         onClick={handleDeckClick}
+        onHover={handleDeckHover}
         controller={{ dragPan: !isAreaDragging, scrollZoom: true, touchZoom: true }}
         layers={layers}
         getCursor={getCursor}
         style={{ position: 'absolute', width: '100%', height: '100%' }}
       />
+
+      {hoveredPOIArea && (
+        <div
+          style={{
+            position: 'absolute',
+            left: hoveredPOIArea.x + 14,
+            top: hoveredPOIArea.y + 14,
+            zIndex: 45,
+            maxWidth: 260,
+            pointerEvents: 'none',
+            border: '1px solid rgba(125, 211, 252, 0.45)',
+            backgroundColor: 'rgba(2, 8, 23, 0.94)',
+            borderRadius: 10,
+            padding: '10px 12px',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
+            color: '#f8fafc',
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 800, lineHeight: 1.25 }}>
+            {hoveredPOIArea.area.name}
+          </div>
+          <div style={{ marginTop: 4, fontSize: 12, color: '#bae6fd' }}>
+            {hoveredPOIArea.area.category ?? 'Unknown category'}
+          </div>
+          <div style={{ marginTop: 8, display: 'grid', gap: 3, fontSize: 11, color: '#cbd5e1' }}>
+            <span>{hoveredPOIStats?.address ?? hoveredPOIArea.area.cityName}</span>
+            <span>
+              {hoveredPOIStats?.city ?? hoveredPOIArea.area.cityName}
+              {hoveredPOIStats?.region || hoveredPOIArea.area.stateName
+                ? `, ${hoveredPOIStats?.region ?? hoveredPOIArea.area.stateName}`
+                : ''}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* --- Search bar (top center) --- */}
       <div
@@ -1579,14 +1780,14 @@ const Heatmap: React.FC<HeatmapProps> = ({
         {isFullscreen ? <Shrink size={20} /> : <Expand size={20} />}
       </button>
 
-      {availableMetricLayers.length > 0 && (
+      {availableMetrics.length > 0 && (
         <button
           type="button"
           onClick={() => {
-            if (availableMetricLayers.length <= 1) return;
-            const idx = availableMetricLayers.findIndex((m) => m.metric === selectedMetric);
-            const next = availableMetricLayers[(idx + 1 + availableMetricLayers.length) % availableMetricLayers.length];
-            setSelectedMetric(next.metric);
+            if (availableMetrics.length <= 1) return;
+            const idx = availableMetrics.indexOf(activeMetricKey);
+            const next = availableMetrics[(idx + 1 + availableMetrics.length) % availableMetrics.length];
+            setSelectedMetric(next);
           }}
           style={{
             position: 'absolute',
@@ -1601,7 +1802,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
             display: 'flex',
             alignItems: 'center',
             gap: 6,
-            cursor: availableMetricLayers.length > 1 ? 'pointer' : 'default',
+            cursor: availableMetrics.length > 1 ? 'pointer' : 'default',
             fontSize: 12,
             fontWeight: 600,
           }}
@@ -1615,41 +1816,44 @@ const Heatmap: React.FC<HeatmapProps> = ({
       <div
         style={{
           position: 'absolute',
-          right: 20,
-          bottom: 20,
+          right: 16,
+          bottom: 30,
           zIndex: 25,
-          width: 240,
-          border: '1px solid rgba(148, 163, 184, 0.45)',
-          backgroundColor: 'rgba(2, 8, 23, 0.88)',
-          borderRadius: 10,
-          padding: '10px 12px',
+          width: 186,
+          border: '1px solid rgba(148, 163, 184, 0.3)',
+          backgroundColor: 'rgba(2, 8, 23, 0.72)',
+          borderRadius: 8,
+          padding: '7px 8px',
           color: '#f1f5f9',
-          boxShadow: '0 4px 14px rgba(0, 0, 0, 0.35)',
+          boxShadow: '0 3px 10px rgba(0, 0, 0, 0.22)',
+          backdropFilter: 'blur(6px)',
         }}
       >
-        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{metricLabelText} Scale</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5 }}>
+          <div style={{ fontSize: 11, fontWeight: 700 }}>{metricLabelText}</div>
+          <div style={{ color: '#94a3b8', fontSize: 9, fontWeight: 700, textTransform: 'uppercase' }}>
+            Scale
+          </div>
+        </div>
         <div
           style={{
-            height: 12,
+            height: 8,
             width: '100%',
             borderRadius: 999,
             background: activeMetricLegendGradient,
-            border: '1px solid rgba(148, 163, 184, 0.35)',
+            border: '1px solid rgba(148, 163, 184, 0.25)',
           }}
         />
         <div
           style={{
-            marginTop: 6,
+            marginTop: 4,
             display: 'flex',
             justifyContent: 'space-between',
-            fontSize: 11,
-            color: '#cbd5e1',
+            fontSize: 9,
+            color: '#94a3b8',
           }}
         >
           <span>0</span>
-          <span>25</span>
-          <span>50</span>
-          <span>75</span>
           <span>100</span>
         </div>
         <div
@@ -1657,12 +1861,21 @@ const Heatmap: React.FC<HeatmapProps> = ({
             marginTop: 6,
             display: 'flex',
             justifyContent: 'space-between',
-            fontSize: 11,
+            alignItems: 'center',
+            gap: 8,
+            border: '1px solid rgba(148, 163, 184, 0.22)',
+            borderRadius: 999,
+            background: 'rgba(15, 23, 42, 0.58)',
+            padding: '4px 7px',
+            fontSize: 10,
             color: '#94a3b8',
           }}
+          title={`${heatmapCountScopeLabel}: ${heatmapCellCount.toLocaleString()} grid cells rendered as a continuous interpolated surface`}
         >
-          <span>Low</span>
-          <span>High</span>
+          <span style={{ color: '#e0f2fe', fontWeight: 800 }}>
+            {heatmapCountScopeLabel}: {heatmapCellCount.toLocaleString()} cells
+          </span>
+          <span>continuous surface</span>
         </div>
       </div>
 
@@ -1687,6 +1900,25 @@ const Heatmap: React.FC<HeatmapProps> = ({
           <div style={{ fontWeight: 700, marginBottom: 6, fontSize: '14px', color: '#f1f5f9' }}>
             {tooltip.point.location_name}
           </div>
+          {tooltip.point.is_interpolated && (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                marginBottom: 8,
+                border: '1px solid rgba(56, 189, 248, 0.35)',
+                borderRadius: 999,
+                padding: '2px 7px',
+                background: 'rgba(8, 47, 73, 0.55)',
+                color: '#bae6fd',
+                fontSize: 11,
+                fontWeight: 700,
+                textTransform: 'uppercase',
+              }}
+            >
+              Interpolated
+            </div>
+          )}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: '#cbd5e1' }}>
             <span>{metricLabelText} Score</span>

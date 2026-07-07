@@ -20,6 +20,7 @@ from repository.polygon_repository import get_polygons_for_city_state, create_ne
 from repository.polygon_repository import get_impacted_grid_cell_ids_by_polygon_id, get_key_pois, get_polygon_by_id
 from repository.poi_polygon_repository import get_poi_by_id, get_poi_polygons_for_city_state
 from schemas.front_end_schemas.heatmap_schemas import (
+    CityMetricGrid,
     HeatmapMetricPoint,
     LocationPOIResponse,
     SimulationApplyRequest,
@@ -27,6 +28,7 @@ from schemas.front_end_schemas.heatmap_schemas import (
 )
 from services.grid_interpolation_service import (
     INTERPOLATABLE_METRICS,
+    grid_metrics_to_city_grids,
     grid_metrics_to_metric_layers,
 )
 from services.grid_metrics_services import (
@@ -131,6 +133,29 @@ def get_heatmap_metric_points(
         return {}
 
     return grid_metrics_to_metric_layers(latest_metrics, INTERPOLATABLE_METRICS)
+
+
+@router.get("/metrics/grid", response_model=dict[str, CityMetricGrid])
+def get_heatmap_metric_grid(
+    city: str | None = None,
+    state: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Return latest grid metrics as city-keyed interpolated raster grids.
+
+    Each city's response carries the full rows x cols value lattice (kriging
+    fills cells without saved metrics), so the frontend can render a continuous
+    surface over the grid area and sample interpolated values at any coordinate.
+    """
+    validate_city_state_filter(city, state)
+    try:
+        latest_metrics = get_latest_metrics_for_city(city, state, db)
+    except SQLAlchemyError:
+        return {}
+    if not latest_metrics:
+        return {}
+
+    return grid_metrics_to_city_grids(latest_metrics, INTERPOLATABLE_METRICS)
 
 
 @router.get("/statistics")
