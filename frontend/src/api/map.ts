@@ -64,604 +64,297 @@ export async function callMockLocationPOIs(): Promise<CityPOIArea[]> {
 }
 
 // ============================================================================
-// Calling Heatmap Metrics Point
+// Heatmap API — returns raw measured anchors, keyed city -> [date -> metrics].
+// Interpolation is NOT done here; the client interpolates on demand (see utils).
 // ============================================================================
 
 // A single measured / interpolated reading at one coordinate.
 export interface HeatmapMetricValue {
-  value: number; // 0–100 weight (heat risk, visitor activity, etc.)
+  value: number; // 0–100 weight used for heatmap coloring
   location_name: string;
   location_coordinates: [number, number]; // [lon, lat]
-  individual_metrics?: {
-    temperatureF: number;
-    heatIndexF: number;
-    relativeHumidityPct: number;
-    landSurfaceTempF: number;
-    nighttimeTempF: number;
-    treeCanopyPct: number;
-    imperviousSurfacePct: number;
-  };
+  // Open bag of human-readable sub-metrics. Any key is allowed; every value is
+  // a string so it can carry its own unit (e.g. "97°F", "62%", "88 / 100").
+  individual_metrics?: Record<string, string>;
 }
 
-// One metric layer (e.g. "heat_risk_score") and all of its points.
-export interface HeatmapMetricPoint {
-  metric: string; // e.g. "heat_risk_score", "visitor_activity"
+// One metric's readings for a single day.
+export interface HeatmapMetricSnapshot {
+  metric: string; // "temperature" | "visitor_density" | "heat_risk_score"
   points: HeatmapMetricValue[];
 }
 
-// City name -> list of metric layers available for that city.
-export type HeatmapMetricsPointResponse = Record<string, HeatmapMetricPoint[]>;
+// Date -> all metric layers available for that day.
+export interface HeatmapMetricPoint {
+  [date: string]: HeatmapMetricSnapshot[];
+}
 
-function anchor(
+// City name -> array of its date-keyed metric layers.
+export interface HeatmapMetricPointByCity {
+  [city: string]: HeatmapMetricPoint[];
+}
+
+// ---------------------------------------------------------------------------
+// Source of truth: one physical reading per location. All three published
+// metrics (temperature, visitor density, heat risk) are derived from these,
+// so the layers stay consistent with each other.
+// ---------------------------------------------------------------------------
+interface LocationReading {
+  name: string;
+  lon: number;
+  lat: number;
+  temperatureF: number; // measured air temperature
+  visitorDensity: number; // 0–100 crowd density
+  treeCanopyPct: number; // 0–100
+  imperviousSurfacePct: number; // 0–100 (asphalt/concrete/roof)
+}
+
+function reading(
+  name: string,
   lon: number,
   lat: number,
-  value: number,
-  location_name: string,
-): HeatmapMetricValue {
-  return { value, location_name, location_coordinates: [lon, lat] };
-}
-
-// ---------------------------------------------------------------------------
-// Heat-risk anchors: hand-authored readings at known Houston landmarks. These
-// are the "measured" values the interpolation is built from.
-// ---------------------------------------------------------------------------
-const HOUSTON_ANCHORS: HeatmapMetricValue[] = [
-  // Texas Medical Center
-  anchor(-95.3992, 29.7067, 91, 'Texas Medical Center'),
-  anchor(-95.3962, 29.7082, 88, 'Texas Medical Center'),
-  anchor(-95.4015, 29.7090, 93, 'Texas Medical Center'),
-  anchor(-95.3975, 29.7045, 90, 'Texas Medical Center'),
-  anchor(-95.4020, 29.7050, 86, 'Texas Medical Center'),
-
-  // NRG Stadium
-  anchor(-95.4109, 29.6847, 85, 'NRG Stadium'),
-  anchor(-95.4085, 29.6860, 82, 'NRG Stadium'),
-  anchor(-95.4130, 29.6835, 88, 'NRG Stadium'),
-  anchor(-95.4095, 29.6825, 84, 'NRG Stadium'),
-  anchor(-95.4125, 29.6865, 80, 'NRG Stadium'),
-
-  // NRG Park Parking Area
-  anchor(-95.4120, 29.6855, 82, 'NRG Park Parking Area'),
-  anchor(-95.4145, 29.6840, 79, 'NRG Park Parking Area'),
-  anchor(-95.4100, 29.6870, 84, 'NRG Park Parking Area'),
-  anchor(-95.4160, 29.6865, 80, 'NRG Park Parking Area'),
-  anchor(-95.4095, 29.6840, 83, 'NRG Park Parking Area'),
-
-  // Museum District
-  anchor(-95.3893, 29.7240, 74, 'Museum District'),
-  anchor(-95.3870, 29.7255, 71, 'Museum District'),
-  anchor(-95.3915, 29.7228, 77, 'Museum District'),
-  anchor(-95.3880, 29.7218, 72, 'Museum District'),
-  anchor(-95.3910, 29.7258, 76, 'Museum District'),
-
-  // Rice University
-  anchor(-95.4018, 29.7174, 68, 'Rice University'),
-  anchor(-95.3995, 29.7190, 65, 'Rice University'),
-  anchor(-95.4040, 29.7160, 71, 'Rice University'),
-  anchor(-95.4005, 29.7155, 67, 'Rice University'),
-  anchor(-95.4035, 29.7188, 70, 'Rice University'),
-
-  // West University Place
-  anchor(-95.4315, 29.7180, 63, 'West University Place'),
-  anchor(-95.4290, 29.7195, 60, 'West University Place'),
-  anchor(-95.4340, 29.7168, 66, 'West University Place'),
-  anchor(-95.4300, 29.7162, 62, 'West University Place'),
-  anchor(-95.4335, 29.7195, 64, 'West University Place'),
-
-  // Hermann Park
-  anchor(-95.3870, 29.7154, 57, 'Hermann Park'),
-  anchor(-95.3848, 29.7168, 54, 'Hermann Park'),
-  anchor(-95.3892, 29.7142, 60, 'Hermann Park'),
-  anchor(-95.3858, 29.7138, 55, 'Hermann Park'),
-  anchor(-95.3888, 29.7170, 58, 'Hermann Park'),
-];
-
-// ---------------------------------------------------------------------------
-// Regional heat anchors spread across the whole metro so the interpolation has
-// real structure: HOT downtown/industrial, MILD suburbs, COOL parks/water.
-// ---------------------------------------------------------------------------
-const HOUSTON_REGIONAL_ANCHORS: HeatmapMetricValue[] = [
-  // --- Very hot: ship channel, refineries, treeless industrial (90–98) ------
-  anchor(-95.2800, 29.7300, 96, 'Houston Ship Channel'),
-  anchor(-95.2300, 29.7400, 97, 'Galena Park Refineries'),
-  anchor(-95.2100, 29.6900, 95, 'Pasadena Industrial'),
-  anchor(-94.9800, 29.7400, 93, 'Baytown Industrial'),
-  anchor(-95.1300, 29.7000, 92, 'Deer Park'),
-  anchor(-95.1100, 29.7800, 91, 'Channelview'),
-  anchor(-95.0200, 29.6600, 90, 'La Porte'),
-  anchor(-95.2400, 29.7700, 92, 'Jacinto City'),
-
-  // --- Hot: dense/low-canopy urban core + airports (84–90) ------------------
-  anchor(-95.3698, 29.7604, 89, 'Downtown Houston'),
-  anchor(-95.3100, 29.7300, 90, 'Magnolia Park / East End'),
-  anchor(-95.3300, 29.7800, 88, 'Fifth Ward'),
-  anchor(-95.3200, 29.8000, 88, 'Kashmere Gardens'),
-  anchor(-95.3000, 29.7800, 89, 'Denver Harbor'),
-  anchor(-95.3550, 29.7350, 86, 'Third Ward'),
-  anchor(-95.3600, 29.6600, 90, 'Sunnyside'),
-  anchor(-95.4800, 29.7100, 89, 'Gulfton'),
-  anchor(-95.5300, 29.7000, 87, 'Sharpstown'),
-  anchor(-95.5800, 29.7000, 85, 'Alief'),
-  anchor(-95.4100, 29.9400, 87, 'Greenspoint'),
-  anchor(-95.3800, 29.9200, 86, 'Aldine'),
-  anchor(-95.4300, 29.8600, 85, 'Acres Homes'),
-  anchor(-95.3414, 29.9902, 86, 'George Bush Intercontinental (IAH)'),
-  anchor(-95.2789, 29.6454, 87, 'Hobby Airport'),
-  anchor(-95.3100, 29.8100, 84, 'Northside / I-45 Corridor'),
-
-  // --- Mild: suburban rings (65–80) -----------------------------------------
-  anchor(-95.4614, 29.7397, 80, 'Galleria / Uptown'),
-  anchor(-95.5100, 29.7900, 76, 'Spring Branch'),
-  anchor(-95.5300, 29.9600, 72, 'Willowbrook'),
-  anchor(-95.5800, 29.8900, 73, 'Jersey Village'),
-  anchor(-95.8200, 29.7900, 68, 'Katy'),
-  anchor(-95.7500, 29.7400, 67, 'Cinco Ranch'),
-  anchor(-95.6300, 29.6800, 71, 'Mission Bend'),
-  anchor(-95.6200, 29.6200, 69, 'Sugar Land'),
-  anchor(-95.5400, 29.6200, 70, 'Missouri City'),
-  anchor(-95.5600, 29.6300, 71, 'Stafford'),
-  anchor(-95.2900, 29.5600, 72, 'Pearland'),
-  anchor(-95.2000, 29.5300, 66, 'Friendswood'),
-  anchor(-95.0900, 29.5100, 65, 'League City'),
-  anchor(-95.1800, 29.9900, 68, 'Atascocita'),
-  anchor(-95.2600, 29.9900, 70, 'Humble'),
-  anchor(-95.6200, 30.1000, 66, 'Tomball'),
-  anchor(-95.5200, 30.0200, 67, 'Klein'),
-  anchor(-95.4200, 30.0800, 66, 'Spring'),
-  anchor(-95.7000, 29.9700, 65, 'Cypress'),
-  anchor(-95.6349, 29.7830, 71, 'Energy Corridor'),
-  anchor(-95.1900, 29.6600, 74, 'Pasadena (residential)'),
-
-  // --- Cool: affluent leafy, parks, forested north (50–60) ------------------
-  anchor(-95.4200, 29.7550, 52, 'River Oaks'),
-  anchor(-95.5500, 29.7700, 55, 'Memorial (residential)'),
-  anchor(-95.4300, 29.7650, 50, 'Memorial Park'),
-  anchor(-95.4600, 29.7050, 56, 'Bellaire'),
-  anchor(-95.4600, 29.6800, 58, 'Meyerland'),
-  anchor(-95.3900, 29.7600, 56, 'Buffalo Bayou Park'),
-  anchor(-95.4500, 30.1600, 55, 'The Woodlands (forested)'),
-  anchor(-95.1800, 30.0500, 54, 'Kingwood (forested)'),
-  anchor(-95.0900, 29.5600, 60, 'Clear Lake / NASA'),
-
-  // --- Very cool: reservoirs, lakes, open water (42–48) ---------------------
-  anchor(-95.6300, 29.7700, 44, 'Addicks / Barker Reservoir'),
-  anchor(-95.6800, 29.7200, 46, 'George Bush Park'),
-  anchor(-95.1400, 29.9200, 42, 'Lake Houston'),
-  anchor(-95.1700, 29.8600, 45, 'Sheldon Lake'),
-  anchor(-94.9000, 29.5300, 48, 'Galveston Bay shoreline'),
-  anchor(-95.0500, 29.5500, 47, 'Clear Lake (open water)'),
-];
-
-// Everything the heat interpolation samples from: landmark cluster + regional.
-const ALL_HEAT_ANCHORS: HeatmapMetricValue[] = [
-  ...HOUSTON_ANCHORS,
-  ...HOUSTON_REGIONAL_ANCHORS,
-];
-
-// ---------------------------------------------------------------------------
-// Visitor-activity anchors: how busy each area is with visitors/fans. HIGH at
-// match venues, downtown, entertainment + shopping districts, airports, marquee
-// attractions; LOW in industrial zones, plain residential, parks, and water.
-// ---------------------------------------------------------------------------
-const HOUSTON_VISITOR_ANCHORS: HeatmapMetricValue[] = [
-  // --- Very high: match venue + surrounding fan zone (92–100) ----------------
-  anchor(-95.4109, 29.6847, 100, 'NRG Stadium'),
-  anchor(-95.4120, 29.6855, 95, 'NRG Park Fan Fest'),
-  anchor(-95.4095, 29.6825, 93, 'NRG Park Entrance Plaza'),
-  anchor(-95.3698, 29.7604, 96, 'Downtown Houston'),
-  anchor(-95.3585, 29.7527, 94, 'Discovery Green'),
-  anchor(-95.3577, 29.7517, 93, 'George R. Brown Convention Center'),
-  anchor(-95.3620, 29.7560, 92, 'Avenida Houston / Toyota Center'),
-
-  // --- High: nightlife, shopping, marquee attractions (82–90) ---------------
-  anchor(-95.4614, 29.7397, 90, 'Galleria / Uptown'),
-  anchor(-95.3780, 29.7420, 86, 'Midtown'),
-  anchor(-95.3510, 29.7490, 85, 'EaDo / Shell Energy Stadium'),
-  anchor(-95.3893, 29.7240, 88, 'Museum District'),
-  anchor(-95.3925, 29.7210, 87, 'Houston Zoo'),
-  anchor(-95.3870, 29.7154, 84, 'Hermann Park'),
-  anchor(-95.3980, 29.8010, 82, 'The Heights'),
-  anchor(-95.3900, 29.7430, 85, 'Montrose'),
-  anchor(-95.3900, 29.7600, 83, 'Buffalo Bayou Park'),
-  anchor(-95.0920, 29.5520, 84, 'Space Center Houston'),
-
-  // --- Airports + major transit (78–86) -------------------------------------
-  anchor(-95.3414, 29.9902, 86, 'George Bush Intercontinental (IAH)'),
-  anchor(-95.2789, 29.6454, 80, 'Hobby Airport'),
-
-  // --- Medium: busy but not tourist-driven (60–75) --------------------------
-  anchor(-95.3992, 29.7067, 70, 'Texas Medical Center'),
-  anchor(-95.4018, 29.7174, 66, 'Rice University'),
-  anchor(-95.4200, 29.7550, 68, 'River Oaks District'),
-  anchor(-95.4300, 29.7650, 72, 'Memorial Park'),
-  anchor(-95.6200, 29.6200, 68, 'Sugar Land Town Square'),
-  anchor(-95.4500, 30.1600, 66, 'The Woodlands / Market Street'),
-  anchor(-95.8200, 29.7900, 58, 'Katy Mills'),
-  anchor(-95.0900, 29.5600, 64, 'Kemah / Clear Lake'),
-
-  // --- Low: plain residential rings (35–50) ---------------------------------
-  anchor(-95.5300, 29.7000, 42, 'Sharpstown'),
-  anchor(-95.5800, 29.7000, 40, 'Alief'),
-  anchor(-95.4300, 29.8600, 38, 'Acres Homes'),
-  anchor(-95.2900, 29.5600, 46, 'Pearland'),
-  anchor(-95.0900, 29.5100, 44, 'League City'),
-  anchor(-95.2600, 29.9900, 43, 'Humble'),
-  anchor(-95.4200, 30.0800, 41, 'Spring'),
-  anchor(-95.7000, 29.9700, 39, 'Cypress'),
-
-  // --- Very low: industrial, reservoirs, open water (12–28) ------------------
-  anchor(-95.2300, 29.7400, 18, 'Galena Park Refineries'),
-  anchor(-95.2100, 29.6900, 16, 'Pasadena Industrial'),
-  anchor(-94.9800, 29.7400, 15, 'Baytown Industrial'),
-  anchor(-95.2800, 29.7300, 20, 'Houston Ship Channel'),
-  anchor(-95.6300, 29.7700, 22, 'Addicks / Barker Reservoir'),
-  anchor(-95.1400, 29.9200, 18, 'Lake Houston'),
-  anchor(-94.9000, 29.5300, 24, 'Galveston Bay shoreline'),
-];
-
-// ---------------------------------------------------------------------------
-// Interpolation config. The bounding box spans the greater Houston metro so
-// the generated field covers the whole city, not just the anchor cluster.
-// ---------------------------------------------------------------------------
-const INTERP_CENTER: [number, number] = [-95.37, 29.76];
-const INTERP_HALF_SPAN_LON = 0.55; // ≈ 53 km E–W each way (reaches Katy ↔ Baytown)
-const INTERP_HALF_SPAN_LAT = 0.45; // ≈ 50 km N–S each way (reaches Woodlands ↔ coast)
-const INTERP_STEP = 0.01; // ≈ 1.1 km lattice spacing
-const HEAT_IDW_POWER = 3.2; // higher = anchors hold local value; more contrast
-const VISITOR_IDW_POWER = 2.6; // slightly smoother spread for activity
-const MIN_SCORE = 0;
-const MAX_SCORE = 100;
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.min(hi, Math.max(lo, v));
-}
-
-function buildIndividualMetrics(point: HeatmapMetricValue): HeatmapMetricValue['individual_metrics'] {
-  const [lon, lat] = point.location_coordinates;
-  const noise = Math.sin(lon * 17.3) * Math.cos(lat * 14.1);
-
-  const temperatureF = Math.round(clamp(74 + point.value * 0.28 + noise * 1.8, 70, 115));
-  const relativeHumidityPct = Math.round(
-    clamp(86 - point.value * 0.35 + Math.sin((lon + lat) * 12) * 2.2, 30, 95),
-  );
-  const heatIndexF = Math.round(
-    clamp(temperatureF + (relativeHumidityPct - 45) * 0.22 + point.value * 0.04, 72, 135),
-  );
-  const treeCanopyPct = Math.round(clamp(42 - point.value * 0.28 - noise * 2.5, 3, 48));
-  const imperviousSurfacePct = Math.round(clamp(18 + point.value * 0.72 + noise * 3, 12, 98));
-  const landSurfaceTempF = Math.round(
-    clamp(temperatureF + 0.16 * imperviousSurfacePct - 0.11 * treeCanopyPct, 72, 150),
-  );
-  const nighttimeTempF = Math.round(
-    clamp(70 + point.value * 0.17 + (imperviousSurfacePct - treeCanopyPct) * 0.06, 65, 100),
-  );
-
+  temperatureF: number,
+  visitorDensity: number,
+  treeCanopyPct: number,
+  imperviousSurfacePct: number,
+): LocationReading {
   return {
+    name,
+    lon,
+    lat,
     temperatureF,
-    heatIndexF,
-    relativeHumidityPct,
-    landSurfaceTempF,
-    nighttimeTempF,
+    visitorDensity,
     treeCanopyPct,
     imperviousSurfacePct,
   };
 }
 
-/**
- * Inverse-distance-weighted score at an arbitrary coordinate, derived from a
- * set of measured anchor points. Points near an anchor take on that anchor's
- * value; elsewhere the surrounding anchors blend for a continuous field.
- */
-function interpolate(
-  lon: number,
-  lat: number,
-  anchors: HeatmapMetricValue[],
-  power: number,
-): number {
-  let weightedSum = 0;
-  let weightTotal = 0;
+const clamp = (n: number, lo = 0, hi = 100): number =>
+  Math.max(lo, Math.min(hi, n));
 
-  for (const a of anchors) {
-    const [aLon, aLat] = a.location_coordinates;
-    const dLon = lon - aLon;
-    const dLat = lat - aLat;
-    const distSq = dLon * dLon + dLat * dLat;
+// Map air temperature (°F) onto the shared 0–100 heatmap weight.
+const TEMP_MIN_F = 84; // -> 0
+const TEMP_MAX_F = 110; // -> 100
+const temperatureToWeight = (tempF: number): number =>
+  clamp(Math.round(((tempF - TEMP_MIN_F) / (TEMP_MAX_F - TEMP_MIN_F)) * 100));
 
-    if (distSq < 1e-8) return a.value; // sitting on an anchor
+// Heat risk = weighted blend of how hot it is and how many people are exposed.
+// Hotter AND busier => higher risk.
+const TEMP_RISK_WEIGHT = 0.6;
+const VISITOR_RISK_WEIGHT = 0.4;
+const riskFromWeights = (tempWeight: number, visitorDensity: number): number =>
+  clamp(
+    Math.round(
+      TEMP_RISK_WEIGHT * tempWeight + VISITOR_RISK_WEIGHT * visitorDensity,
+    ),
+  );
 
-    const weight = 1 / Math.pow(distSq, power / 2);
-    weightedSum += weight * a.value;
-    weightTotal += weight;
-  }
-
-  return weightedSum / weightTotal;
+// Rough physical sub-metrics derived from the reading, for display only.
+function derivedSubMetrics(r: LocationReading) {
+  const relativeHumidityPct = clamp(
+    Math.round(72 - r.imperviousSurfacePct * 0.12 + r.treeCanopyPct * 0.1),
+    30,
+    95,
+  );
+  const heatIndexF = Math.round(
+    r.temperatureF + Math.max(0, (relativeHumidityPct - 40) / 4),
+  );
+  const landSurfaceTempF = Math.round(
+    r.temperatureF + r.imperviousSurfacePct * 0.28 - r.treeCanopyPct * 0.2,
+  );
+  const nighttimeTempF = Math.round(
+    r.temperatureF - 15 + r.imperviousSurfacePct * 0.11,
+  );
+  return { relativeHumidityPct, heatIndexF, landSurfaceTempF, nighttimeTempF };
 }
 
-/**
- * Builds a full interpolated field for one metric: the measured anchors plus a
- * dense lattice of interpolated points spanning the whole metro bounding box.
- */
-function buildField(
-  anchors: HeatmapMetricValue[],
-  power: number,
-  options?: { attachIndividualMetrics?: boolean; rippleAmp?: number },
-): HeatmapMetricValue[] {
-  const rippleAmp = options?.rippleAmp ?? 1.5;
-  const points: HeatmapMetricValue[] = anchors.map((a) => ({ ...a }));
-
-  const minLon = INTERP_CENTER[0] - INTERP_HALF_SPAN_LON;
-  const maxLon = INTERP_CENTER[0] + INTERP_HALF_SPAN_LON;
-  const minLat = INTERP_CENTER[1] - INTERP_HALF_SPAN_LAT;
-  const maxLat = INTERP_CENTER[1] + INTERP_HALF_SPAN_LAT;
-
-  for (let lat = minLat; lat <= maxLat + 1e-9; lat += INTERP_STEP) {
-    for (let lon = minLon; lon <= maxLon + 1e-9; lon += INTERP_STEP) {
-      const roundedLon = Number(lon.toFixed(3));
-      const roundedLat = Number(lat.toFixed(3));
-
-      // Gentle deterministic ripple so the far field isn't a dead-flat plateau.
-      const ripple = Math.sin(roundedLon * 20) * Math.cos(roundedLat * 20) * rippleAmp;
-      const value = clamp(
-        Math.round(interpolate(roundedLon, roundedLat, anchors, power) + ripple),
-        MIN_SCORE,
-        MAX_SCORE,
-      );
-
-      points.push({
-        value,
-        location_name: 'Interpolated',
-        location_coordinates: [roundedLon, roundedLat],
-      });
-    }
-  }
-
-  if (!options?.attachIndividualMetrics) return points;
-
-  return points.map((point) => ({
-    ...point,
-    individual_metrics: point.individual_metrics ?? buildIndividualMetrics(point),
-  }));
+function visitorCategory(density: number): string {
+  if (density >= 90) return "Match venue / fan zone";
+  if (density >= 75) return "Major attraction";
+  if (density >= 55) return "Busy district";
+  if (density >= 35) return "Residential";
+  return "Low activity";
 }
 
-export async function callHeatmapMetricsPoints(): Promise<HeatmapMetricsPointResponse> {
-  await new Promise((resolve) => setTimeout(resolve, 500));
+function riskCategory(risk: number): string {
+  if (risk >= 85) return "Extreme";
+  if (risk >= 70) return "High";
+  if (risk >= 55) return "Elevated";
+  if (risk >= 40) return "Moderate";
+  return "Low";
+}
 
+const estimatedFootfall = (density: number): string =>
+  `${Math.round(density * 130).toLocaleString("en-US")} people/hr`;
+
+// ---- Builders: one reading -> one anchor per metric ------------------------
+function temperatureAnchor(r: LocationReading): HeatmapMetricValue {
+  const d = derivedSubMetrics(r);
   return {
-    Houston: [
-      {
-        metric: 'heat_risk_score',
-        points: buildField(ALL_HEAT_ANCHORS, HEAT_IDW_POWER, {
-          attachIndividualMetrics: true,
-        }),
-      },
-      {
-        metric: 'visitor_activity',
-        points: buildField(HOUSTON_VISITOR_ANCHORS, VISITOR_IDW_POWER),
-      },
-    ],
+    value: temperatureToWeight(r.temperatureF),
+    location_name: r.name,
+    location_coordinates: [r.lon, r.lat],
+    individual_metrics: {
+      temperatureF: `${r.temperatureF}°F`,
+      heatIndexF: `${d.heatIndexF}°F`,
+      relativeHumidityPct: `${d.relativeHumidityPct}%`,
+      landSurfaceTempF: `${d.landSurfaceTempF}°F`,
+      nighttimeTempF: `${d.nighttimeTempF}°F`,
+      treeCanopyPct: `${r.treeCanopyPct}%`,
+      imperviousSurfacePct: `${r.imperviousSurfacePct}%`,
+    },
   };
 }
 
-// ============================================================================
-// Mock API: getCoordinateValue
-// Returns a list of metrics. Each metric carries coordinate -> value points.
-//
-// ============================================================================
-
-export type MetricType = 'heat_profile'; // bundled per-point heat attributes
-
-export type HeatCategory = 'low' | 'moderate' | 'high' | 'extreme';
-
-export interface CoordinateValue {
-  /** [longitude, latitude] — matches the map's coordinate ordering */
-  coordinate: [number, number];
-
-  /** Legacy alias for `temperatureF`, kept so existing callers keep working. */
-  value: number;
-
-  /** Dry-bulb air temperature (°F) — the raw thermometer reading. */
-  temperatureF: number;
-
-  /** Relative humidity (%). Higher near the coast and water bodies. */
-  relativeHumidityPct: number;
-
-  /**
-   * Heat index / "feels like" temperature (°F), from the NWS Rothfusz
-   * regression on temperature + humidity. This is what heat-health advisories
-   * are based on and is usually the single most useful "how hot is it" number.
-   */
-  heatIndexF: number;
-
-  /**
-   * Land surface temperature (°F) — the temperature of the ground itself
-   * (asphalt, roofs). Runs far hotter than air over paved, low-canopy areas
-   * and is what drives pedestrian-level heat exposure.
-   */
-  landSurfaceTempF: number;
-
-  /**
-   * Overnight low (°F). The urban heat island is strongest at night; areas
-   * that stay hot after dark carry the highest heat-mortality risk because
-   * residents never get a chance to cool down.
-   */
-  nighttimeTempF: number;
-
-  /** Tree canopy cover (%). A primary heat-mitigation lever for planners. */
-  treeCanopyPct: number;
-
-  /** Impervious surface cover (%) — pavement + rooftops; the main UHI driver. */
-  imperviousSurfacePct: number;
-
-  /**
-   * Heat Vulnerability Index (0–100): composite of apparent heat, impervious
-   * cover, lack of canopy, and nighttime retention. Higher = more intervention
-   * priority.
-   */
-  heatVulnerabilityIndex: number;
-
-  /** NWS-style risk band derived from the heat index. */
-  category: HeatCategory;
-}
-
-export interface MetricCoordinateData {
-  metric: MetricType;
-  points: CoordinateValue[];
-}
-
-// Bounding box covering the Houston metro grid. Centered on downtown and made
-// generous (±0.8° lon, ±0.7° lat) so it fully contains the map's city grid.
-const HOUSTON_CENTER: [number, number] = [-95.37, 29.76];
-const HALF_SPAN_LON = 0.8;
-const HALF_SPAN_LAT = 0.7;
-
-// Lattice step. 0.01° aligns with a 2-decimal coordinate key, guaranteeing a
-// point exists for every cell centroid keyed at that precision.
-const STEP = 0.01;
-
-// ---------------------------------------------------------------------------
-// Spatial driver fields. Everything below is derived from these two so the
-// attributes stay physically consistent with one another.
-// ---------------------------------------------------------------------------
-
-// Urban-core intensity (0 rural … 1 dense downtown / industrial east).
-function urbanIntensity01(lon: number, lat: number): number {
-  // Downtown core.
-  const dDown = (lon - -95.37) ** 2 + (lat - 29.75) ** 2;
-  const downtown = Math.exp(-dDown / (2 * 0.18 * 0.18));
-  // Ship-channel / refinery belt to the east — a second hot, paved core.
-  const dInd = (lon - -95.25) ** 2 + (lat - 29.73) ** 2;
-  const industrial = 0.9 * Math.exp(-dInd / (2 * 0.12 * 0.12));
-  return clamp(Math.max(downtown, industrial), 0, 1);
-}
-
-// Proximity to Galveston Bay / open water (0 inland … 1 at the coast).
-function coastProximity01(lon: number, lat: number): number {
-  const d = (lon - -94.95) ** 2 + (lat - 29.45) ** 2;
-  return Math.exp(-d / (2 * 0.45 * 0.45));
-}
-
-// NWS heat index ("feels like", °F) from air temp (°F) and relative humidity (%).
-// Rothfusz regression with the standard low-range and edge adjustments.
-function heatIndexF(T: number, RH: number): number {
-  // Simple formula, valid when the result is below ~80°F.
-  let hi = 0.5 * (T + 61.0 + (T - 68.0) * 1.2 + RH * 0.094);
-  hi = (hi + T) / 2;
-
-  if (hi >= 80) {
-    hi =
-      -42.379 +
-      2.04901523 * T +
-      10.14333127 * RH -
-      0.22475541 * T * RH -
-      0.00683783 * T * T -
-      0.05481717 * RH * RH +
-      0.00122874 * T * T * RH +
-      0.00085282 * T * RH * RH -
-      0.00000199 * T * T * RH * RH;
-
-    if (RH < 13 && T >= 80 && T <= 112) {
-      hi -= ((13 - RH) / 4) * Math.sqrt((17 - Math.abs(T - 95)) / 17);
-    } else if (RH > 85 && T >= 80 && T <= 87) {
-      hi += ((RH - 85) / 10) * ((87 - T) / 5);
-    }
-  }
-  return hi;
-}
-
-// NWS-style risk band from the heat index.
-function heatCategory(hi: number): HeatCategory {
-  if (hi < 80) return 'low';
-  if (hi < 91) return 'moderate'; // "Caution"
-  if (hi < 103) return 'high'; // "Extreme Caution"
-  return 'extreme'; // "Danger" / "Extreme Danger"
-}
-
-/**
- * Mock backend call. Simulates fetching a dense, coordinate-level heat profile
- * covering the entire Houston metro area — one multi-attribute record per
- * lattice point. Every field is derived from the same urban/coastal drivers so
- * they stay mutually consistent (e.g. paved cores are hot, dry, low-canopy,
- * and stay warm at night).
- */
-export async function getCoordinateValue(): Promise<MetricCoordinateData[]> {
-  const minLon = HOUSTON_CENTER[0] - HALF_SPAN_LON;
-  const maxLon = HOUSTON_CENTER[0] + HALF_SPAN_LON;
-  const minLat = HOUSTON_CENTER[1] - HALF_SPAN_LAT;
-  const maxLat = HOUSTON_CENTER[1] + HALF_SPAN_LAT;
-
-  const points: CoordinateValue[] = [];
-
-  for (let lat = minLat; lat <= maxLat + 1e-9; lat += STEP) {
-    for (let lon = minLon; lon <= maxLon + 1e-9; lon += STEP) {
-      // Round to 2 decimals so keys line up with a precision-2 coordinate key.
-      const roundedLon = Number(lon.toFixed(2));
-      const roundedLat = Number(lat.toFixed(2));
-
-      const urban = urbanIntensity01(roundedLon, roundedLat);
-      const coast = coastProximity01(roundedLon, roundedLat);
-      const ripple = Math.sin(roundedLon * 18) * Math.cos(roundedLat * 18) * 0.8;
-
-      // Air temperature: hot over paved cores, eased by the sea breeze.
-      const temperatureF = Math.round(90 + 9 * urban - 9 * coast + ripple);
-
-      // Humidity: humid near the bay, drier over dense urban land.
-      const relativeHumidityPct = Math.round(
-        clamp(52 + 32 * coast - 12 * urban + Math.sin(roundedLon * 15) * 2, 30, 95),
-      );
-
-      // Land cover: cores are paved with little canopy; edges are greener.
-      const imperviousSurfacePct = Math.round(clamp(18 + 72 * urban, 12, 95));
-      const treeCanopyPct = Math.round(clamp(40 - 32 * urban - 6 * coast, 3, 45));
-
-      // Surface temp: pavement bakes hotter than air; canopy shaves it back.
-      const landSurfaceTempF = Math.round(
-        temperatureF + 0.18 * imperviousSurfacePct - 0.12 * treeCanopyPct,
-      );
-
-      // Overnight low: heat island retains warmth after dark in the core.
-      const nighttimeTempF = Math.round(76 + 8 * urban - 3 * coast + ripple * 0.5);
-
-      const hi = heatIndexF(temperatureF, relativeHumidityPct);
-      const heatIndexRounded = Math.round(hi);
-
-      // Composite vulnerability: apparent heat + paving + missing canopy +
-      // nighttime retention, scaled to 0–100.
-      const heatVulnerabilityIndex = Math.round(
-        clamp(
-          0.9 * (heatIndexRounded - 80) +
-            0.35 * (imperviousSurfacePct - 20) +
-            0.6 * (45 - treeCanopyPct) +
-            1.4 * (nighttimeTempF - 74),
-          0,
-          100,
-        ),
-      );
-
-      points.push({
-        coordinate: [roundedLon, roundedLat],
-        value: temperatureF, // legacy alias
-        temperatureF,
-        relativeHumidityPct,
-        heatIndexF: heatIndexRounded,
-        landSurfaceTempF,
-        nighttimeTempF,
-        treeCanopyPct,
-        imperviousSurfacePct,
-        heatVulnerabilityIndex,
-        category: heatCategory(hi),
-      });
-    }
-  }
-
-  const data: MetricCoordinateData[] = [
-    {
-      metric: 'heat_profile',
-      points,
+function visitorDensityAnchor(r: LocationReading): HeatmapMetricValue {
+  return {
+    value: r.visitorDensity,
+    location_name: r.name,
+    location_coordinates: [r.lon, r.lat],
+    individual_metrics: {
+      visitorDensity: `${r.visitorDensity} / 100`,
+      category: visitorCategory(r.visitorDensity),
+      estimatedFootfall: estimatedFootfall(r.visitorDensity),
     },
-  ];
+  };
+}
 
-  // Simulate network latency.
-  await new Promise((resolve) => setTimeout(resolve, 300));
+function heatRiskAnchor(r: LocationReading): HeatmapMetricValue {
+  const tempWeight = temperatureToWeight(r.temperatureF);
+  const risk = riskFromWeights(tempWeight, r.visitorDensity);
+  return {
+    value: risk,
+    location_name: r.name,
+    location_coordinates: [r.lon, r.lat],
+    individual_metrics: {
+      heatRiskScore: `${risk} / 100`,
+      riskCategory: riskCategory(risk),
+      temperatureContribution: `${Math.round(TEMP_RISK_WEIGHT * tempWeight)} / 100`,
+      visitorContribution: `${Math.round(VISITOR_RISK_WEIGHT * r.visitorDensity)} / 100`,
+      temperatureF: `${r.temperatureF}°F`,
+      visitorDensity: `${r.visitorDensity} / 100`,
+    },
+  };
+}
 
-  return data;
+// ---------------------------------------------------------------------------
+// The readings: landmark cluster around the venue + regional spread.
+// reading(name, lon, lat, temperatureF, visitorDensity, treeCanopy%, impervious%)
+// ---------------------------------------------------------------------------
+const HOUSTON_READINGS: LocationReading[] = [
+  // --- Match venue cluster (dense, for smooth interpolation near NRG) --------
+  reading("NRG Stadium", -95.4109, 29.6847, 99, 100, 5, 90),
+  reading("NRG Park Fan Fest", -95.412, 29.6855, 98, 95, 6, 88),
+  reading("NRG Park Entrance Plaza", -95.4095, 29.6825, 99, 93, 4, 92),
+  reading("NRG Park Parking (South)", -95.4145, 29.684, 101, 60, 2, 96),
+  reading("NRG Park Parking (North)", -95.41, 29.687, 100, 58, 3, 94),
+
+  // --- Texas Medical Center -------------------------------------------------
+  reading("Texas Medical Center", -95.3992, 29.7067, 98, 70, 10, 85),
+  reading("TMC South", -95.3962, 29.7082, 97, 68, 12, 82),
+  reading("TMC West", -95.4015, 29.709, 99, 66, 8, 88),
+
+  // --- Rice / parks / museums (leafier, big draws) --------------------------
+  reading("Rice University", -95.4018, 29.7174, 92, 66, 35, 55),
+  reading("Rice University West", -95.404, 29.716, 93, 60, 32, 58),
+  reading("Museum District", -95.3893, 29.724, 93, 88, 25, 68),
+  reading("Houston Zoo", -95.3925, 29.721, 91, 87, 40, 45),
+  reading("Hermann Park", -95.387, 29.7154, 89, 84, 45, 35),
+
+  // --- Downtown / urban core (busy + low canopy) ----------------------------
+  reading("Downtown Houston", -95.3698, 29.7604, 98, 96, 8, 92),
+  reading("Discovery Green", -95.3585, 29.7527, 93, 94, 30, 60),
+  reading("George R. Brown Convention Center", -95.3577, 29.7517, 97, 93, 6, 90),
+  reading("Avenida Houston / Toyota Center", -95.362, 29.756, 96, 92, 7, 88),
+  reading("Midtown", -95.378, 29.742, 95, 86, 14, 80),
+  reading("Montrose", -95.39, 29.743, 93, 85, 28, 62),
+  reading("EaDo / Shell Energy Stadium", -95.351, 29.749, 96, 85, 10, 86),
+  reading("The Heights", -95.398, 29.801, 93, 82, 30, 60),
+  reading("Third Ward", -95.355, 29.735, 96, 55, 15, 78),
+  reading("Buffalo Bayou Park", -95.39, 29.76, 89, 83, 42, 30),
+
+  // --- West side / Galleria / affluent leafy --------------------------------
+  reading("Galleria / Uptown", -95.4614, 29.7397, 96, 90, 12, 84),
+  reading("River Oaks", -95.42, 29.755, 89, 68, 48, 40),
+  reading("Memorial Park", -95.43, 29.765, 88, 72, 55, 22),
+  reading("Memorial (residential)", -95.55, 29.77, 88, 45, 50, 32),
+  reading("Bellaire", -95.46, 29.705, 91, 50, 30, 58),
+  reading("Meyerland", -95.46, 29.68, 92, 48, 28, 60),
+  reading("West University Place", -95.4315, 29.718, 90, 52, 38, 50),
+  reading("Gulfton", -95.48, 29.71, 98, 45, 8, 88),
+  reading("Sharpstown", -95.53, 29.7, 96, 42, 12, 82),
+  reading("Alief", -95.58, 29.7, 95, 40, 14, 80),
+  reading("Energy Corridor", -95.6349, 29.783, 94, 60, 20, 66),
+
+  // --- East side industrial (very hot, few visitors) ------------------------
+  reading("Houston Ship Channel", -95.28, 29.73, 106, 20, 2, 95),
+  reading("Galena Park Refineries", -95.23, 29.74, 107, 18, 1, 97),
+  reading("Pasadena Industrial", -95.21, 29.69, 105, 16, 2, 96),
+  reading("Baytown Industrial", -94.98, 29.74, 104, 15, 3, 94),
+  reading("Deer Park", -95.13, 29.7, 102, 30, 6, 88),
+  reading("Channelview", -95.11, 29.78, 101, 28, 8, 85),
+  reading("Fifth Ward", -95.33, 29.78, 98, 45, 10, 84),
+  reading("Denver Harbor", -95.3, 29.78, 99, 40, 9, 85),
+  reading("Sunnyside", -95.36, 29.66, 100, 38, 12, 82),
+
+  // --- Airports -------------------------------------------------------------
+  reading("George Bush Intercontinental (IAH)", -95.3414, 29.9902, 97, 86, 8, 88),
+  reading("Hobby Airport", -95.2789, 29.6454, 97, 80, 7, 89),
+
+  // --- Suburban rings -------------------------------------------------------
+  reading("Katy", -95.82, 29.79, 93, 58, 20, 62),
+  reading("Sugar Land", -95.62, 29.62, 92, 68, 25, 58),
+  reading("Missouri City", -95.54, 29.62, 93, 40, 22, 60),
+  reading("Pearland", -95.29, 29.56, 94, 46, 18, 64),
+  reading("League City", -95.09, 29.51, 92, 44, 22, 58),
+  reading("Spring", -95.42, 30.08, 93, 41, 25, 58),
+  reading("Cypress", -95.7, 29.97, 93, 39, 22, 56),
+  reading("The Woodlands (forested)", -95.45, 30.16, 89, 66, 55, 30),
+  reading("Kingwood (forested)", -95.18, 30.05, 88, 40, 58, 28),
+
+  // --- Clear Lake / NASA ----------------------------------------------------
+  reading("Space Center Houston", -95.092, 29.552, 90, 84, 20, 60),
+  reading("Clear Lake / NASA", -95.09, 29.56, 90, 64, 28, 50),
+
+  // --- Water / reservoirs (coolest, sparse visitors) ------------------------
+  reading("Addicks / Barker Reservoir", -95.63, 29.77, 86, 22, 45, 12),
+  reading("George Bush Park", -95.68, 29.72, 86, 30, 50, 10),
+  reading("Lake Houston", -95.14, 29.92, 85, 18, 30, 8),
+  reading("Galveston Bay shoreline", -94.9, 29.53, 87, 24, 10, 15),
+];
+
+// Three published metric layers, all derived from the same readings.
+const TEMPERATURE_ANCHORS: HeatmapMetricValue[] =
+  HOUSTON_READINGS.map(temperatureAnchor);
+const VISITOR_DENSITY_ANCHORS: HeatmapMetricValue[] =
+  HOUSTON_READINGS.map(visitorDensityAnchor);
+const HEAT_RISK_ANCHORS: HeatmapMetricValue[] =
+  HOUSTON_READINGS.map(heatRiskAnchor);
+
+// A day's worth of layers (same anchors reused across the sample dates).
+const daySnapshots = (): HeatmapMetricSnapshot[] => [
+  { metric: "temperature", points: TEMPERATURE_ANCHORS },
+  { metric: "visitor_density", points: VISITOR_DENSITY_ANCHORS },
+  { metric: "heat_risk_score", points: HEAT_RISK_ANCHORS },
+];
+
+// ---------------------------------------------------------------------------
+// Backend anchor source. Shaped like the API response, but each snapshot's
+// `points` holds the raw measured anchors — interpolation happens client-side.
+// ---------------------------------------------------------------------------
+const BACKEND_ANCHOR: HeatmapMetricPointByCity = {
+  Houston: [
+    {
+      "2026-07-05": daySnapshots(),
+      "2026-07-06": daySnapshots(),
+      "2026-07-07": daySnapshots(),
+      "2026-07-08": daySnapshots(),
+    },
+  ],
+};
+
+// The API call: hands back the raw anchors (no interpolation).
+export async function callHeatmapAnchors(): Promise<HeatmapMetricPointByCity> {
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  return BACKEND_ANCHOR;
 }

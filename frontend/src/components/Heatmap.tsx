@@ -3,9 +3,8 @@ import { Expand, Shrink } from 'lucide-react';
 import DeckGL from '@deck.gl/react';
 import {
   type CityPOIArea,
-  type HeatmapMetricPoint,
+  type HeatmapMetricSnapshot,
   type HeatmapMetricValue,
-  type HeatmapMetricsPointResponse,
 } from '../api/map';
 import { type City } from '../data/hostCities';
 import { getColor } from '../utils/colors';
@@ -13,7 +12,7 @@ import { type PlacedObject, TOOLBOX_DRAG_MIME } from '../utils/toolbox';
 import { useHeatmapLayers } from '../hooks/useHeatmapLayers';
 import SearchBar from './SearchBar';
 import Toolbox from './Toolbox';
-import HeatRiskScale from './HeatRiskScale';
+import HeatRiskScale from './Heatriskscale';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -36,7 +35,7 @@ interface HeatmapProps {
   selectedCity: string | null;
   setSelectedCity: React.Dispatch<React.SetStateAction<string | null>>;
   cityPOIAreas: CityPOIArea[];
-  heatmapPointsByCity: HeatmapMetricsPointResponse;
+  heatmapPointsByCity: Record<string, HeatmapMetricSnapshot[]>;
   mapContainerRef: React.RefObject<HTMLDivElement | null>;
   mapRef: React.MutableRefObject<maplibregl.Map | null>;
   mapSyncFrameRef: React.MutableRefObject<number | null>;
@@ -374,7 +373,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
 
   const clearPlacedObjects = useCallback(() => setPlacedObjects([]), []);
 
-  const availableMetricLayers: HeatmapMetricPoint[] = useMemo(
+  const availableMetricLayers: HeatmapMetricSnapshot[] = useMemo(
     () => (selectedCity ? (heatmapPointsByCity[selectedCity] ?? []) : []),
     [selectedCity, heatmapPointsByCity],
   );

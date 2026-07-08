@@ -6,13 +6,15 @@ import OverallStatistics, { type OverallStatisticsProps } from '../components/Ov
 import POIStatistics, { type POIStatisticsProps } from '../components/POIStatistics';
 import SelectDate from '../components/SelectDate';
 import {
-  callHeatmapMetricsPoints,
+  callHeatmapAnchors,
   callMockLocationPOIs,
   type CityPOIArea,
-  type HeatmapMetricsPointResponse,
+  type HeatmapMetricPointByCity,
+  type HeatmapMetricSnapshot,
 } from '../api/map';
 import { callMockStatistics } from '../api/statistics';
 import { determineCityView } from '../utils/cityViews';
+import { interpolateByCity } from '../utils/interpolate';
 
 interface ViewState {
   longitude: number;
@@ -39,7 +41,9 @@ const ExplorePage: React.FC = () => {
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [cityPOIAreas, setCityPOIAreas] = useState<CityPOIArea[]>([]);
   const [heatmapPointsByCity, setHeatmapPointsByCity] =
-    useState<HeatmapMetricsPointResponse>({});
+    useState<Record<string, HeatmapMetricSnapshot[]>>({});
+  const [heatmapAnchorsByCity, setHeatmapAnchorsByCity] =
+    useState<HeatmapMetricPointByCity>({});
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -55,7 +59,7 @@ const ExplorePage: React.FC = () => {
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
   const [editingAreaId, setEditingAreaId] = useState<string | null>(null);
   const [isAreaDragging, setIsAreaDragging] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<string | null>('2026-07-04');
+  const [selectedDate, setSelectedDate] = useState<string | null>('2026-07-07');
   const [overallStatisticsProps, setOverallStatisticsProps] =
     useState<OverallStatisticsProps>();
   const [poiStatisticsProps, setPOIStatisticsProps] = useState<POIStatisticsProps>();
@@ -84,23 +88,33 @@ const ExplorePage: React.FC = () => {
   useEffect(() => {
     let isMounted = true;
 
-    const loadHeatmapPoints = async () => {
+    const loadHeatmapAnchors = async () => {
       try {
-        const pointsByCity = await callHeatmapMetricsPoints();
+        const anchorsByCity = await callHeatmapAnchors();
         if (isMounted) {
-          setHeatmapPointsByCity(pointsByCity);
+          setHeatmapAnchorsByCity(anchorsByCity);
         }
       } catch (error) {
-        console.error('Failed to load heatmap metric points', error);
+        console.error('Failed to load heatmap anchors', error);
       }
     };
 
-    loadHeatmapPoints();
+    loadHeatmapAnchors();
 
     return () => {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedCity || !selectedDate) {
+      setHeatmapPointsByCity({});
+      return;
+    }
+
+    const interpolated = interpolateByCity(heatmapAnchorsByCity, selectedCity, selectedDate);
+    setHeatmapPointsByCity({ [selectedCity]: interpolated });
+  }, [heatmapAnchorsByCity, selectedCity, selectedDate]);
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -215,7 +229,12 @@ const ExplorePage: React.FC = () => {
 
           <div className="min-h-0 flex h-full flex-col gap-3">
             <div className="shrink-0 self-start">
-              <SelectDate label="Date" value={selectedDate} onChange={setSelectedDate} />
+              <SelectDate
+                label="Date"
+                value={selectedDate}
+                onChange={setSelectedDate}
+                availableDates={['2026-07-05', '2026-07-06', '2026-07-07', '2026-07-08']}
+              />
             </div>
 
             <section className="min-h-0 flex-1">
