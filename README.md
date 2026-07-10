@@ -221,7 +221,8 @@ Detailed routes are documented in [app/README.md](app/README.md). High-level rou
 |---|---|---|
 | Users | `/users` | User creation, profile, password, deletion. |
 | Login | `/login` | JWT bearer token login. |
-| Datasets | `/dataset` | Protected CRUD for Rice dataset tables. |
+| Datasets | `/dataset` | User-scoped CRUD for Rice dataset tables, all-user reads, CSV imports, and ML-ready dataset exports. |
+| ML Inputs | `/ml` | Click-based grid/POI feature rows for model prediction without previous observed metrics. |
 | Grid Geometry | `/grid` | Generate/read state and city grid cells. |
 | Grid Metrics | `/grid_metrics` | Create/read/update/delete simulation metrics. |
 | Grid Interpolation | `/grid_interpolation` | Interpolate metrics and return GeoJSON. |

@@ -116,6 +116,46 @@
     {
       "key": "polygonImpactGridId",
       "value": "1"
+    },
+    {
+      "key": "predictedMetric",
+      "value": "predicted_heat_risk"
+    },
+    {
+      "key": "predictedVisitorMetric",
+      "value": "predicted_visitor_count"
+    },
+    {
+      "key": "heatDataMlId",
+      "value": "1"
+    },
+    {
+      "key": "visitorDataMlId",
+      "value": "1"
+    },
+    {
+      "key": "fsqPlaceId",
+      "value": "4dd2b3561838a7519661b48d"
+    },
+    {
+      "key": "predictionDate",
+      "value": "2026-06-20"
+    },
+    {
+      "key": "predictionLat",
+      "value": "29.7604"
+    },
+    {
+      "key": "predictionLon",
+      "value": "-95.3698"
+    },
+    {
+      "key": "predictionCategory",
+      "value": "Art Gallery"
+    },
+    {
+      "key": "predictionImportRowLimit",
+      "value": "100"
     }
   ],
   "item": [
@@ -293,6 +333,44 @@
           }
         },
         {
+          "name": "Get All Core POI Geometry Across Users",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dataset/core_poi_geometry_table/all",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Import Core POI Geometry CSV",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/dataset/core_poi_geometry_table/import_csv",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Create Core POI Geometry",
           "event": [
             {
@@ -413,6 +491,44 @@
           "request": {
             "method": "GET",
             "url": "{{baseUrl}}/dataset/daily_spend_brand_state",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get All Daily Spend Brand State Across Users",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dataset/daily_spend_brand_state/all",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Import Daily Spend Brand State CSV",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/dataset/daily_spend_brand_state/import_csv",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -559,6 +675,44 @@
           }
         },
         {
+          "name": "Get All Daily Weather Across Users",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dataset/daily_weather/all",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Import Daily Weather CSV",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/dataset/daily_weather/import_csv",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Create Daily Weather",
           "event": [
             {
@@ -679,6 +833,44 @@
           "request": {
             "method": "GET",
             "url": "{{baseUrl}}/dataset/spending_patterns",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get All Spending Patterns Across Users",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dataset/spending_patterns/all",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Import Spending Patterns CSV",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/dataset/spending_patterns/import_csv",
             "auth": {
               "type": "bearer",
               "bearer": [
@@ -825,6 +1017,44 @@
           }
         },
         {
+          "name": "Get All Store Visits Across Users",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dataset/store_visits/all",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Import Store Visits CSV",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/dataset/store_visits/import_csv",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Create Store Visits",
           "event": [
             {
@@ -958,6 +1188,44 @@
           }
         },
         {
+          "name": "Get All Urban Heat Index Across Users",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/dataset/urban_heat_index/all",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Import Urban Heat Index CSV",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/dataset/urban_heat_index/import_csv",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Create Urban Heat Index",
           "event": [
             {
@@ -1071,6 +1339,359 @@
       }
     },
     {
+      "name": "ML Inputs",
+      "item": [
+        {
+          "name": "List ML Tasks",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/ml/tasks"
+          }
+        },
+        {
+          "name": "Visitor Prediction Input - Grid Click",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lat\": 29.7604,\n  \"lon\": -95.3698,\n  \"state\": \"Texas\",\n  \"city\": \"Houston\",\n  \"timestamp\": \"2026-06-20T14:00:00-05:00\",\n  \"grid_cell_id\": {{gridCellId}},\n  \"source\": \"grid_centroid\"\n}"
+            },
+            "url": "{{baseUrl}}/ml/visitor-prediction/input"
+          }
+        },
+        {
+          "name": "Visitor Prediction Input - POI Click",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lat\": 29.7604,\n  \"lon\": -95.3698,\n  \"state\": \"Texas\",\n  \"city\": \"Houston\",\n  \"timestamp\": \"2026-06-20T14:00:00-05:00\",\n  \"poi_id\": {{corePoiGeometryId}},\n  \"source\": \"poi\"\n}"
+            },
+            "url": "{{baseUrl}}/ml/visitor-prediction/input"
+          }
+        },
+        {
+          "name": "Weather Heat Input - Grid Click",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lat\": 29.7604,\n  \"lon\": -95.3698,\n  \"state\": \"Texas\",\n  \"city\": \"Houston\",\n  \"timestamp\": \"2026-06-20T14:00:00-05:00\",\n  \"grid_cell_id\": {{gridCellId}},\n  \"source\": \"grid_centroid\"\n}"
+            },
+            "url": "{{baseUrl}}/ml/weather-heat/input"
+          }
+        },
+        {
+          "name": "Weather Heat Input - POI Click",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lat\": 29.7604,\n  \"lon\": -95.3698,\n  \"state\": \"Texas\",\n  \"city\": \"Houston\",\n  \"timestamp\": \"2026-06-20T14:00:00-05:00\",\n  \"poi_id\": {{corePoiGeometryId}},\n  \"source\": \"poi\"\n}"
+            },
+            "url": "{{baseUrl}}/ml/weather-heat/input"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Prediction Model ML Data",
+      "description": "Heat and visitor data records used by prediction-model training/inference flows. CSV imports use multipart/form-data with a file field and headers matching the create schema fields.",
+      "item": [
+        {
+          "name": "Heat - List",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/prediction-model-ml/heat?skip=0&limit=100"
+          }
+        },
+        {
+          "name": "Heat - Create",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "url": "{{baseUrl}}/prediction-model-ml/heat",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"date\": \"2026-06-20T14:00:00-05:00\",\n  \"latitude\": {{predictionLat}},\n  \"longitude\": {{predictionLon}},\n  \"avg_temp_c\": 35.4,\n  \"relative_humidity\": 62,\n  \"wind_speed_knots\": 8.5,\n  \"urban_heat_idx\": 82.1,\n  \"source\": \"interpolated\",\n  \"distance_nearest_station_km\": 1.4,\n  \"passed_threshold\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Heat - Import CSV",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "url": "{{baseUrl}}/prediction-model-ml/heat/import-csv?row_limit={{predictionImportRowLimit}}",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Choose a heat CSV with headers such as date,latitude,longitude,avg_temp_c,relative_humidity,wind_speed_knots,urban_heat_idx,source,distance_nearest_station_km,passed_threshold."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Heat - Get by ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/prediction-model-ml/heat/by-id/{{heatDataMlId}}"
+          }
+        },
+        {
+          "name": "Heat - Update by ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "PUT",
+            "url": "{{baseUrl}}/prediction-model-ml/heat/by-id/{{heatDataMlId}}",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"date\": \"2026-06-20T14:00:00-05:00\",\n  \"latitude\": {{predictionLat}},\n  \"longitude\": {{predictionLon}},\n  \"avg_temp_c\": 35.4,\n  \"relative_humidity\": 62,\n  \"wind_speed_knots\": 8.5,\n  \"urban_heat_idx\": 82.1,\n  \"source\": \"interpolated\",\n  \"distance_nearest_station_km\": 1.4,\n  \"passed_threshold\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Heat - Delete by ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "DELETE",
+            "url": "{{baseUrl}}/prediction-model-ml/heat/by-id/{{heatDataMlId}}"
+          }
+        },
+        {
+          "name": "Heat - By Coordinate",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/prediction-model-ml/heat/by-coordinate?lat={{predictionLat}}&lon={{predictionLon}}&tolerance=0.01&skip=0&limit=100"
+          }
+        },
+        {
+          "name": "Heat - By Date",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/prediction-model-ml/heat/by-date/{{predictionDate}}?skip=0&limit=1000"
+          }
+        },
+        {
+          "name": "Visitors - List",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/prediction-model-ml/visitors?skip=0&limit=100"
+          }
+        },
+        {
+          "name": "Visitors - Create",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "url": "{{baseUrl}}/prediction-model-ml/visitors",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"date\": \"2026-06-20T14:00:00-05:00\",\n  \"market\": \"Houston\",\n  \"source_market\": \"Houston-The Woodlands-Sugar Land, TX\",\n  \"fsq_place_id\": \"{{fsqPlaceId}}\",\n  \"name\": \"James Turrell Skyspace at Rice University\",\n  \"latitude\": 29.71649,\n  \"longitude\": -95.40436,\n  \"category\": \"Art Gallery\",\n  \"visitor_count\": 120,\n  \"visitor_count_source\": \"google_routes_places_aggregate_proxy\",\n  \"market_brand_visitor_count_total\": 120,\n  \"candidate_foursquare_poi_count\": 3,\n  \"match_status\": \"matched\",\n  \"visitor_categories\": \"arts_and_entertainment\",\n  \"nearest_heat_distance_km\": 0.8,\n  \"query_center_distance_m\": 75,\n  \"google_maps_congestion\": 15\n}"
+            }
+          }
+        },
+        {
+          "name": "Visitors - Import CSV",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "url": "{{baseUrl}}/prediction-model-ml/visitors/import-csv?row_limit={{predictionImportRowLimit}}",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Choose a visitor CSV with headers such as date,market,source_market,fsq_place_id,name,latitude,longitude,category,visitor_count,visitor_count_source,market_brand_visitor_count_total,candidate_foursquare_poi_count,match_status,visitor_categories,nearest_heat_distance_km,query_center_distance_m,google_maps_congestion."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Visitors - Get by ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/prediction-model-ml/visitors/by-id/{{visitorDataMlId}}"
+          }
+        },
+        {
+          "name": "Visitors - Update by ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "PUT",
+            "url": "{{baseUrl}}/prediction-model-ml/visitors/by-id/{{visitorDataMlId}}",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"date\": \"2026-06-20T14:00:00-05:00\",\n  \"market\": \"Houston\",\n  \"source_market\": \"Houston-The Woodlands-Sugar Land, TX\",\n  \"fsq_place_id\": \"{{fsqPlaceId}}\",\n  \"name\": \"James Turrell Skyspace at Rice University\",\n  \"latitude\": 29.71649,\n  \"longitude\": -95.40436,\n  \"category\": \"Art Gallery\",\n  \"visitor_count\": 120,\n  \"visitor_count_source\": \"google_routes_places_aggregate_proxy\",\n  \"market_brand_visitor_count_total\": 120,\n  \"candidate_foursquare_poi_count\": 3,\n  \"match_status\": \"matched\",\n  \"visitor_categories\": \"arts_and_entertainment\",\n  \"nearest_heat_distance_km\": 0.8,\n  \"query_center_distance_m\": 75,\n  \"google_maps_congestion\": 15\n}"
+            }
+          }
+        },
+        {
+          "name": "Visitors - Delete by ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "DELETE",
+            "url": "{{baseUrl}}/prediction-model-ml/visitors/by-id/{{visitorDataMlId}}"
+          }
+        },
+        {
+          "name": "Visitors - By Foursquare ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/prediction-model-ml/visitors/by-foursquare/{{fsqPlaceId}}"
+          }
+        },
+        {
+          "name": "Visitors - By Coordinate",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/prediction-model-ml/visitors/by-coordinate?lat={{predictionLat}}&lon={{predictionLon}}&tolerance=0.01&skip=0&limit=100"
+          }
+        },
+        {
+          "name": "Visitors - By Date",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/prediction-model-ml/visitors/by-date/{{predictionDate}}?skip=0&limit=1000"
+          }
+        },
+        {
+          "name": "Visitors - By Market",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/prediction-model-ml/visitors/by-market/{{cityName}}?skip=0&limit=100"
+          }
+        },
+        {
+          "name": "Visitors - By Category",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/prediction-model-ml/visitors/by-category/{{predictionCategory}}?skip=0&limit=100"
+          }
+        }
+      ]
+    },
+    {
       "name": "Grid Geometry",
       "item": [
         {
@@ -1162,6 +1783,66 @@
             },
             "method": "GET",
             "url": "{{baseUrl}}/grid/all"
+          }
+        },
+        {
+          "name": "Get All Grid Centroids",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid/centroids"
+          }
+        },
+        {
+          "name": "Get All Grid Centroids GeoJSON",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid/centroids/geojson"
+          }
+        },
+        {
+          "name": "Get State Grid Centroids",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid/state/{{stateName}}/centroids"
+          }
+        },
+        {
+          "name": "Get State Grid Centroids GeoJSON",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid/state/{{stateName}}/centroids/geojson"
+          }
+        },
+        {
+          "name": "Get City Grid Centroids",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid/city/centroids?city={{cityName}}&state={{stateName}}"
+          }
+        },
+        {
+          "name": "Get City Grid Centroids GeoJSON",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/grid/city/centroids/geojson?city={{cityName}}&state={{stateName}}"
           }
         },
         {
@@ -1513,7 +2194,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"grid_cell_id\": {{gridCellId}},\n  \"timestamp\": \"{{metricTimestamp}}\",\n  \"heat_index\": 104.0,\n  \"heat_risk\": 0.82,\n  \"crowd_density\": 0.65,\n  \"population\": 12000.0,\n  \"cooling_centers\": 3,\n  \"cooling_centers_impact_radius\": 1.5,\n  \"infrastructure_strain\": 0.7,\n  \"heat_index_color\": \"#FF4500\",\n  \"heat_risk_color\": \"#FF0000\",\n  \"crowd_density_color\": \"#FFA500\",\n  \"population_color\": \"#FFD700\",\n  \"cooling_centers_color\": \"#00BFFF\",\n  \"infrastructure_strain_color\": \"#FF6347\",\n  \"overall_risk_color\": \"#FF0000\"\n}"
+              "raw": "{\n  \"grid_cell_id\": {{gridCellId}},\n  \"timestamp\": \"{{metricTimestamp}}\",\n  \"heat_index\": 104.0,\n  \"heat_risk\": 0.82,\n  \"crowd_density\": 0.65,\n  \"population\": 12000.0,\n  \"cooling_centers\": 3,\n  \"cooling_centers_impact_radius\": 1.5,\n  \"infrastructure_strain\": 0.7,\n  \"predicted_heat_index\": 101.5,\n  \"predicted_heat_risk\": 0.78,\n  \"predicted_crowd_density\": 0.61,\n  \"predicted_population\": 11850.0,\n  \"predicted_visitor_count\": 4250.0,\n  \"heat_index_color\": \"#FF4500\",\n  \"heat_risk_color\": \"#FF0000\",\n  \"crowd_density_color\": \"#FFA500\",\n  \"population_color\": \"#FFD700\",\n  \"cooling_centers_color\": \"#00BFFF\",\n  \"infrastructure_strain_color\": \"#FF6347\",\n  \"overall_risk_color\": \"#FF0000\"\n}"
             },
             "url": "{{baseUrl}}/grid_metrics/create"
           }
@@ -1548,7 +2229,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"timestamp\": \"{{metricTimestamp}}\",\n  \"heat_index\": 104.0,\n  \"heat_risk\": 0.82,\n  \"crowd_density\": 0.65,\n  \"population\": 12000.0,\n  \"cooling_centers\": 3,\n  \"cooling_centers_impact_radius\": 1.5,\n  \"infrastructure_strain\": 0.7,\n  \"heat_index_color\": \"#FF4500\",\n  \"heat_risk_color\": \"#FF0000\",\n  \"crowd_density_color\": \"#FFA500\",\n  \"population_color\": \"#FFD700\",\n  \"cooling_centers_color\": \"#00BFFF\",\n  \"infrastructure_strain_color\": \"#FF6347\",\n  \"overall_risk_color\": \"#FF0000\"\n}"
+              "raw": "{\n  \"timestamp\": \"{{metricTimestamp}}\",\n  \"heat_index\": 104.0,\n  \"heat_risk\": 0.82,\n  \"crowd_density\": 0.65,\n  \"population\": 12000.0,\n  \"cooling_centers\": 3,\n  \"cooling_centers_impact_radius\": 1.5,\n  \"infrastructure_strain\": 0.7,\n  \"predicted_heat_index\": 101.5,\n  \"predicted_heat_risk\": 0.78,\n  \"predicted_crowd_density\": 0.61,\n  \"predicted_population\": 11850.0,\n  \"predicted_visitor_count\": 4250.0,\n  \"heat_index_color\": \"#FF4500\",\n  \"heat_risk_color\": \"#FF0000\",\n  \"crowd_density_color\": \"#FFA500\",\n  \"population_color\": \"#FFD700\",\n  \"cooling_centers_color\": \"#00BFFF\",\n  \"infrastructure_strain_color\": \"#FF6347\",\n  \"overall_risk_color\": \"#FF0000\"\n}"
             },
             "url": "{{baseUrl}}/grid_metrics/assign_all?state={{stateName}}&replace_existing=true"
           }
@@ -1651,7 +2332,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"grid_cell_id\": {{gridCellId}},\n  \"timestamp\": \"{{metricTimestamp}}\",\n  \"heat_index\": 104.0,\n  \"heat_risk\": 0.82,\n  \"crowd_density\": 0.65,\n  \"population\": 12000.0,\n  \"cooling_centers\": 3,\n  \"cooling_centers_impact_radius\": 1.5,\n  \"infrastructure_strain\": 0.7,\n  \"heat_index_color\": \"#FF4500\",\n  \"heat_risk_color\": \"#FF0000\",\n  \"crowd_density_color\": \"#FFA500\",\n  \"population_color\": \"#FFD700\",\n  \"cooling_centers_color\": \"#00BFFF\",\n  \"infrastructure_strain_color\": \"#FF6347\",\n  \"overall_risk_color\": \"#FF0000\"\n}"
+              "raw": "{\n  \"grid_cell_id\": {{gridCellId}},\n  \"timestamp\": \"{{metricTimestamp}}\",\n  \"heat_index\": 104.0,\n  \"heat_risk\": 0.82,\n  \"crowd_density\": 0.65,\n  \"population\": 12000.0,\n  \"cooling_centers\": 3,\n  \"cooling_centers_impact_radius\": 1.5,\n  \"infrastructure_strain\": 0.7,\n  \"predicted_heat_index\": 101.5,\n  \"predicted_heat_risk\": 0.78,\n  \"predicted_crowd_density\": 0.61,\n  \"predicted_population\": 11850.0,\n  \"predicted_visitor_count\": 4250.0,\n  \"heat_index_color\": \"#FF4500\",\n  \"heat_risk_color\": \"#FF0000\",\n  \"crowd_density_color\": \"#FFA500\",\n  \"population_color\": \"#FFD700\",\n  \"cooling_centers_color\": \"#00BFFF\",\n  \"infrastructure_strain_color\": \"#FF6347\",\n  \"overall_risk_color\": \"#FF0000\"\n}"
             },
             "url": "{{baseUrl}}/grid_metrics/update/{{gridMetricId}}"
           }
@@ -1712,7 +2393,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"city\": \"{{cityName}}\",\n  \"state\": \"{{stateName}}\",\n  \"timestamp\": \"{{interpolationTimestamp}}\",\n  \"metric_key\": \"{{interpolationMetric}}\",\n  \"replace_existing\": true,\n  \"known_points\": []\n}"
+              "raw": "{\n  \"city\": \"{{cityName}}\",\n  \"state\": \"{{stateName}}\",\n  \"timestamp\": \"{{interpolationTimestamp}}\",\n  \"metric_key\": \"predicted_heat_risk\",\n  \"replace_existing\": true,\n  \"known_points\": [\n    {\n      \"lat\": 29.7604,\n      \"lon\": -95.3698,\n      \"predicted_heat_risk\": 0.78,\n      \"predicted_visitor_count\": 4250.0\n    },\n    {\n      \"lat\": 29.7804,\n      \"lon\": -95.3498,\n      \"predicted_heat_risk\": 0.62,\n      \"predicted_visitor_count\": 3100.0\n    }\n  ]\n}"
             },
             "url": "{{baseUrl}}/grid_interpolation/interpolate"
           }
@@ -1809,7 +2490,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"heat_index\": 101.0,\n  \"heat_risk\": 0.7,\n  \"crowd_density\": 0.5,\n  \"population\": 10000.0,\n  \"cooling_centers\": 2.0,\n  \"infrastructure_strain\": 0.6,\n  \"interpolation_method\": \"manual_update\",\n  \"source_count\": 3,\n  \"confidence\": 0.95\n}"
+              "raw": "{\n  \"heat_index\": 101.0,\n  \"heat_risk\": 0.7,\n  \"crowd_density\": 0.5,\n  \"population\": 10000.0,\n  \"cooling_centers\": 2.0,\n  \"infrastructure_strain\": 0.6,\n  \"predicted_heat_index\": 99.5,\n  \"predicted_heat_risk\": 0.68,\n  \"predicted_crowd_density\": 0.52,\n  \"predicted_population\": 9600.0,\n  \"predicted_visitor_count\": 3650.0,\n  \"interpolation_method\": \"manual_update\",\n  \"source_count\": 3,\n  \"confidence\": 0.95\n}"
             },
             "url": "{{baseUrl}}/grid_interpolation/update/{{interpolatedPointId}}"
           }

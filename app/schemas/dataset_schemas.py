@@ -1,9 +1,27 @@
-from pydantic import BaseModel 
-
-
 from datetime import date, datetime
 from typing import Any, Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+def _unknown_if_empty(value):
+    """Keep required text columns non-null when source datasets omit labels."""
+    if value is None:
+        return "Unknown"
+    if isinstance(value, str) and value.strip() == "":
+        return "Unknown"
+    return value
+
+
+def _empty_dict_if_missing(value):
+    if value is None:
+        return {}
+    return value
+
+
+def _empty_list_if_missing(value):
+    if value is None:
+        return []
+    return value
 
 
 # -----------------------INPUT SCHEMA----------------------
@@ -41,13 +59,21 @@ class CorePoiGeometryCreate(BaseModel):
     safegraph_place_id: str
     store_id: Optional[str] = None
     street_address: str
-    sub_category: str
-    sub_category_2022: str
-    top_category: str
-    top_category_2022: str
+    sub_category: str = "Unknown"
+    sub_category_2022: str = "Unknown"
+    top_category: str = "Unknown"
+    top_category_2022: str = "Unknown"
     tracking_closed_since: Optional[date] = None
     website: Optional[str] = None
     wkt_area_sq_meters: float
+
+    _category_defaults = field_validator(
+        "sub_category",
+        "sub_category_2022",
+        "top_category",
+        "top_category_2022",
+        mode="before",
+    )(_unknown_if_empty)
 
 
 class DailySpendBrandStateCreate(BaseModel):
@@ -78,7 +104,7 @@ class DailyWeatherRiceCreate(BaseModel):
 
 
 class SpendPatternsRiceCreate(BaseModel):
-    brands: str
+    brands: str | None = None
 
     bucketed_customer_frequency: dict[str, Any]
     bucketed_customer_incomes: dict[str, Any]
@@ -127,24 +153,46 @@ class SpendPatternsRiceCreate(BaseModel):
     related_streaming_cable_pct: Optional[dict[str, Any]] = None
     related_wireless_carrier_pct: Optional[dict[str, Any]] = None
 
-    spend_by_day: dict[str, Any]
+    spend_by_day: list[float | int | None]
     spend_by_day_of_week: dict[str, Any]
     spend_by_transaction_intermediary: Optional[dict[str, Any]] = None
 
+    spend_per_transaction_by_day: list[float | int | None]
     spend_date_range_start: date
     spend_date_range_end: date
 
     spend_pct_change_vs_prev_month: Optional[float] = None
     spend_pct_change_vs_prev_year: Optional[float] = None
 
-    spend_per_transaction_by_day: dict[str, Any]
     spend_per_transaction_percentiles: dict[str, Any]
 
     street_address: str
-    sub_category: str
-    top_category: str
+    sub_category: str = "Unknown"
+    top_category: str = "Unknown"
 
     transaction_intermediary: Optional[dict[str, Any]] = None
+
+    _category_defaults = field_validator(
+        "sub_category",
+        "top_category",
+        mode="before",
+    )(_unknown_if_empty)
+    _required_dict_defaults = field_validator(
+        "bucketed_customer_frequency",
+        "bucketed_customer_incomes",
+        "customer_home_city",
+        "day_counts",
+        "mean_spend_per_customer_by_frequency",
+        "mean_spend_per_customer_by_income",
+        "spend_by_day_of_week",
+        "spend_per_transaction_percentiles",
+        mode="before",
+    )(_empty_dict_if_missing)
+    _required_list_defaults = field_validator(
+        "spend_by_day",
+        "spend_per_transaction_by_day",
+        mode="before",
+    )(_empty_list_if_missing)
 
 
 class StoreVisitsCreate(BaseModel):
@@ -159,8 +207,10 @@ class StoreVisitsCreate(BaseModel):
     stock_exchange: Optional[str] = None
     stock_symbol: Optional[str] = None
     store_id: str
-    sub_category: str
+    sub_category: str = "Unknown"
     version_id: int
+
+    _category_defaults = field_validator("sub_category", mode="before")(_unknown_if_empty)
 
 
 class UrbanHeatIndexCreate(BaseModel):
@@ -265,7 +315,7 @@ class DailyWeatherRiceResponse(BaseModel):
 class SpendPatternsRiceResponse(BaseModel):
     id: int
 
-    brands: str
+    brands: str | None = None
 
     bucketed_customer_frequency: dict[str, Any]
     bucketed_customer_incomes: dict[str, Any]
@@ -314,9 +364,11 @@ class SpendPatternsRiceResponse(BaseModel):
     related_streaming_cable_pct: Optional[dict[str, Any]] = None
     related_wireless_carrier_pct: Optional[dict[str, Any]] = None
 
-    spend_by_day: dict[str, Any]
+    spend_by_day: list[float | int | None]
     spend_by_day_of_week: dict[str, Any]
     spend_by_transaction_intermediary: Optional[dict[str, Any]] = None
+
+    spend_per_transaction_by_day: list[float | int | None]
 
     spend_date_range_start: date
     spend_date_range_end: date
@@ -324,7 +376,6 @@ class SpendPatternsRiceResponse(BaseModel):
     spend_pct_change_vs_prev_month: Optional[float] = None
     spend_pct_change_vs_prev_year: Optional[float] = None
 
-    spend_per_transaction_by_day: dict[str, Any]
     spend_per_transaction_percentiles: dict[str, Any]
 
     street_address: str
@@ -370,3 +421,10 @@ class UrbanHeatIndexResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class DatasetCsvImportResponse(BaseModel):
+    dataset: str
+    inserted_count: int
+    errors: list[str] = Field(default_factory=list)
+

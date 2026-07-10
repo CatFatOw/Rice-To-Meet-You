@@ -5,10 +5,12 @@ import Heatmap, {
   type GeocodeResult,
   type TooltipState,
 } from '../components/Heatmap';
+import FoursquareLookup from '../components/FoursquareLookup';
 import LiveTrafficPanel from '../components/LiveTrafficPanel';
 import NavigationBar from '../components/NavigationBar';
 import OverallStatistics, { type OverallStatisticsProps } from '../components/OverallStatistics';
 import POIStatistics, { type POIStatisticsProps } from '../components/POIStatistics';
+import type { FoursquarePlace } from '../api/foursquare';
 import {
   callHeatmapMetricsGrid,
   callMockLocationPOIs,
@@ -309,6 +311,27 @@ const ExplorePage: React.FC = () => {
     ]);
   };
 
+  const handleFoursquarePlaceSelect = (place: FoursquarePlace) => {
+    setNearestLongitude(place.longitude.toFixed(5));
+    setNearestLatitude(place.latitude.toFixed(5));
+    setNearestSourceLabel(place.name);
+    setPOISortMode('nearest');
+
+    const nextState = {
+      longitude: place.longitude,
+      latitude: place.latitude,
+      zoom: 15,
+      pitch: 0,
+      bearing: 0,
+    };
+    setViewState(nextState);
+    mapRef.current?.flyTo({
+      center: [place.longitude, place.latitude],
+      zoom: 15,
+      duration: 900,
+    });
+  };
+
   const handleCameraAnalysisMarkerRemove = useCallback((id: string) => {
     setCameraAnalysisMarkers((previousMarkers) =>
       previousMarkers.filter((marker) => marker.id !== id),
@@ -510,6 +533,12 @@ const ExplorePage: React.FC = () => {
                 </div>
               </div>
             )}
+
+            <FoursquareLookup
+              latitude={nearestLatitude}
+              longitude={nearestLongitude}
+              onPlaceSelect={handleFoursquarePlaceSelect}
+            />
 
             <LiveTrafficPanel
               latitude={nearestLatitude}

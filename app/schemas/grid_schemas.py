@@ -32,6 +32,11 @@ class GridCellMetricsCreate(BaseModel):
     cooling_centers: Optional[int] = None
     cooling_centers_impact_radius: Optional[float] = None
     infrastructure_strain: Optional[float] = None
+    predicted_heat_index: Optional[float] = None
+    predicted_heat_risk: Optional[float] = None
+    predicted_crowd_density: Optional[float] = None
+    predicted_population: Optional[float] = None
+    predicted_visitor_count: Optional[float] = None
 
     heat_index_color: Optional[str] = "#00BFFF"
     heat_risk_color: Optional[str] = "#00BFFF"
@@ -53,6 +58,11 @@ class GridCellMetricsAssignAll(BaseModel):
     cooling_centers: Optional[int] = None
     cooling_centers_impact_radius: Optional[float] = None
     infrastructure_strain: Optional[float] = None
+    predicted_heat_index: Optional[float] = None
+    predicted_heat_risk: Optional[float] = None
+    predicted_crowd_density: Optional[float] = None
+    predicted_population: Optional[float] = None
+    predicted_visitor_count: Optional[float] = None
 
     heat_index_color: Optional[str] = "#00BFFF"
     heat_risk_color: Optional[str] = "#00BFFF"
@@ -86,6 +96,16 @@ class GridCellResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class GridCentroidResponse(BaseModel):
+    id: int
+    cell_id: str
+    row: int
+    col: int
+    latitude: float
+    longitude: float
+    state: str
+
+
 class CityGridNeighborsResponse(BaseModel):
     city: str
     state: str
@@ -115,6 +135,11 @@ class GridCellMetricsResponse(BaseModel):
     cooling_centers: Optional[int]
     cooling_centers_impact_radius: Optional[float]
     infrastructure_strain: Optional[float]
+    predicted_heat_index: Optional[float]
+    predicted_heat_risk: Optional[float]
+    predicted_crowd_density: Optional[float]
+    predicted_population: Optional[float]
+    predicted_visitor_count: Optional[float]
 
     heat_index_color: Optional[str]
     heat_risk_color: Optional[str]

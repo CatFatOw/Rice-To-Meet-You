@@ -3,8 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session 
 import database 
 import models
-from routers import dataset, grid_geometry, grid_interpolation, grid_metrics, login, nws_weather, poi_polygons, polygon, traffic_prediction, users
-from routers.front_end_routes import heatmap
+from routers import dataset, foursquare, google_analytics, grid_geometry, grid_interpolation, grid_metrics, login, ml_datasets, nws_weather, poi_polygons, polygon, traffic_prediction, users
+from routers.front_end_routes import heatmap, prediction_model
 
 
 
@@ -19,6 +19,7 @@ app.add_middleware(
         "http://127.0.0.1:5174",
         "http://localhost:5174",
     ],
+    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):\d+$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -28,12 +29,16 @@ app.include_router(dataset.router)
 app.include_router(users.router)
 app.include_router(login.router)
 app.include_router(nws_weather.router)
+app.include_router(foursquare.router)
+app.include_router(google_analytics.router)
 app.include_router(grid_geometry.router)
 app.include_router(grid_metrics.router)
 app.include_router(grid_interpolation.router)
 app.include_router(poi_polygons.router)
 app.include_router(polygon.router)
 app.include_router(heatmap.router)
+app.include_router(prediction_model.router)
+app.include_router(ml_datasets.router)
 app.include_router(traffic_prediction.router)
 
 # Show which tables are gonna be created

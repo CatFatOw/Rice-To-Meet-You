@@ -9,7 +9,7 @@ import numpy as np
 
 
 VEHICLE_CLASSES = [1, 2, 3, 5, 6, 7]
-DEFAULT_MODEL = "yolo26m-seg.pt"
+DEFAULT_MODEL = "yolo26l-seg.pt"
 
 class VehicleDetector:
     """YOLO vehicle detector that can return bbox and segmentation metadata."""
@@ -23,7 +23,7 @@ class VehicleDetector:
         self.model = YOLO(self.model_type)
         self.result = None
 
-    def predict(self, image: str | Path | bytes | np.ndarray, conf: float = 0.03, imgsz: int = 640):
+    def predict(self, image: str | Path | bytes | np.ndarray, conf: float = 0.03, imgsz: int = 960):
         """Run YOLO prediction on an image path, raw bytes, or OpenCV image array."""
         image_input = self._prepare_image_input(image)
         results = self.model.predict(

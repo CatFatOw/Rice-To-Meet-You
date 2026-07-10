@@ -7,6 +7,7 @@ from .dataset_tables import (
     UrbanHeatIndex,
 )
 from .prediction_tables import PredictionTable
+from .prediction_model_tables import HeatDataML, VisitorDataML
 from .user_tables import User
 from .grid_cell_tables import GridCellGeometry, GridCellMetrics, InterpolatedPoint
 from .weather_tables import WeatherObservation
@@ -20,6 +21,8 @@ __all__ = [
     "StoreVisits",
     "UrbanHeatIndex",
     "PredictionTable",
+    "HeatDataML",
+    "VisitorDataML",
     "User",
     "GridCellGeometry",
     "GridCellMetrics",
