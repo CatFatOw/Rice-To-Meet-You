@@ -9,6 +9,48 @@ def get_all_cells(db:Session):
      grids = db.query(grid_cell_tables.GridCellGeometry).all()
      return grids
 
+
+def grid_cell_to_centroid(cell):
+    """Project a grid cell row into a lightweight centroid payload."""
+    return {
+        "id": cell.id,
+        "cell_id": cell.cell_id,
+        "row": cell.row,
+        "col": cell.col,
+        "latitude": cell.grid_centroid_lat,
+        "longitude": cell.grid_centroid_lon,
+        "state": cell.state,
+    }
+
+
+def grid_cells_to_centroids(cells):
+    """Project grid cells into lightweight centroid payloads."""
+    return [grid_cell_to_centroid(cell) for cell in cells]
+
+
+def grid_centroids_to_geojson(cells):
+    """Convert grid cell centroids into point GeoJSON."""
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {
+                    "id": cell.id,
+                    "cell_id": cell.cell_id,
+                    "row": cell.row,
+                    "col": cell.col,
+                    "state": cell.state,
+                },
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [cell.grid_centroid_lon, cell.grid_centroid_lat],
+                },
+            }
+            for cell in cells
+        ],
+    }
+
 def get_all_state_grid_cells(state:str ,db:Session):
     """function handles querying logic to get every single cell belonging to said state"""
     normalized_state = normalize_state(state)
@@ -105,5 +147,4 @@ def save_nxn_grid_cells(nxn_grid, state: str, cell_id_prefix: str, db: Session):
         "cells_deleted": deleted_count,
         "cells_created": len(new_cells),
     }
-
 

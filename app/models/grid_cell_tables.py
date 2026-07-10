@@ -62,6 +62,11 @@ class GridCellMetrics(Base):
     cooling_centers = Column(Integer)
     cooling_centers_impact_radius = Column(Float)
     infrastructure_strain = Column(Float)
+    predicted_heat_index = Column(Float)
+    predicted_heat_risk = Column(Float)
+    predicted_crowd_density = Column(Float)
+    predicted_population = Column(Float)
+    predicted_visitor_count = Column(Float)
 
     # Colors for frontend map visualization based on metric costs etc
     heat_index_color = Column(Text, default="#00BFFF")
@@ -119,6 +124,11 @@ class InterpolatedPoint(Base):
     population = Column(Float)
     cooling_centers = Column(Float)
     infrastructure_strain = Column(Float)
+    predicted_heat_index = Column(Float)
+    predicted_heat_risk = Column(Float)
+    predicted_crowd_density = Column(Float)
+    predicted_population = Column(Float)
+    predicted_visitor_count = Column(Float)
 
     # Metadata
     interpolation_method = Column(Text, default="idw")

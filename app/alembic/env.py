@@ -1,9 +1,8 @@
 from logging.config import fileConfig
-from database import Base
-import models
+import os 
+
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
-import os 
 from alembic import context
 
 # this is the Alembic Config object, which provides
@@ -15,6 +14,38 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+
+def load_local_env_files() -> None:
+    """Load simple KEY=VALUE pairs from app/.env or repo-root .env if present."""
+    here = os.path.abspath(os.path.dirname(__file__))
+    app_dir = os.path.abspath(os.path.join(here, ".."))
+    repo_root = os.path.abspath(os.path.join(app_dir, ".."))
+    for env_path in (os.path.join(app_dir, ".env"), os.path.join(repo_root, ".env")):
+        if not os.path.exists(env_path):
+            continue
+        with open(env_path) as env_file:
+            for line in env_file:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+load_local_env_files()
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL environment variable is not set. "
+        "Export it before running Alembic, or add it to a local .env file."
+    )
+
+config.set_main_option("sqlalchemy.url", DATABASE_URL)
+
+from database import Base
+import models
+
 # add your model's MetaData object here
 # for 'autogenerate' support
 # from myapp import mymodel
@@ -25,12 +56,6 @@ target_metadata = Base.metadata
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
-
-# update the database engine 
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("URL not set")
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.

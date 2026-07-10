@@ -18,6 +18,11 @@ class InterpolatedPointBase(BaseModel):
     population: Optional[float] = None
     cooling_centers: Optional[float] = None
     infrastructure_strain: Optional[float] = None
+    predicted_heat_index: Optional[float] = None
+    predicted_heat_risk: Optional[float] = None
+    predicted_crowd_density: Optional[float] = None
+    predicted_population: Optional[float] = None
+    predicted_visitor_count: Optional[float] = None
 
     interpolation_method: str = "kriging"
     source_count: Optional[int] = None
@@ -44,6 +49,11 @@ class InterpolatedPointUpdate(BaseModel):
     population: Optional[float] = None
     cooling_centers: Optional[float] = None
     infrastructure_strain: Optional[float] = None
+    predicted_heat_index: Optional[float] = None
+    predicted_heat_risk: Optional[float] = None
+    predicted_crowd_density: Optional[float] = None
+    predicted_population: Optional[float] = None
+    predicted_visitor_count: Optional[float] = None
 
     interpolation_method: Optional[str] = None
     source_count: Optional[int] = None

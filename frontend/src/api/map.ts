@@ -1,11 +1,38 @@
 type Polygon = [number, number][];
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
+
+// Small shared helper for the backend-backed copy of the frontend. Keeping the
+// base URL centralized makes it easy to point this copy at a deployed API later
+// via VITE_API_BASE_URL without changing call sites.
+async function fetchBackendJson<T>(path: string): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: { Accept: 'application/json' },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Backend request failed: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
 export interface CityPOIArea {
   id: string;
+  poi_id?: number;
   name: string;
   cityName: string;
+  stateName?: string | null;
+  category?: string | null;
   color: [number, number, number, number];
   polygon: Polygon;
+  properties?: {
+    statistics?: Record<string, string | number | boolean | null>;
+    [key: string]: unknown;
+  } | null;
+  polygon_geometry_id?: number;
+  impacted_count?: number;
+  impacted_grid_cell_ids?: number[];
 }
 
 const riceUniversityPolygon: Polygon = [
@@ -41,6 +68,23 @@ export async function callMockLocationPOIs(): Promise<CityPOIArea[]> {
   // Simulate network latency
   await new Promise((resolve) => setTimeout(resolve, 500));
 
+  // Prefer saved POI polygons from FastAPI. If the backend is not running yet,
+  // or the database has not been seeded, fall back to the original demo POIs so
+  // the copied frontend remains usable on its own.
+  try {
+    const backendPOIs = await fetchBackendJson<CityPOIArea[]>('/heatmap/core-pois?limit=500');
+    if (backendPOIs.length > 0) return backendPOIs;
+  } catch (error) {
+    console.warn('Falling back to saved/mock location POIs', error);
+  }
+
+  try {
+    const savedPOIs = await fetchBackendJson<CityPOIArea[]>('/heatmap/location-pois');
+    if (savedPOIs.length > 0) return savedPOIs;
+  } catch {
+    /* Keep the original demo fallback below. */
+  }
+
   return [
     {
       id: "nrg-stadium",
@@ -68,15 +112,8 @@ export interface HeatmapMetricValue {
   value: number; // 0–100 weight (heat risk, visitor activity, etc.)
   location_name: string;
   location_coordinates: [number, number]; // [lon, lat]
-  individual_metrics?: {
-    temperatureF: number;
-    heatIndexF: number;
-    relativeHumidityPct: number;
-    landSurfaceTempF: number;
-    nighttimeTempF: number;
-    treeCanopyPct: number;
-    imperviousSurfacePct: number;
-  };
+  individual_metrics?: Record<string, number | null | undefined>;
+  is_interpolated?: boolean;
 }
 
 // One metric layer (e.g. "heat_risk_score") and all of its points.
@@ -87,6 +124,47 @@ export interface HeatmapMetricPoint {
 
 // City name -> list of metric layers available for that city.
 export type HeatmapMetricsPointResponse = Record<string, HeatmapMetricPoint[]>;
+
+export interface SimulationPlacedObject {
+  id: string;
+  type: string;
+  longitude: number;
+  latitude: number;
+}
+
+export interface SimulationPolygonCreateRequest {
+  name?: string;
+  cityName: string;
+  stateName?: string | null;
+  color?: [number, number, number, number];
+  polygon: Polygon;
+}
+
+export interface SimulationApplyRequest {
+  cityName?: string;
+  stateName?: string | null;
+  polygonGeometryId?: number;
+  impactedGridCellIds?: number[];
+  placedObjects: SimulationPlacedObject[];
+  timestamp?: string;
+}
+
+export interface SimulationApplyResponse {
+  timestamp: string;
+  objects_applied: number;
+  adjustments: Record<string, number>;
+  metrics_created: number;
+  impacted_count: number;
+  impacted_grid_cell_ids: number[];
+}
+
+export interface CorePOIImportResponse {
+  filename: string;
+  imported_count: number;
+  skipped_count: number;
+  total_rows: number;
+  errors: string[];
+}
 
 function anchor(
   lon: number,
@@ -419,8 +497,117 @@ function buildField(
   }));
 }
 
+// ---------------------------------------------------------------------------
+// callHeatmapMetricsGrid()
+// ---------------------------------------------------------------------------
+
+// One metric's interpolated value lattice for a city. values[row][col] holds
+// the metric value at that grid cell centroid; row 0 is the southernmost row.
+export interface MetricGrid {
+  min: number;
+  max: number;
+  values: (number | null)[][];
+}
+
+// A city's full interpolated raster grid for continuous map rendering.
+export interface CityMetricGrid {
+  state?: string | null;
+  bounds: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
+  rows: number;
+  cols: number;
+  timestamp: string;
+  metrics: Record<string, MetricGrid>;
+}
+
+// City name -> interpolated raster grid available for that city.
+export type HeatmapMetricGridResponse = Record<string, CityMetricGrid>;
+
+const MOCK_GRID_ROWS = 64;
+const MOCK_GRID_COLS = 64;
+
+// Sample the hand-authored IDW anchor field onto a regular lattice so the mock
+// keeps the same raster-grid shape the backend serves.
+function buildMockMetricGrid(
+  anchors: HeatmapMetricValue[],
+  power: number,
+  bounds: [number, number, number, number],
+): MetricGrid {
+  const [minLon, minLat, maxLon, maxLat] = bounds;
+  const lonStep = (maxLon - minLon) / MOCK_GRID_COLS;
+  const latStep = (maxLat - minLat) / MOCK_GRID_ROWS;
+  const values: number[][] = [];
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+
+  for (let row = 0; row < MOCK_GRID_ROWS; row += 1) {
+    const lat = minLat + (row + 0.5) * latStep;
+    const rowValues: number[] = [];
+    for (let col = 0; col < MOCK_GRID_COLS; col += 1) {
+      const lon = minLon + (col + 0.5) * lonStep;
+      const value = clamp(
+        Math.round(interpolate(lon, lat, anchors, power)),
+        MIN_SCORE,
+        MAX_SCORE,
+      );
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+      rowValues.push(value);
+    }
+    values.push(rowValues);
+  }
+
+  return { min, max, values };
+}
+
+function buildMockHeatmapMetricsGrid(): HeatmapMetricGridResponse {
+  const bounds: [number, number, number, number] = [
+    INTERP_CENTER[0] - INTERP_HALF_SPAN_LON,
+    INTERP_CENTER[1] - INTERP_HALF_SPAN_LAT,
+    INTERP_CENTER[0] + INTERP_HALF_SPAN_LON,
+    INTERP_CENTER[1] + INTERP_HALF_SPAN_LAT,
+  ];
+
+  return {
+    Houston: {
+      state: 'Texas',
+      bounds,
+      rows: MOCK_GRID_ROWS,
+      cols: MOCK_GRID_COLS,
+      timestamp: 'mock',
+      metrics: {
+        heat_risk_score: buildMockMetricGrid(ALL_HEAT_ANCHORS, HEAT_IDW_POWER, bounds),
+        visitor_activity: buildMockMetricGrid(HOUSTON_VISITOR_ANCHORS, VISITOR_IDW_POWER, bounds),
+      },
+    },
+  };
+}
+
+export async function callHeatmapMetricsGrid(): Promise<HeatmapMetricGridResponse> {
+  // Use interpolated raster grids from the backend when available. Empty `{}`
+  // is treated as "not seeded yet" so the map still displays the mock Houston
+  // surface during local demos.
+  try {
+    const cityGrids = await fetchBackendJson<HeatmapMetricGridResponse>('/heatmap/metrics/grid');
+    if (Object.keys(cityGrids).length > 0) return cityGrids;
+  } catch (error) {
+    console.warn('Falling back to mock heatmap metric grid', error);
+  }
+
+  return buildMockHeatmapMetricsGrid();
+}
+
 export async function callHeatmapMetricsPoints(): Promise<HeatmapMetricsPointResponse> {
   await new Promise((resolve) => setTimeout(resolve, 500));
+
+  // Use interpolated metric rows from the backend when available. Empty `{}` is
+  // treated as "not seeded yet" so the map still displays the dense mock heat
+  // field during local demos.
+  try {
+    const backendLayers = await fetchBackendJson<HeatmapMetricsPointResponse>('/heatmap/metrics/points');
+    if (Object.keys(backendLayers).length > 0) return backendLayers;
+  } catch (error) {
+    console.warn('Falling back to mock heatmap metric points', error);
+  }
 
   return {
     Houston: [
@@ -436,6 +623,66 @@ export async function callHeatmapMetricsPoints(): Promise<HeatmapMetricsPointRes
       },
     ],
   };
+}
+
+export async function importCorePOIFile(file: File): Promise<CorePOIImportResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_BASE_URL}/core_poi_polygons/import`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Core POI import failed: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json() as Promise<CorePOIImportResponse>;
+}
+
+export async function createSimulationPolygon(
+  payload: SimulationPolygonCreateRequest,
+): Promise<CityPOIArea> {
+  // Save the drawn polygon and let the backend compute impacted grid cells. The
+  // response extends CityPOIArea with polygon_geometry_id and impacted ids so
+  // later simulation apply calls can target the same grid subset.
+  const response = await fetch(`${API_BASE_URL}/heatmap/simulation/polygon`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Create simulation polygon failed: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json() as Promise<CityPOIArea>;
+}
+
+export async function applySimulation(
+  payload: SimulationApplyRequest,
+): Promise<SimulationApplyResponse> {
+  // Apply the placed toolbox interventions to the affected metrics. The backend
+  // writes a new timestamped metric snapshot rather than mutating the previous
+  // one, which keeps before/after comparison possible.
+  const response = await fetch(`${API_BASE_URL}/heatmap/simulation/apply`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Apply simulation failed: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json() as Promise<SimulationApplyResponse>;
 }
 
 // ============================================================================

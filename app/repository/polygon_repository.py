@@ -10,6 +10,35 @@ def get_all_polygon_points(db: Session):
     data = db.query(polygon_tables.PolygonGeometry).all()
     return data 
 
+
+def get_polygons_for_city_state(city: str | None, state: str | None, db: Session):
+    """Return saved polygons, optionally scoped to city and state.
+
+    These rows back frontend POI overlays, so city/state filtering uses the
+    display metadata stored with each polygon rather than geometry containment.
+    """
+    query = db.query(polygon_tables.PolygonGeometry)
+    if city:
+        query = query.filter(polygon_tables.PolygonGeometry.city_name.ilike(city))
+    if state:
+        query = query.filter(polygon_tables.PolygonGeometry.state_name.ilike(state))
+    return query.order_by(polygon_tables.PolygonGeometry.id).all()
+
+
+def get_polygons_for_city(city: str | None, db: Session):
+    """Return saved polygons, optionally scoped to one city."""
+    return get_polygons_for_city_state(city=city, state=None, db=db)
+
+
+def get_key_pois(city: str | None, state: str | None, db: Session):
+    """Return POI polygons used by frontend statistics panels.
+
+    This is intentionally a thin alias over the polygon lookup so route code can
+    read in domain language: statistics consume key POIs, map overlays consume
+    polygons.
+    """
+    return get_polygons_for_city_state(city=city, state=state, db=db)
+
 def get_polygon_by_id(id: int, db: Session):
     """Function gets specific polygon by id"""
     data = db.query(polygon_tables.PolygonGeometry).filter(polygon_tables.PolygonGeometry.id == id).first()
@@ -30,7 +59,7 @@ def update_polygon_geometry(
     db: Session,
 ):
     """Update a saved polygon geometry."""
-    for key, value in polygon_points.model_dump().items():
+    for key, value in polygon_points.model_dump(exclude_unset=True).items():
         setattr(polygon, key, value)
 
     db.commit()

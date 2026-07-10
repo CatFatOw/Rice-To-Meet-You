@@ -160,7 +160,7 @@ class SpendPatternsRice(Base):
     id = Column(Integer, nullable=False, primary_key=True)
 
     # Brand/business name
-    brands = Column(Text, nullable=False, index=True)
+    brands = Column(Text, nullable=True, index=True)
 
     # Number of customers grouped by visit frequency
     bucketed_customer_frequency = Column(JSON, nullable=False)

@@ -10,6 +10,8 @@ from repository.grid_geometry_repository import (
     get_all_state_grid_cells,
     get_grid_by_cell_id,
     get_grid_by_db_id,
+    grid_cells_to_centroids,
+    grid_centroids_to_geojson,
     save_nxn_grid_cells,
 )
 from services.grid_geometry_services import normalize_state, grid_cells_to_geojson, get_city_bbox
@@ -107,6 +109,30 @@ async def get_all_grids(db: Session = Depends(get_db)):
     return grids
 
 
+@router.get("/centroids", response_model=list[grid_schemas.GridCentroidResponse])
+async def get_all_grid_centroids(db: Session = Depends(get_db)):
+    """Return every grid cell centroid as lightweight click targets."""
+    cells = get_all_cells(db)
+    if not cells:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="NO GRID CELLS FOUND"
+        )
+    return grid_cells_to_centroids(cells)
+
+
+@router.get("/centroids/geojson")
+async def get_all_grid_centroids_geojson(db: Session = Depends(get_db)):
+    """Return every grid cell centroid as point GeoJSON."""
+    cells = get_all_cells(db)
+    if not cells:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="NO GRID CELLS FOUND"
+        )
+    return grid_centroids_to_geojson(cells)
+
+
 @router.get("/cell/{cell_id}", response_model=grid_schemas.GridCellResponse)
 async def get_grid_cell_by_cell_id(cell_id: str, db: Session = Depends(get_db)):
     """Function gets cells by specific ID """
@@ -127,10 +153,22 @@ async def get_all_grid_state(state: str, db: Session = Depends(get_db)):
     return get_state_grid_cells(state, db)
 
 
+@router.get("/state/{state}/centroids", response_model=list[grid_schemas.GridCentroidResponse])
+async def get_all_grid_state_centroids(state: str, db: Session = Depends(get_db)):
+    """Return centroid click targets for one state."""
+    return grid_cells_to_centroids(get_state_grid_cells(state, db))
+
+
 @router.get("/city", response_model=list[grid_schemas.GridCellResponse])
 async def get_all_grid_city(city: str, state: str, db: Session = Depends(get_db)):
     """Return all grid cells generated for a city."""
     return get_city_grid_cells(city, state, db)
+
+
+@router.get("/city/centroids", response_model=list[grid_schemas.GridCentroidResponse])
+async def get_all_grid_city_centroids(city: str, state: str, db: Session = Depends(get_db)):
+    """Return centroid click targets for one generated city grid."""
+    return grid_cells_to_centroids(get_city_grid_cells(city, state, db))
 
 
 @router.get("/state/{state}/geojson")
@@ -138,6 +176,18 @@ async def get_all_grid_state_geojson(state: str, db: Session = Depends(get_db)):
     """Function gets all state grids as GeoJSON."""
     data = get_state_grid_cells(state, db)
     return grid_cells_to_geojson(data)
+
+
+@router.get("/state/{state}/centroids/geojson")
+async def get_all_grid_state_centroids_geojson(state: str, db: Session = Depends(get_db)):
+    """Return centroid click targets for one state as point GeoJSON."""
+    return grid_centroids_to_geojson(get_state_grid_cells(state, db))
+
+
+@router.get("/city/centroids/geojson")
+async def get_all_grid_city_centroids_geojson(city: str, state: str, db: Session = Depends(get_db)):
+    """Return centroid click targets for one generated city grid as point GeoJSON."""
+    return grid_centroids_to_geojson(get_city_grid_cells(city, state, db))
 
 # Turns the backend end into usable geojson format for frontend
 @router.get("/map/geojson")

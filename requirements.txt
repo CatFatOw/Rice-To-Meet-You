@@ -11,3 +11,6 @@ pykrige
 passlib
 python-jose
 python-multipart
+numpy
+opencv-python
+ultralytics
