@@ -1,0 +1,342 @@
+state_fk,market_fk,as_of_date,time_fk,forecast_daily_visitors,is_hot_season,forecast_method
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-01,6163.2356683038215,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-02,6457.6237758806665,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-03,7420.344447177976,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-04,8003.1085731721405,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-05,6831.377588200427,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-06,5803.61332942754,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-07,6124.681359282523,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-08,6163.2356683038215,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-09,6457.6237758806665,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-10,7420.344447177976,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-11,8003.1085731721405,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-12,6831.377588200427,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-13,5803.61332942754,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-14,6124.681359282523,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-15,6163.2356683038215,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-16,6457.6237758806665,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-17,7420.344447177976,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-18,8003.1085731721405,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-19,6831.377588200427,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-20,5803.61332942754,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-21,6124.681359282523,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-22,6163.2356683038215,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-23,6457.6237758806665,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-24,7420.344447177976,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-25,8003.1085731721405,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-26,6831.377588200427,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-27,5803.61332942754,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-28,6124.681359282523,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-29,6163.2356683038215,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-30,6457.6237758806665,False,trailing_7day_level_x_real_weekday_profile
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-31,7420.344447177976,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-01,4927.504570231763,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-02,5264.007504445577,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-03,5851.453859859153,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-04,5688.11894971974,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-05,5135.9312819709785,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-06,4813.833634697475,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-07,4598.4444297268965,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-08,4927.504570231763,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-09,5264.007504445577,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-10,5851.453859859153,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-11,5688.11894971974,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-12,5135.9312819709785,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-13,4813.833634697475,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-14,4598.4444297268965,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-15,4927.504570231763,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-16,5264.007504445577,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-17,5851.453859859153,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-18,5688.11894971974,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-19,5135.9312819709785,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-20,4813.833634697475,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-21,4598.4444297268965,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-22,4927.504570231763,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-23,5264.007504445577,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-24,5851.453859859153,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-25,5688.11894971974,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-26,5135.9312819709785,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-27,4813.833634697475,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-28,4598.4444297268965,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-29,4927.504570231763,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-30,5264.007504445577,False,trailing_7day_level_x_real_weekday_profile
+FL,Miami,2024-12-31,2025-01-31,5851.453859859153,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-01,2224.2424367900194,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-02,2234.1860278286144,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-03,2589.184078407521,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-04,2643.487602539657,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-05,2068.915668745311,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-06,1870.4432813893873,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-07,1905.6377685429516,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-08,2224.2424367900194,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-09,2234.1860278286144,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-10,2589.184078407521,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-11,2643.487602539657,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-12,2068.915668745311,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-13,1870.4432813893873,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-14,1905.6377685429516,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-15,2224.2424367900194,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-16,2234.1860278286144,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-17,2589.184078407521,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-18,2643.487602539657,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-19,2068.915668745311,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-20,1870.4432813893873,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-21,1905.6377685429516,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-22,2224.2424367900194,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-23,2234.1860278286144,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-24,2589.184078407521,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-25,2643.487602539657,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-26,2068.915668745311,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-27,1870.4432813893873,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-28,1905.6377685429516,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-29,2224.2424367900194,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-30,2234.1860278286144,False,trailing_7day_level_x_real_weekday_profile
+GA,Atlanta,2024-12-31,2025-01-31,2589.184078407521,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-01,348.71766392623334,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-02,303.97371156639616,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-03,364.8260293371006,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-04,356.54643390253,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-05,339.256597891073,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-06,279.184218697448,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-07,281.8302791860717,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-08,348.71766392623334,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-09,303.97371156639616,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-10,364.8260293371006,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-11,356.54643390253,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-12,339.256597891073,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-13,279.184218697448,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-14,281.8302791860717,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-15,348.71766392623334,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-16,303.97371156639616,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-17,364.8260293371006,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-18,356.54643390253,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-19,339.256597891073,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-20,279.184218697448,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-21,281.8302791860717,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-22,348.71766392623334,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-23,303.97371156639616,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-24,364.8260293371006,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-25,356.54643390253,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-26,339.256597891073,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-27,279.184218697448,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-28,281.8302791860717,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-29,348.71766392623334,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-30,303.97371156639616,False,trailing_7day_level_x_real_weekday_profile
+KS,Kansas City,2024-12-31,2025-01-31,364.8260293371006,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-01,584.2328844009971,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-02,680.9362093437235,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-03,752.5798151007742,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-04,798.6371785432509,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-05,592.9959532550822,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-06,597.3282896126151,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-07,558.459585389325,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-08,584.2328844009971,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-09,680.9362093437235,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-10,752.5798151007742,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-11,798.6371785432509,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-12,592.9959532550822,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-13,597.3282896126151,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-14,558.459585389325,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-15,584.2328844009971,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-16,680.9362093437235,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-17,752.5798151007742,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-18,798.6371785432509,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-19,592.9959532550822,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-20,597.3282896126151,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-21,558.459585389325,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-22,584.2328844009971,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-23,680.9362093437235,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-24,752.5798151007742,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-25,798.6371785432509,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-26,592.9959532550822,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-27,597.3282896126151,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-28,558.459585389325,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-29,584.2328844009971,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-30,680.9362093437235,False,trailing_7day_level_x_real_weekday_profile
+MA,Boston,2024-12-31,2025-01-31,752.5798151007742,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-01,2742.886258552596,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-02,2442.7888719395537,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-03,2685.9177818001217,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-04,2949.122532324471,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-05,2301.895967403739,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-06,2112.870202204301,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-07,2501.548729130718,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-08,2742.886258552596,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-09,2442.7888719395537,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-10,2685.9177818001217,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-11,2949.122532324471,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-12,2301.895967403739,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-13,2112.870202204301,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-14,2501.548729130718,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-15,2742.886258552596,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-16,2442.7888719395537,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-17,2685.9177818001217,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-18,2949.122532324471,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-19,2301.895967403739,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-20,2112.870202204301,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-21,2501.548729130718,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-22,2742.886258552596,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-23,2442.7888719395537,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-24,2685.9177818001217,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-25,2949.122532324471,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-26,2301.895967403739,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-27,2112.870202204301,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-28,2501.548729130718,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-29,2742.886258552596,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-30,2442.7888719395537,False,trailing_7day_level_x_real_weekday_profile
+MO,Kansas City,2024-12-31,2025-01-31,2685.9177818001217,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-01,2458.1259395486495,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-02,2154.1925014778444,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-03,2723.0187671410117,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-04,3301.7662909601736,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-05,2472.832295295256,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-06,2260.039758410499,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-07,2080.4044308389716,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-08,2458.1259395486495,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-09,2154.1925014778444,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-10,2723.0187671410117,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-11,3301.7662909601736,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-12,2472.832295295256,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-13,2260.039758410499,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-14,2080.4044308389716,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-15,2458.1259395486495,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-16,2154.1925014778444,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-17,2723.0187671410117,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-18,3301.7662909601736,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-19,2472.832295295256,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-20,2260.039758410499,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-21,2080.4044308389716,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-22,2458.1259395486495,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-23,2154.1925014778444,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-24,2723.0187671410117,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-25,3301.7662909601736,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-26,2472.832295295256,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-27,2260.039758410499,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-28,2080.4044308389716,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-29,2458.1259395486495,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-30,2154.1925014778444,False,trailing_7day_level_x_real_weekday_profile
+NJ,New York/New Jersey,2024-12-31,2025-01-31,2723.0187671410117,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-01,2575.4039631227147,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-02,2312.059288924239,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-03,2891.6196380774345,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-04,2653.7807870914576,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-05,1929.0200767312485,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-06,2315.9898221972876,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-07,2306.177129895949,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-08,2575.4039631227147,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-09,2312.059288924239,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-10,2891.6196380774345,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-11,2653.7807870914576,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-12,1929.0200767312485,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-13,2315.9898221972876,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-14,2306.177129895949,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-15,2575.4039631227147,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-16,2312.059288924239,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-17,2891.6196380774345,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-18,2653.7807870914576,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-19,1929.0200767312485,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-20,2315.9898221972876,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-21,2306.177129895949,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-22,2575.4039631227147,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-23,2312.059288924239,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-24,2891.6196380774345,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-25,2653.7807870914576,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-26,1929.0200767312485,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-27,2315.9898221972876,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-28,2306.177129895949,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-29,2575.4039631227147,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-30,2312.059288924239,False,trailing_7day_level_x_real_weekday_profile
+NY,New York/New Jersey,2024-12-31,2025-01-31,2891.6196380774345,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-01,1539.1995906041132,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-02,1510.9624108585779,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-03,1597.9801482050123,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-04,1813.654801386943,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-05,1394.3478925788934,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-06,1264.6513127489325,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-07,1323.346877629177,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-08,1539.1995906041132,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-09,1510.9624108585779,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-10,1597.9801482050123,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-11,1813.654801386943,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-12,1394.3478925788934,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-13,1264.6513127489325,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-14,1323.346877629177,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-15,1539.1995906041132,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-16,1510.9624108585779,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-17,1597.9801482050123,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-18,1813.654801386943,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-19,1394.3478925788934,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-20,1264.6513127489325,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-21,1323.346877629177,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-22,1539.1995906041132,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-23,1510.9624108585779,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-24,1597.9801482050123,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-25,1813.654801386943,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-26,1394.3478925788934,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-27,1264.6513127489325,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-28,1323.346877629177,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-29,1539.1995906041132,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-30,1510.9624108585779,False,trailing_7day_level_x_real_weekday_profile
+PA,Philadelphia,2024-12-31,2025-01-31,1597.9801482050123,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-01,7062.947517725695,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-02,7217.903979764954,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-03,8061.024972295856,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-04,8509.780040910813,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-05,6312.030956100631,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-06,6241.694599713113,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-07,6543.434530328028,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-08,7062.947517725695,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-09,7217.903979764954,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-10,8061.024972295856,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-11,8509.780040910813,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-12,6312.030956100631,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-13,6241.694599713113,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-14,6543.434530328028,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-15,7062.947517725695,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-16,7217.903979764954,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-17,8061.024972295856,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-18,8509.780040910813,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-19,6312.030956100631,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-20,6241.694599713113,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-21,6543.434530328028,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-22,7062.947517725695,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-23,7217.903979764954,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-24,8061.024972295856,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-25,8509.780040910813,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-26,6312.030956100631,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-27,6241.694599713113,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-28,6543.434530328028,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-29,7062.947517725695,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-30,7217.903979764954,False,trailing_7day_level_x_real_weekday_profile
+TX,Dallas / Houston,2024-12-31,2025-01-31,8061.024972295856,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-01,1682.2914081532324,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-02,1653.8551836392471,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-03,2052.4909740476064,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-04,1867.3994335916861,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-05,1498.224716438203,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-06,1284.3340719086636,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-07,1578.887677904198,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-08,1682.2914081532324,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-09,1653.8551836392471,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-10,2052.4909740476064,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-11,1867.3994335916861,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-12,1498.224716438203,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-13,1284.3340719086636,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-14,1578.887677904198,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-15,1682.2914081532324,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-16,1653.8551836392471,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-17,2052.4909740476064,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-18,1867.3994335916861,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-19,1498.224716438203,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-20,1284.3340719086636,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-21,1578.887677904198,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-22,1682.2914081532324,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-23,1653.8551836392471,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-24,2052.4909740476064,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-25,1867.3994335916861,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-26,1498.224716438203,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-27,1284.3340719086636,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-28,1578.887677904198,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-29,1682.2914081532324,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-30,1653.8551836392471,False,trailing_7day_level_x_real_weekday_profile
+WA,Seattle,2024-12-31,2025-01-31,2052.4909740476064,False,trailing_7day_level_x_real_weekday_profile
