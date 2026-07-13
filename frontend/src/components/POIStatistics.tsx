@@ -1,29 +1,8 @@
 import { ArrowRight, ExternalLink, SlidersHorizontal } from "lucide-react";
-import type { ReactNode } from "react";
-
-export interface POI {
-  name: string;
-  type: string;
-  heatRisk: number;
-  visitors: string;
-}
-
-export interface Column {
-  /** Text shown in the table header for this column. */
-  header: string;
-  /** Renders the cell contents for a given row. */
-  cell: (poi: POI) => ReactNode;
-  /** Extra classes for the cell — static, or derived from the row. */
-  className?: string | ((poi: POI) => string);
-}
-
-export interface POIStatisticsProps {
-  pois?: POI[];
-  columns?: Column[];
-  title?: string;
-  /** Used in the footer link, e.g. "View all POIs in Houston". */
-  cityName?: string;
-}
+import SelectDate from './SelectDate';
+import SimulateButton from './SimulateButton';
+import type { Column, POI, POIStatisticsProps } from '../types/statistics';
+export type { Column, POI, POIStatisticsProps };
 
 export function riskColor(score: number) {
   if (score >= 80) return "text-red-500";
@@ -110,12 +89,63 @@ function resolveClassName(className: Column["className"], poi: POI): string {
 export default function POIStatistics({
   pois = DEFAULT_POIS,
   columns = DEFAULT_COLUMNS,
-  title = "Key POIs in View",
+  title = "Planner's workspace",
   cityName = "Houston",
+  containSimulation = false,
+  fromDate,
+  toDate,
+  availableDates,
+  onFromDateChange,
+  onToDateChange,
+  onSimulate,
 }: POIStatisticsProps) {
   return (
     <section className="flex h-full w-full flex-col rounded-xl border border-slate-800 bg-[#07111f] p-5 text-white shadow-lg">
       <h2 className="mb-4 shrink-0 text-lg font-semibold">{title}</h2>
+
+      {containSimulation && (
+        <div className="mb-4 shrink-0 rounded-lg border border-slate-800 bg-slate-950/55 p-4">
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-300">
+            Simulate
+          </h3>
+
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-52 flex-1">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                From
+              </p>
+              <SelectDate
+                label="From"
+                value={fromDate ?? null}
+                onChange={(isoDate) => onFromDateChange?.(isoDate)}
+                availableDates={availableDates}
+                variant="bare"
+                className="w-full"
+              />
+            </div>
+
+            <div className="min-w-52 flex-1">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                To
+              </p>
+              <SelectDate
+                label="To"
+                value={toDate ?? null}
+                onChange={(isoDate) => onToDateChange?.(isoDate)}
+                availableDates={availableDates}
+                variant="bare"
+                className="w-full"
+              />
+            </div>
+
+            <SimulateButton onClick={onSimulate} className="h-10 min-w-28" />
+          </div>
+        </div>
+      )}
+
+      <h3 className="mb-3 shrink-0 text-sm font-semibold uppercase tracking-wide text-slate-300">
+        Key POIs in View
+      </h3>
 
       <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-800">
         <table className="w-full border-collapse text-left">

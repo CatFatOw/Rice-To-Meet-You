@@ -1,42 +1,8 @@
 import React from 'react';
 import { Pencil, Check, Undo2, X, Trash2, Crosshair } from 'lucide-react';
 import { TOOLBOX_ITEMS, TOOLBOX_DRAG_MIME, type ToolboxItemDef } from '../utils/toolbox';
-
-interface ToolboxProps {
-  /**
-   * When true, the panel renders the full toolbox: the metric toggle, a palette
-   * of placeable objects (cooling stations, shade canopy, ...) that can be
-   * dragged onto the map, followed by the Create POI Area section. When false
-   * only the metric toggle and Create POI Area section are shown.
-   */
-  displayToolbox: boolean;
-
-  // --- Metric toggle (always visible, independent of the selected city) ---
-  metricLabel: string;
-  canToggleMetric: boolean;
-  onToggleMetric: () => void;
-
-  // --- Placeable objects palette ---
-  placedCount: number;
-  onClearObjects: () => void;
-
-  // --- Create POI Area ---
-  selectedCity: string | null;
-  draftName: string;
-  setDraftName: React.Dispatch<React.SetStateAction<string>>;
-  draftColorHex: string;
-  setDraftColorHex: React.Dispatch<React.SetStateAction<string>>;
-  isDrawing: boolean;
-  draftPointCount: number;
-  onStartDrawing: () => void;
-  onFinishArea: () => void;
-  onUndoLastPoint: () => void;
-  onCancelDrawing: () => void;
-  hasUserAreasInCity: boolean;
-  onClearMyAreas: () => void;
-  editingAreaId: string | null;
-  onFinishEdit: () => void;
-}
+import type { ToolboxProps } from '../types/components';
+import SelectDate from './SelectDate';
 
 const toolbarButtonStyle: React.CSSProperties = {
   display: 'flex',
@@ -60,6 +26,9 @@ const dividerStyle: React.CSSProperties = {
 
 const Toolbox: React.FC<ToolboxProps> = ({
   displayToolbox,
+  selectedDate,
+  setSelectedDate,
+  availableDates,
   metricLabel,
   canToggleMetric,
   onToggleMetric,
@@ -102,6 +71,18 @@ const Toolbox: React.FC<ToolboxProps> = ({
         gap: 10,
       }}
     >
+      {/* --- Date selector (drives selected heatmap day) --- */}
+      <div style={{ fontSize: 13, fontWeight: 700 }}>Date</div>
+      <SelectDate
+        label="Date"
+        value={selectedDate}
+        onChange={(isoDate) => setSelectedDate(isoDate)}
+        availableDates={availableDates}
+        variant="bare"
+        style={{ width: '100%' }}
+      />
+      <div style={dividerStyle} />
+
       {/* --- Metric toggle (always visible, regardless of selected city) --- */}
       <div style={{ fontSize: 13, fontWeight: 700 }}>Metric</div>
       <button

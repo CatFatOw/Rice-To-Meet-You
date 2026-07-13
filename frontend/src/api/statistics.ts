@@ -1,25 +1,9 @@
 import type {
-  DistributionBucket,
-  OverallStatisticsProps,
   StatCardInfo,
-  TopDestination,
-} from '../components/OverallStatistics';
-import type { POI, POIStatisticsProps } from '../components/POIStatistics';
-
-export interface CityStatisticsResponse {
-  overallStatistics: OverallStatisticsProps;
-  poiStatistics: POIStatisticsProps;
-}
-
-interface CitySeedData {
-  averageHeatRisk: number;
-  totalVisitors: string;
-  atRiskPopulation: string;
-  extremeCities: number;
-  topDestinations: TopDestination[];
-  distribution: DistributionBucket[];
-  pois: POI[];
-}
+  CityStatisticsResponse,
+  CitySeedData,
+} from '../types/statistics';
+export type { CityStatisticsResponse };
 
 const CITY_STATISTICS_SEED: Record<string, CitySeedData> = {
     Nationally: {

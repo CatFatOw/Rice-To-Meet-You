@@ -1,11 +1,5 @@
 import React from 'react';
-
-interface HeatRiskScaleProps {
-  // Display name of the active metric, e.g. "Heat Risk".
-  label: string;
-  // CSS `linear-gradient(...)` string for the active metric's color ramp.
-  gradient: string;
-}
+import type { HeatRiskScaleProps } from '../types/components';
 
 const HeatRiskScale: React.FC<HeatRiskScaleProps> = ({ label, gradient }) => {
   return (

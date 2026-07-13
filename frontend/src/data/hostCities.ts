@@ -3,11 +3,8 @@
 // Host Cities Inputs
 // ============================================================================
 
-export interface City {
-  name: string;
-  latitude: number;
-  longitude: number;
-}
+import type { City } from '../types/city';
+export type { City };
 
 export const cities: City[] = [
   { name: 'Atlanta', latitude: 33.7490, longitude: -84.3880 },

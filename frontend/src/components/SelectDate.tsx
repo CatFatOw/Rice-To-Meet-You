@@ -1,30 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
-
-interface SelectDateProps {
-  // Selected date as 'YYYY-MM-DD', or null when nothing is chosen yet.
-  value: string | null;
-  onChange: (isoDate: string) => void;
-  // Heading shown above the trigger. Defaults to "Date".
-  label?: string;
-  // Optional bounds (inclusive), as 'YYYY-MM-DD'. Days outside are disabled.
-  minDate?: string;
-  maxDate?: string;
-  // If provided, ONLY these dates ('YYYY-MM-DD') are selectable — handy for a
-  // heatmap where only some days have data.
-  availableDates?: string[];
-  disabled?: boolean;
-  // 0 = weeks start on Sunday (default), 1 = Monday.
-  weekStartsOn?: 0 | 1;
-  /**
-   * 'panel' (default) renders self-contained chrome (border + translucent
-   * background). 'bare' drops it for embedding in an existing panel/toolbar.
-   */
-  variant?: 'panel' | 'bare';
-  className?: string;
-  // Escape hatch for positioning (e.g. absolute placement over the map).
-  style?: React.CSSProperties;
-}
+import type { SelectDateProps } from '../types/components';
 
 // --- Local-time-safe date helpers -------------------------------------------
 

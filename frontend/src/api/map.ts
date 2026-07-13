@@ -1,66 +1,181 @@
 // ============================================================================
-// Calling POI Polygon Inputs
+
+// Mock POI Polygon Inputs by City
+
 // ============================================================================
 
-type Polygon = [number, number][];
+import type {
+  Polygon,
+  CityPOIArea,
+  CityPOIAreaMap,
+  LocationReading,
+  HeatmapMetricValue,
+  HeatmapMetricSnapshot,
+  HeatmapMetricPoint,
+  HeatmapMetricPointByCity,
+  HeatmapMetricPOIValue,
+  HeatmapMetricPOISnapshot,
+  HeatmapMetricPOIPoint,
+  HeatmapMetricPOIByCity,
+} from '../types/heatmap';
 
-export interface CityPOIArea {
-  id: string;
-  name: string;
-  cityName: string;
-  color: [number, number, number, number];
-  polygon: Polygon;
-}
+export type {
+  CityPOIArea,
+  CityPOIAreaMap,
+  HeatmapMetricValue,
+  HeatmapMetricSnapshot,
+  HeatmapMetricPoint,
+  HeatmapMetricPointByCity,
+  HeatmapMetricPOIValue,
+  HeatmapMetricPOISnapshot,
+  HeatmapMetricPOIPoint,
+  HeatmapMetricPOIByCity,
+  Polygon,
+  LocationReading,
+};
+
+// ============================================================================
+
+// Houston POIs
+
+// ============================================================================
 
 const riceUniversityPolygon: Polygon = [
+
   [-95.40895, 29.72245],
-  [-95.40620, 29.72305],
+
+  [-95.4062, 29.72305],
+
   [-95.40195, 29.72305],
+
   [-95.39735, 29.72195],
-  [-95.39640, 29.71875],
-  [-95.39675, 29.71520],
-  [-95.39920, 29.71175],
-  [-95.40340, 29.71085],
-  [-95.40790, 29.71145],
-  [-95.40945, 29.71470],
-  [-95.40955, 29.71920],
+
+  [-95.3964, 29.71875],
+
+  [-95.39675, 29.7152],
+
+  [-95.3992, 29.71175],
+
+  [-95.4034, 29.71085],
+
+  [-95.4079, 29.71145],
+
+  [-95.40945, 29.7147],
+
+  [-95.40955, 29.7192],
+
   [-95.40895, 29.72245],
+
 ];
 
 const nrgStadiumPolygon: Polygon = [
+
   [-95.41195, 29.68655],
-  [-95.41040, 29.68635],
+
+  [-95.4104, 29.68635],
+
   [-95.40935, 29.68545],
-  [-95.40920, 29.68410],
-  [-95.41025, 29.68310],
+
+  [-95.4092, 29.6841],
+
+  [-95.41025, 29.6831],
+
   [-95.41195, 29.68285],
-  [-95.41360, 29.68310],
-  [-95.41460, 29.68405],
-  [-95.41450, 29.68545],
+
+  [-95.4136, 29.6831],
+
+  [-95.4146, 29.68405],
+
+  [-95.4145, 29.68545],
+
   [-95.41345, 29.68635],
+
   [-95.41195, 29.68655],
+
 ];
 
-export async function callMockLocationPOIs(): Promise<CityPOIArea[]> {
+// ============================================================================
+
+// City → Key POI Areas
+
+// ============================================================================
+
+const cityPOIAreas: CityPOIAreaMap = {
+
+  Houston: [
+
+    {
+
+      id: "nrg-stadium",
+
+      name: "NRG Stadium",
+
+      cityName: "Houston",
+
+      color: [255, 165, 0, 150],
+
+      polygon: nrgStadiumPolygon,
+
+    },
+
+    {
+
+      id: "rice-university",
+
+      name: "Rice University",
+
+      cityName: "Houston",
+
+      color: [70, 130, 180, 150],
+
+      polygon: riceUniversityPolygon,
+
+    },
+
+  ],
+
+  // Add additional FIFA host cities here.
+
+  Dallas: [],
+
+  Atlanta: [],
+
+  Miami: [],
+
+  "New York/New Jersey": [],
+
+};
+
+
+
+// ============================================================================
+
+// Mock API Calls
+
+// ============================================================================
+
+export async function callMockCityPOIs(
+
+  cityName: string
+
+): Promise<CityPOIArea[]> {
+
   // Simulate network latency
+
   await new Promise((resolve) => setTimeout(resolve, 500));
 
-  return [
-    {
-      id: "nrg-stadium",
-      name: "NRG Stadium",
-      cityName: "Houston",
-      color: [255, 165, 0, 150],
-      polygon: nrgStadiumPolygon,
-    },
-    {
-      id: "rice-university",
-      name: "Rice University",
-      cityName: "Houston",
-      color: [70, 130, 180, 150],
-      polygon: riceUniversityPolygon,
-    },
-  ];
+  return cityPOIAreas[cityName] ?? [];
+
+}
+
+export async function callMockAllCityPOIs(): Promise<CityPOIAreaMap> {
+
+  // Simulate network latency
+
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
+  return cityPOIAreas;
+
 }
 
 // ============================================================================
@@ -69,45 +184,11 @@ export async function callMockLocationPOIs(): Promise<CityPOIArea[]> {
 // ============================================================================
 
 // A single measured / interpolated reading at one coordinate.
-export interface HeatmapMetricValue {
-  value: number; // 0–100 weight used for heatmap coloring
-  location_name: string;
-  location_coordinates: [number, number]; // [lon, lat]
-  // Open bag of human-readable sub-metrics. Any key is allowed; every value is
-  // a string so it can carry its own unit (e.g. "97°F", "62%", "88 / 100").
-  individual_metrics?: Record<string, string>;
-}
-
-// One metric's readings for a single day.
-export interface HeatmapMetricSnapshot {
-  metric: string; // "temperature" | "visitor_density" | "heat_risk_score"
-  points: HeatmapMetricValue[];
-}
-
-// Date -> all metric layers available for that day.
-export interface HeatmapMetricPoint {
-  [date: string]: HeatmapMetricSnapshot[];
-}
-
-// City name -> array of its date-keyed metric layers.
-export interface HeatmapMetricPointByCity {
-  [city: string]: HeatmapMetricPoint[];
-}
-
 // ---------------------------------------------------------------------------
 // Source of truth: one physical reading per location. All three published
 // metrics (temperature, visitor density, heat risk) are derived from these,
 // so the layers stay consistent with each other.
 // ---------------------------------------------------------------------------
-interface LocationReading {
-  name: string;
-  lon: number;
-  lat: number;
-  temperatureF: number; // measured air temperature
-  visitorDensity: number; // 0–100 crowd density
-  treeCanopyPct: number; // 0–100
-  imperviousSurfacePct: number; // 0–100 (asphalt/concrete/roof)
-}
 
 function reading(
   name: string,
@@ -191,7 +272,7 @@ const estimatedFootfall = (density: number): string =>
 function temperatureAnchor(r: LocationReading): HeatmapMetricValue {
   const d = derivedSubMetrics(r);
   return {
-    value: temperatureToWeight(r.temperatureF),
+    value: r.temperatureF,
     location_name: r.name,
     location_coordinates: [r.lon, r.lat],
     individual_metrics: {
@@ -357,4 +438,158 @@ const BACKEND_ANCHOR: HeatmapMetricPointByCity = {
 export async function callHeatmapAnchors(): Promise<HeatmapMetricPointByCity> {
   await new Promise((resolve) => setTimeout(resolve, 500));
   return BACKEND_ANCHOR;
+}
+
+// ============================================================================
+// Heatmap POI API — per-POI aggregated metric values.
+//
+// Each published metric is aggregated over the raw readings that fall inside a
+// POI polygon, producing one value per POI. Same city -> [date -> snapshots]
+// shape as the anchor API, but every entry is a whole POI area (carries its
+// polygon + fill color instead of a single coordinate).
+// ============================================================================
+
+// Mirrors HeatmapMetricValue, but carries the POI polygon (poi_coordinates)
+// instead of a single point, plus the fill color used to render the area.
+
+// --- Aggregation helpers ----------------------------------------------------
+
+// Ray-casting point-in-polygon test.
+function pointInPolygon(lon: number, lat: number, polygon: Polygon): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const [xi, yi] = polygon[i];
+    const [xj, yj] = polygon[j];
+    const hit =
+      yi > lat !== yj > lat &&
+      lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi;
+    if (hit) inside = !inside;
+  }
+  return inside;
+}
+
+function polygonCentroid(polygon: Polygon): [number, number] {
+  // Drop the closing vertex if the ring is explicitly closed.
+  const closed =
+    polygon.length > 1 &&
+    polygon[0][0] === polygon[polygon.length - 1][0] &&
+    polygon[0][1] === polygon[polygon.length - 1][1];
+  const pts = closed ? polygon.slice(0, -1) : polygon;
+  const [sx, sy] = pts.reduce(
+    (acc, [lon, lat]) => [acc[0] + lon, acc[1] + lat] as [number, number],
+    [0, 0] as [number, number],
+  );
+  return [sx / pts.length, sy / pts.length];
+}
+
+// Readings inside the polygon; falls back to the single nearest reading when a
+// polygon contains none, so every POI stays populated.
+function readingsForPolygon(polygon: Polygon): LocationReading[] {
+  const inside = HOUSTON_READINGS.filter((r) =>
+    pointInPolygon(r.lon, r.lat, polygon),
+  );
+  if (inside.length > 0) return inside;
+
+  const [cx, cy] = polygonCentroid(polygon);
+  let nearest = HOUSTON_READINGS[0];
+  let best = Infinity;
+  for (const r of HOUSTON_READINGS) {
+    const d = (r.lon - cx) ** 2 + (r.lat - cy) ** 2;
+    if (d < best) {
+      best = d;
+      nearest = r;
+    }
+  }
+  return [nearest];
+}
+
+// Mean of the readings, positioned at the polygon centroid. Building a metric
+// anchor from this yields the POI aggregate (the weight functions are linear,
+// so the built value equals the mean of the individual point values).
+function meanReading(
+  readings: LocationReading[],
+  name: string,
+  at: [number, number],
+): LocationReading {
+  const n = readings.length;
+  const acc = readings.reduce(
+    (a, r) => {
+      a.temperatureF += r.temperatureF;
+      a.visitorDensity += r.visitorDensity;
+      a.treeCanopyPct += r.treeCanopyPct;
+      a.imperviousSurfacePct += r.imperviousSurfacePct;
+      return a;
+    },
+    { temperatureF: 0, visitorDensity: 0, treeCanopyPct: 0, imperviousSurfacePct: 0 },
+  );
+  return reading(
+    name,
+    at[0],
+    at[1],
+    acc.temperatureF / n,
+    acc.visitorDensity / n,
+    acc.treeCanopyPct / n,
+    acc.imperviousSurfacePct / n,
+  );
+}
+
+// metric name -> the same builder used for point anchors.
+const POI_METRIC_BUILDERS: Record<
+  string,
+  (r: LocationReading) => HeatmapMetricValue
+> = {
+  temperature: temperatureAnchor,
+  visitor_density: visitorDensityAnchor,
+  heat_risk_score: heatRiskAnchor,
+};
+
+// Aggregate one POI for one metric.
+function poiMetricValue(
+  area: CityPOIArea,
+  build: (r: LocationReading) => HeatmapMetricValue,
+): HeatmapMetricPOIValue {
+  const contained = readingsForPolygon(area.polygon);
+  const mean = meanReading(contained, area.name, polygonCentroid(area.polygon));
+  const base = build(mean);
+  return {
+    value: base.value,
+    location_name: area.name,
+    poi_coordinates: area.polygon,
+    color: area.color,
+    individual_metrics: {
+      ...base.individual_metrics,
+      sampleCount: `${contained.length}`,
+    },
+  };
+}
+
+// All metric snapshots for a set of POIs (one day).
+function poiDaySnapshots(areas: CityPOIArea[]): HeatmapMetricPOISnapshot[] {
+  return Object.entries(POI_METRIC_BUILDERS).map(([metric, build]) => ({
+    metric,
+    points: areas.map((area) => poiMetricValue(area, build)),
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Backend POI source. NRG Stadium + Rice University for now; add more POIs to
+// cityPOIAreas.Houston and they flow through automatically.
+// ---------------------------------------------------------------------------
+const HOUSTON_POI_AREAS = cityPOIAreas.Houston;
+
+const BACKEND_POI_ANCHOR: HeatmapMetricPOIByCity = {
+  Houston: [
+    {
+      "2026-07-05": poiDaySnapshots(HOUSTON_POI_AREAS),
+      "2026-07-06": poiDaySnapshots(HOUSTON_POI_AREAS),
+      "2026-07-07": poiDaySnapshots(HOUSTON_POI_AREAS),
+      "2026-07-08": poiDaySnapshots(HOUSTON_POI_AREAS),
+    },
+  ],
+};
+
+// The API call: per-POI aggregated metric values (no interpolation).
+export async function callHeatmapPOIAnchors(): Promise<HeatmapMetricPOIByCity> {
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  return BACKEND_POI_ANCHOR;
 }

@@ -1,4 +1,18 @@
 import { Users, Sun, Wind, type LucideIcon } from "lucide-react";
+import type {
+  DistributionBucket,
+  OverallStatisticsProps,
+  StatCardInfo,
+  TopDestination,
+  IconKey,
+} from '../types/statistics';
+export type {
+  DistributionBucket,
+  OverallStatisticsProps,
+  StatCardInfo,
+  TopDestination,
+  IconKey,
+};
 
 /** Registry of icons usable by stat cards. Add new icons here as needed. */
 const ICONS = {
@@ -6,36 +20,6 @@ const ICONS = {
   users: Users,
   wind: Wind,
 } as const;
-
-export type IconKey = keyof typeof ICONS;
-
-export interface TopDestination {
-  name: string;
-  score: number;
-}
-
-export interface DistributionBucket {
-  label: string;
-  value: number;
-  color: string;
-}
-
-export interface StatCardInfo {
-  icon: IconKey;
-  iconClassName?: string;
-  label: string;
-  value: string;
-  suffix?: string;
-  suffixClassName?: string;
-}
-
-export interface OverallStatisticsProps {
-  title?: string;
-  donutLabel?: string;
-  topDestinations?: TopDestination[];
-  distribution?: DistributionBucket[];
-  statCardsInfo?: StatCardInfo[];
-}
 
 const DEFAULT_TOP_DESTINATIONS: TopDestination[] = [
   { name: "Houston", score: 84 },

@@ -1,28 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
-import Heatmap, { type GeocodeResult, type TooltipState } from '../components/Heatmap';
+import Heatmap from '../components/Heatmap';
 import NavigationBar from '../components/NavigationBar';
-import OverallStatistics, { type OverallStatisticsProps } from '../components/OverallStatistics';
-import POIStatistics, { type POIStatisticsProps } from '../components/POIStatistics';
-import SelectDate from '../components/SelectDate';
+import OverallStatistics from '../components/OverallStatistics';
+import POIStatistics from '../components/POIStatistics';
 import {
   callHeatmapAnchors,
-  callMockLocationPOIs,
+  callMockAllCityPOIs,
   type CityPOIArea,
+  type CityPOIAreaMap,
   type HeatmapMetricPointByCity,
   type HeatmapMetricSnapshot,
 } from '../api/map';
 import { callMockStatistics } from '../api/statistics';
 import { determineCityView } from '../utils/cityViews';
 import { interpolateByCity } from '../utils/interpolate';
-
-interface ViewState {
-  longitude: number;
-  latitude: number;
-  zoom: number;
-  pitch: number;
-  bearing: number;
-}
+import type { ViewState } from '../types/viewState';
+import type { GeocodeResult } from '../types/search';
+import type { TooltipState } from '../types/components';
+import type { OverallStatisticsProps, POIStatisticsProps } from '../types/statistics';
 
 
 const ExplorePage: React.FC = () => {
@@ -39,7 +35,7 @@ const ExplorePage: React.FC = () => {
   const mapSyncFrameRef = useRef<number | null>(null);
 
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
-  const [cityPOIAreas, setCityPOIAreas] = useState<CityPOIArea[]>([]);
+  const [cityPOIAreas, setCityPOIAreas] = useState<CityPOIAreaMap>({});
   const [heatmapPointsByCity, setHeatmapPointsByCity] =
     useState<Record<string, HeatmapMetricSnapshot[]>>({});
   const [heatmapAnchorsByCity, setHeatmapAnchorsByCity] =
@@ -60,21 +56,24 @@ const ExplorePage: React.FC = () => {
   const [editingAreaId, setEditingAreaId] = useState<string | null>(null);
   const [isAreaDragging, setIsAreaDragging] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>('2026-07-07');
+  const [containSimulation] = useState(false);
   const [overallStatisticsProps, setOverallStatisticsProps] =
     useState<OverallStatisticsProps>();
   const [poiStatisticsProps, setPOIStatisticsProps] = useState<POIStatisticsProps>();
+
+  const availableDates = ['2026-07-05', '2026-07-06', '2026-07-07', '2026-07-08'];
 
   useEffect(() => {
     let isMounted = true;
 
     const loadMockPOIs = async () => {
       try {
-        const pois = await callMockLocationPOIs();
+        const poisByCity = await callMockAllCityPOIs();
         if (isMounted) {
-          setCityPOIAreas(pois);
+          setCityPOIAreas(poisByCity);
         }
       } catch (error) {
-        console.error('Failed to load mock location POIs', error);
+        console.error('Failed to load mock city POIs', error);
       }
     };
 
@@ -190,6 +189,10 @@ const ExplorePage: React.FC = () => {
               setSelectedCity={setSelectedCity}
               cityPOIAreas={cityPOIAreas}
               heatmapPointsByCity={heatmapPointsByCity}
+              heatmapAnchorsByCity={heatmapAnchorsByCity}
+              availableDates={availableDates}
+              selectedDate={selectedDate}
+              setSelectedDate={setSelectedDate}
               mapContainerRef={mapContainerRef}
               mapRef={mapRef}
               mapSyncFrameRef={mapSyncFrameRef}
@@ -223,22 +226,15 @@ const ExplorePage: React.FC = () => {
               setEditingAreaId={setEditingAreaId}
               isAreaDragging={isAreaDragging}
               setIsAreaDragging={setIsAreaDragging}
-            
             />
           </section>
 
           <div className="min-h-0 flex h-full flex-col gap-3">
-            <div className="shrink-0 self-start">
-              <SelectDate
-                label="Date"
-                value={selectedDate}
-                onChange={setSelectedDate}
-                availableDates={['2026-07-05', '2026-07-06', '2026-07-07', '2026-07-08']}
-              />
-            </div>
-
             <section className="min-h-0 flex-1">
-              <POIStatistics {...poiStatisticsProps} />
+              <POIStatistics
+                {...poiStatisticsProps}
+                containSimulation={containSimulation}
+              />
             </section>
           </div>
 

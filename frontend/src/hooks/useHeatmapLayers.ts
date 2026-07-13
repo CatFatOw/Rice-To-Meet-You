@@ -1,11 +1,16 @@
 import { useMemo, useRef } from 'react';
-import type React from 'react';
-import { ScatterplotLayer, PolygonLayer, PathLayer, TextLayer, IconLayer } from '@deck.gl/layers';
+import {
+  ScatterplotLayer,
+  PolygonLayer,
+  PathLayer,
+  TextLayer,
+  IconLayer,
+} from '@deck.gl/layers';
 import { HeatmapLayer } from '@deck.gl/aggregation-layers';
 import { type CityPOIArea, type HeatmapMetricValue } from '../api/map';
 import { cities, type City } from '../data/hostCities';
 import { TOOLBOX_BY_TYPE, toolboxMarkerDataUrl, type PlacedObject } from '../utils/toolbox';
-import type { TooltipState } from '../components/Heatmap';
+import type { UseHeatmapLayersArgs } from '../types/components';
 
 // Colored soccer-ball SVG for city markers. Rendered via IconLayer (not
 // TextLayer) so it keeps its colors — TextLayer's grayscale glyph atlas turns
@@ -46,39 +51,6 @@ type DragContext =
       originalPolygon: [number, number][];
     };
 
-export interface UseHeatmapLayersArgs {
-  isDrawing: boolean;
-  selectedCity: string | null;
-
-  // Heatmap surface + hover picking
-  displayedHeatmapPoints: HeatmapMetricValue[];
-  activeMetricColorRange: [number, number, number, number][];
-  activeMetricKey: string;
-
-  // POI areas
-  displayedPOIAreas: CityPOIArea[];
-  userPOIAreas: CityPOIArea[];
-  editingAreaId: string | null;
-
-  // Placed toolbox objects
-  placedObjects: PlacedObject[];
-
-  // Draft (in-progress) drawing
-  draftPoints: [number, number][];
-  draftRgb: [number, number, number];
-
-  // Callbacks / setters
-  onCityClick: (city: City) => void;
-  onRemovePlacedObject: (id: string) => void;
-  setTooltip: React.Dispatch<React.SetStateAction<TooltipState | null>>;
-  setHoveringHeatmap: React.Dispatch<React.SetStateAction<boolean>>;
-  setEditingAreaId: React.Dispatch<React.SetStateAction<string | null>>;
-  setIsDrawing: React.Dispatch<React.SetStateAction<boolean>>;
-  setIsAreaDragging: React.Dispatch<React.SetStateAction<boolean>>;
-  setUserPOIAreas: React.Dispatch<React.SetStateAction<CityPOIArea[]>>;
-  setDraftPoints: React.Dispatch<React.SetStateAction<[number, number][]>>;
-}
-
 /**
  * Builds the ordered deck.gl layer stack for the heatmap. All layer-local
  * interaction state (the drag context ref) is owned here; the caller only
@@ -89,7 +61,6 @@ export function useHeatmapLayers({
   selectedCity,
   displayedHeatmapPoints,
   activeMetricColorRange,
-  activeMetricKey,
   displayedPOIAreas,
   userPOIAreas,
   editingAreaId,
@@ -98,8 +69,6 @@ export function useHeatmapLayers({
   draftRgb,
   onCityClick,
   onRemovePlacedObject,
-  setTooltip,
-  setHoveringHeatmap,
   setEditingAreaId,
   setIsDrawing,
   setIsAreaDragging,
@@ -192,35 +161,6 @@ export function useHeatmapLayers({
         colorRange: activeMetricColorRange as any,
       }),
     [displayedHeatmapPoints, activeMetricColorRange],
-  );
-
-  const heatmapPickLayer = useMemo(
-    () =>
-      new ScatterplotLayer({
-        id: 'heatmap-pick-layer',
-        data: displayedHeatmapPoints,
-        pickable: !isDrawing,
-        opacity: 0,
-        radiusMinPixels: 14,
-        radiusMaxPixels: 14,
-        getPosition: (d: HeatmapMetricValue) => d.location_coordinates,
-        getFillColor: [0, 0, 0, 0],
-        onHover: (info: any) => {
-          if (info.object) {
-            setHoveringHeatmap(true);
-            setTooltip({
-              point: info.object as HeatmapMetricValue,
-              metric: activeMetricKey,
-              x: info.x,
-              y: info.y,
-            });
-          } else {
-            setHoveringHeatmap(false);
-            setTooltip(null);
-          }
-        },
-      }),
-    [displayedHeatmapPoints, isDrawing, setHoveringHeatmap, setTooltip, activeMetricKey],
   );
 
   // Toolbox objects dropped onto the map. Click a pin to remove it.
@@ -400,7 +340,6 @@ export function useHeatmapLayers({
       draftPolygonLayer,
       draftPathLayer,
       draftPointsLayer,
-      heatmapPickLayer,
       placedObjectLayer,
       cityIconLayer,
       cityLabelLayer,
@@ -411,7 +350,6 @@ export function useHeatmapLayers({
       draftPolygonLayer,
       draftPathLayer,
       draftPointsLayer,
-      heatmapPickLayer,
       placedObjectLayer,
       cityIconLayer,
       cityLabelLayer,

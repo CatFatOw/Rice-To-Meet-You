@@ -10,88 +10,20 @@ import { type City } from '../data/hostCities';
 import { getColor } from '../utils/colors';
 import { type PlacedObject, TOOLBOX_DRAG_MIME } from '../utils/toolbox';
 import { useHeatmapLayers } from '../hooks/useHeatmapLayers';
+import { sampleHeatmapMetricByCity } from '../utils/interpolate';
 import SearchBar from './SearchBar';
 import Toolbox from './Toolbox';
 import HeatRiskScale from './Heatriskscale';
-import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import type { SurfaceType } from '../utils/map';
+import { classifySurface } from '../utils/map';
+import type { GeocodeResult } from '../types/search';
+import type { HeatmapProps, TooltipState } from '../types/components';
+import type { ViewState } from '../types/viewState';
 
 // Re-exported so existing imports (`import Heatmap, { type GeocodeResult }`)
 // keep working now that the search UI lives in its own component.
-export type { GeocodeResult } from './SearchBar';
-
-interface ViewState {
-  longitude: number;
-  latitude: number;
-  zoom: number;
-  pitch: number;
-  bearing: number;
-}
-
-interface HeatmapProps {
-  
-  viewState: ViewState;
-  setViewState: React.Dispatch<React.SetStateAction<ViewState>>;
-  selectedCity: string | null;
-  setSelectedCity: React.Dispatch<React.SetStateAction<string | null>>;
-  cityPOIAreas: CityPOIArea[];
-  heatmapPointsByCity: Record<string, HeatmapMetricSnapshot[]>;
-  mapContainerRef: React.RefObject<HTMLDivElement | null>;
-  mapRef: React.MutableRefObject<maplibregl.Map | null>;
-  mapSyncFrameRef: React.MutableRefObject<number | null>;
-  // Element to request fullscreen on instead of the Heatmap's own root. Pass
-  // the map panel/section so page-level overlays (e.g. the date picker) stay
-  // visible in fullscreen. Falls back to the Heatmap root when omitted.
-  fullscreenTargetRef?: React.RefObject<HTMLElement | null>;
-  tooltip: TooltipState | null;
-  setTooltip: React.Dispatch<React.SetStateAction<TooltipState | null>>;
-  isFullscreen: boolean;
-  setIsFullscreen: React.Dispatch<React.SetStateAction<boolean>>;
-  isDrawing: boolean;
-  setIsDrawing: React.Dispatch<React.SetStateAction<boolean>>;
-  draftPoints: [number, number][];
-  setDraftPoints: React.Dispatch<React.SetStateAction<[number, number][]>>;
-  draftColorHex: string;
-  setDraftColorHex: React.Dispatch<React.SetStateAction<string>>;
-  draftName: string;
-  setDraftName: React.Dispatch<React.SetStateAction<string>>;
-  userPOIAreas: CityPOIArea[];
-  setUserPOIAreas: React.Dispatch<React.SetStateAction<CityPOIArea[]>>;
-  hoveringHeatmap: boolean;
-  setHoveringHeatmap: React.Dispatch<React.SetStateAction<boolean>>;
-  searchQuery: string;
-  setSearchQuery: React.Dispatch<React.SetStateAction<string>>;
-  geoResults: GeocodeResult[];
-  setGeoResults: React.Dispatch<React.SetStateAction<GeocodeResult[]>>;
-  isSearching: boolean;
-  setIsSearching: React.Dispatch<React.SetStateAction<boolean>>;
-  showSuggestions: boolean;
-  setShowSuggestions: React.Dispatch<React.SetStateAction<boolean>>;
-  selectedMetric: string | null;
-  setSelectedMetric: React.Dispatch<React.SetStateAction<string | null>>;
-  editingAreaId: string | null;
-  setEditingAreaId: React.Dispatch<React.SetStateAction<string | null>>;
-  isAreaDragging: boolean;
-  setIsAreaDragging: React.Dispatch<React.SetStateAction<boolean>>;
-  /**
-   * When true, the left panel renders as a full toolbox: a palette of
-   * placeable objects (cooling stations, shade canopy, ...) that can be
-   * dragged onto the map, followed by the Create POI Area section. When
-   * false (default) only the metric toggle and Create POI Area are shown.
-   */
-  displayToolbox?: boolean;
-}
-
-export interface TooltipState {
-  point: HeatmapMetricValue;
-  metric: string;
-  x: number;
-  y: number;
-}
-
-// GeocodeResult is defined in ./SearchBar and re-exported above; import the
-// type here so it can be referenced in HeatmapProps.
-import type { GeocodeResult } from './SearchBar';
+export type { GeocodeResult, TooltipState };
 
 function metricLabel(metricKey: string): string {
   switch (metricKey) {
@@ -183,6 +115,10 @@ const Heatmap: React.FC<HeatmapProps> = ({
   setSelectedCity,
   cityPOIAreas,
   heatmapPointsByCity,
+  heatmapAnchorsByCity,
+  availableDates,
+  selectedDate,
+  setSelectedDate,
   mapContainerRef,
   mapRef,
   mapSyncFrameRef,
@@ -217,6 +153,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
   setEditingAreaId,
   isAreaDragging,
   setIsAreaDragging,
+  onPlacedObjectsChange,
   displayToolbox = false,
 }) => {
   const heatmapRootRef = useRef<HTMLDivElement>(null);
@@ -225,6 +162,10 @@ const Heatmap: React.FC<HeatmapProps> = ({
   // since they're a self-contained overlay; lift into props if you need them
   // shared with the parent (e.g. for persistence).
   const [placedObjects, setPlacedObjects] = useState<PlacedObject[]>([]);
+
+  useEffect(() => {
+    onPlacedObjectsChange?.(placedObjects);
+  }, [onPlacedObjectsChange, placedObjects]);
 
   // Fly the map + shared view state to a location. Pass cityName to also mark a
   // city as selected (so its heatmap points load); omit for generic places.
@@ -425,7 +366,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
   const displayedPOIAreas: CityPOIArea[] = useMemo(() => {
     if (!selectedCity) return [];
     return [
-      ...cityPOIAreas.filter((poi) => poi.cityName === selectedCity),
+      ...(cityPOIAreas[selectedCity] ?? []),
       ...userPOIAreas.filter((poi) => poi.cityName === selectedCity),
     ];
   }, [selectedCity, cityPOIAreas, userPOIAreas]);
@@ -439,7 +380,6 @@ const Heatmap: React.FC<HeatmapProps> = ({
     selectedCity,
     displayedHeatmapPoints,
     activeMetricColorRange,
-    activeMetricKey,
     displayedPOIAreas,
     userPOIAreas,
     editingAreaId,
@@ -448,14 +388,70 @@ const Heatmap: React.FC<HeatmapProps> = ({
     draftRgb,
     onCityClick: handleCityClick,
     onRemovePlacedObject: removePlacedObject,
-    setTooltip,
-    setHoveringHeatmap,
     setEditingAreaId,
     setIsDrawing,
     setIsAreaDragging,
     setUserPOIAreas,
     setDraftPoints,
   });
+
+  const handleDeckHover = useCallback(
+    (info: { coordinate?: number[]; x: number; y: number }) => {
+      
+      if (
+        isDrawing ||
+        !selectedCity ||
+        !selectedDate ||
+        displayedHeatmapPoints.length === 0 ||
+        !info.coordinate ||
+        info.coordinate.length < 2
+      ) {
+        setHoveringHeatmap(false);
+        setTooltip(null);
+        return;
+      }
+
+      const [longitude, latitude] = info.coordinate;
+      const sampledPoint = sampleHeatmapMetricByCity(
+        heatmapAnchorsByCity,
+        selectedCity,
+        selectedDate,
+        activeMetricKey,
+        longitude,
+        latitude,
+      );
+
+      if (!sampledPoint) {
+        setHoveringHeatmap(false);
+        setTooltip(null);
+        return;
+      }
+
+      setHoveringHeatmap(true);
+      const surface = mapRef.current
+        ? classifySurface(mapRef.current, info.x, info.y)
+        : { type: 'unknown' as SurfaceType };
+
+      setTooltip({
+        point: sampledPoint,
+        metric: activeMetricKey,
+        x: info.x,
+        y: info.y,
+        coordinates: { longitude, latitude },
+        surface,
+      });
+    },
+    [
+      activeMetricKey,
+      displayedHeatmapPoints.length,
+      heatmapAnchorsByCity,
+      isDrawing,
+      selectedCity,
+      selectedDate,
+      setHoveringHeatmap,
+      setTooltip,
+    ],
+  );
 
   // Crosshair while drawing or hovering the heatmap; grab/grabbing otherwise
   // so normal map panning still reads correctly.
@@ -468,6 +464,21 @@ const Heatmap: React.FC<HeatmapProps> = ({
           : 'grab',
     [isDrawing, hoveringHeatmap, editingAreaId, isAreaDragging],
   );
+
+  // useEffect(() => {
+  //   if (!selectedCity || !selectedDate) return;
+  //   const p = sampleHeatmapMetricByCity(
+  //     heatmapAnchorsByCity, selectedCity, selectedDate, activeMetricKey,
+  //     -95.398001, 29.718004,   // lng, lat
+  //   );
+  //   console.log('[probe]', selectedCity, selectedDate, activeMetricKey, p);
+  // }, [heatmapAnchorsByCity, selectedCity, selectedDate, activeMetricKey]);
+
+
+  useEffect(() => {
+    onPlacedObjectsChange?.(placedObjects);
+    console.table(placedObjects);   // id, type, longitude, latitude
+  }, [onPlacedObjectsChange, placedObjects]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -561,6 +572,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
         viewState={viewState}
         onViewStateChange={handleViewStateChange}
         onClick={handleDeckClick}
+        onHover={handleDeckHover}
         controller={{ dragPan: !isAreaDragging, scrollZoom: true, touchZoom: true }}
         layers={layers}
         getCursor={getCursor}
@@ -581,6 +593,9 @@ const Heatmap: React.FC<HeatmapProps> = ({
 
       <Toolbox
         displayToolbox={displayToolbox}
+        selectedDate={selectedDate}
+        setSelectedDate={setSelectedDate}
+        availableDates={availableDates}
         metricLabel={metricLabelText}
         canToggleMetric={availableMetricLayers.length > 1}
         onToggleMetric={cycleMetric}
@@ -681,9 +696,41 @@ const Heatmap: React.FC<HeatmapProps> = ({
               marginTop: 4,
             }}
           >
+            <span>Coordinates</span>
+            <span style={{ fontWeight: 600, color: '#e2e8f0' }}>
+              {tooltip.coordinates.latitude.toFixed(6)}, {tooltip.coordinates.longitude.toFixed(6)}
+            </span>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 16,
+              color: '#cbd5e1',
+              marginTop: 4,
+            }}
+          >
             <span>Metric</span>
             <span style={{ fontWeight: 600, color: '#94a3b8' }}>
               {formatMetricName(tooltip.metric)}
+            </span>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 16,
+              color: '#cbd5e1',
+              marginTop: 4,
+            }}
+          >
+            <span>Surface</span>
+            <span style={{ fontWeight: 600, color: '#94a3b8' }}>
+              {tooltip.surface?.detail
+                ? `${tooltip.surface.type} (${tooltip.surface.detail})`
+                : (tooltip.surface?.type ?? 'unknown')}
             </span>
           </div>
 
@@ -704,7 +751,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
                 >
                   <span>{metricLabel(key)}</span>
                   <span style={{ fontWeight: 600, color: '#e2e8f0' }}>
-                    {value as number}
+                    {value}
                     {metricUnit(key)}
                   </span>
                 </div>

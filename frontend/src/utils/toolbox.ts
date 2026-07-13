@@ -1,4 +1,6 @@
 import { TOOLBOX_ITEMS, type ToolboxItemDef } from '../data/toolboxItems';
+import type { PlacedObject } from '../types/toolbox';
+export type { PlacedObject };
 
 // --- Toolbox plumbing + rendering -------------------------------------------
 //
@@ -9,14 +11,6 @@ import { TOOLBOX_ITEMS, type ToolboxItemDef } from '../data/toolboxItems';
 // import TOOLBOX_ITEMS / ToolboxItemDef from either path.
 export { TOOLBOX_ITEMS };
 export type { ToolboxItemDef };
-
-// A placed instance of a toolbox item, positioned in map (lng/lat) space.
-export interface PlacedObject {
-  id: string;
-  type: string;
-  longitude: number;
-  latitude: number;
-}
 
 export const TOOLBOX_BY_TYPE: Record<string, ToolboxItemDef> = Object.fromEntries(
   TOOLBOX_ITEMS.map((item) => [item.type, item]),
@@ -44,6 +38,7 @@ function toolboxGlyph(type: string, color: string): string {
     case 'water_station':
       return `<path d="M0 -9 C5 -2.5 7.5 1 7.5 4.2 A7.5 7.5 0 1 1 -7.5 4.2 C-7.5 1 -5 -2.5 0 -9 Z" fill="${color}"/>`;
     case 'misting_fan':
+    case 'misting_station':
       return `<g fill="${color}">
         <circle r="2.2"/>
         <path d="M0 -2.4 C-6 -9 -9 -4 -2.2 -1 Z"/>

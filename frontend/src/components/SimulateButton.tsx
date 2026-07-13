@@ -1,12 +1,5 @@
 import React from 'react';
-
-interface SimulateButtonProps {
-  onClick?: () => void;
-  disabled?: boolean;
-  label?: string;
-  className?: string;
-  style?: React.CSSProperties;
-}
+import type { SimulateButtonProps } from '../types/components';
 
 const SimulateButton: React.FC<SimulateButtonProps> = ({
   onClick,

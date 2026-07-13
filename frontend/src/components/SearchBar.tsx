@@ -1,29 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Search, MapPin, Crosshair, Loader2, X } from 'lucide-react';
 import { cities, type City } from '../data/hostCities';
+import type { GeocodeResult } from '../types/search';
+import type { SearchBarProps } from '../types/components';
 
 // A single resolved place from the geocoder (or a coordinate/city match).
-export interface GeocodeResult {
-  label: string;
-  lng: number;
-  lat: number;
-}
-
-interface SearchBarProps {
-  searchQuery: string;
-  setSearchQuery: React.Dispatch<React.SetStateAction<string>>;
-  geoResults: GeocodeResult[];
-  setGeoResults: React.Dispatch<React.SetStateAction<GeocodeResult[]>>;
-  isSearching: boolean;
-  setIsSearching: React.Dispatch<React.SetStateAction<boolean>>;
-  showSuggestions: boolean;
-  setShowSuggestions: React.Dispatch<React.SetStateAction<boolean>>;
-  /**
-   * Fly the map + shared view state to a location. Pass cityName to also mark a
-   * city as selected (so its heatmap points load); omit for generic places.
-   */
-  flyTo: (lng: number, lat: number, zoom: number, cityName?: string) => void;
-}
+export type { GeocodeResult };
 
 // Parse a "lat, lng" string into [lng, lat] deck.gl order, or null if it isn't
 // a valid coordinate pair. Tolerates degree symbols and optional hemisphere
