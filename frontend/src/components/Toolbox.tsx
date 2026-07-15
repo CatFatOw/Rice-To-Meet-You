@@ -32,24 +32,35 @@ const Toolbox: React.FC<ToolboxProps> = ({
   metricLabel,
   canToggleMetric,
   onToggleMetric,
-  placedCount,
-  onClearObjects,
   selectedCity,
   draftName,
   setDraftName,
   draftColorHex,
   setDraftColorHex,
+  hasUserAreasInCity,
+  editingAreaId,
+  onFinishEdit,
+  placedCount,
+  onClearObjects,
   isDrawing,
   draftPointCount,
   onStartDrawing,
   onFinishArea,
   onUndoLastPoint,
   onCancelDrawing,
-  hasUserAreasInCity,
   onClearMyAreas,
-  editingAreaId,
-  onFinishEdit,
+  placedObjectsControls,
+  onCommitDrawing
 }) => {
+  const pointCount = draftPointCount;
+  const [toolName, setToolName] = React.useState('');
+  const [toolColor, setToolColor] = React.useState('#22c55e');
+  const [toolType, setToolType] = React.useState<string | null>(null);
+  const [toolKind, setToolKind] = React.useState<string | null>(null);
+
+
+
+
   return (
     <div
       style={{
@@ -107,21 +118,36 @@ const Toolbox: React.FC<ToolboxProps> = ({
         <>
           <div style={{ fontSize: 13, fontWeight: 700 }}>Toolbox</div>
           <div style={{ fontSize: 12, color: '#94a3b8', marginTop: -4 }}>
-            Drag an item onto the map to place it. Click a placed pin to remove it.
+            Drag point tools onto the map. Click polygon tools to start drawing them on the map.
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             {TOOLBOX_ITEMS.map((item: ToolboxItemDef) => {
               const Icon = item.Icon;
+              const isPoint = item.kind === 'point';
               return (
                 <div
                   key={item.type}
-                  draggable
+                  draggable={isPoint}
                   onDragStart={(e) => {
+                    if (!isPoint) return;
+                    setToolType(item.type);
+                    setToolKind(item.kind);
                     e.dataTransfer.setData(TOOLBOX_DRAG_MIME, item.type);
                     e.dataTransfer.effectAllowed = 'copy';
                   }}
-                  title={`Drag to place ${item.label}`}
+                  onClick={() => {
+                    setToolKind(item.kind);
+                    setToolType(item.type);
+                    if (item.kind === 'polygon'){
+                      onStartDrawing();
+                    }
+                    // Pass the whole item: the ring it produces becomes a placed
+                    // object of this type, not a POI area.
+                    
+                    
+                  }}
+                  title={isPoint ? `Drag to place ${item.label}` : `Click to draw ${item.label}`}
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
@@ -131,7 +157,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
                     borderRadius: 8,
                     border: '1px solid rgba(148, 163, 184, 0.35)',
                     backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                    cursor: 'grab',
+                    cursor: isPoint ? 'grab' : 'pointer',
                     userSelect: 'none',
                     textAlign: 'center',
                   }}
@@ -157,6 +183,89 @@ const Toolbox: React.FC<ToolboxProps> = ({
               );
             })}
           </div>
+
+          <label
+            style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}
+          >
+            Tool Name
+            <input
+              type="text"
+              value={toolName}
+              onChange={(e) => setToolName(e.target.value)}
+              placeholder="Enter tool name"
+              style={{
+                padding: '6px 8px',
+                borderRadius: 6,
+                border: '1px solid rgba(148, 163, 184, 0.45)',
+                backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                color: '#f1f5f9',
+                fontSize: 13,
+              }}
+            />
+          </label>
+
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: 12,
+              color: '#cbd5e1',
+            }}
+          >
+            Tool Color
+            <input
+              type="color"
+              value={toolColor}
+              onChange={(e) => setToolColor(e.target.value)}
+              style={{
+                width: 44,
+                height: 28,
+                border: '1px solid rgba(148, 163, 184, 0.45)',
+                borderRadius: 6,
+                background: 'transparent',
+                cursor: 'pointer',
+              }}
+            />
+          </label>
+
+          <button
+            type="button"
+            style={{
+              ...toolbarButtonStyle,
+              backgroundColor: 'rgba(14, 116, 144, 0.85)',
+              color: '#e0f2fe',
+            }}
+            onClick={() => {
+              if (!toolKind || !toolType) return;
+
+              if (toolKind === 'polygon') {
+                const ring = onCommitDrawing();
+                if (!ring || !placedObjectsControls?.setPlacedObjects) return;
+
+                placedObjectsControls.setPlacedObjects((prev) => [
+                  ...prev,
+                  {
+                    id: `placed-${Date.now()}-${prev.length + 1}`,
+                    type: toolType,
+                    name: toolName.trim() || toolType,
+                    color: toolColor,
+                    geometry: {
+                      kind: 'polygon',
+                      ring,
+                    },
+                  },
+                ]);
+              } else if (toolKind === 'point') {
+                placedObjectsControls?.commitPlacedObject?.({
+                  name: toolName.trim() || undefined,
+                  color: toolColor,
+                });
+              }
+            }}
+          >
+            <Check size={15} /> Save Changes
+          </button>
 
           {placedCount > 0 && (
             <button
@@ -253,18 +362,18 @@ const Toolbox: React.FC<ToolboxProps> = ({
       ) : (
         <>
           <div style={{ fontSize: 12, color: '#cbd5e1' }}>
-            Click the map to add points ({draftPointCount} placed, need 3+).
+            Click the map to add points ({pointCount} placed, need 3+).
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               type="button"
               onClick={onFinishArea}
-              disabled={draftPointCount < 3}
+              disabled={pointCount < 3}
               style={{
                 ...toolbarButtonStyle,
-                backgroundColor: draftPointCount >= 3 ? '#16a34a' : 'rgba(71, 85, 105, 0.6)',
+                backgroundColor: pointCount >= 3 ? '#16a34a' : 'rgba(71, 85, 105, 0.6)',
                 color: '#f8fafc',
-                cursor: draftPointCount >= 3 ? 'pointer' : 'not-allowed',
+                cursor: pointCount >= 3 ? 'pointer' : 'not-allowed',
               }}
             >
               <Check size={15} /> Finish
@@ -272,12 +381,12 @@ const Toolbox: React.FC<ToolboxProps> = ({
             <button
               type="button"
               onClick={onUndoLastPoint}
-              disabled={draftPointCount === 0}
+              disabled={pointCount === 0}
               style={{
                 ...toolbarButtonStyle,
                 backgroundColor: 'rgba(30, 41, 59, 0.9)',
                 color: '#e2e8f0',
-                cursor: draftPointCount === 0 ? 'not-allowed' : 'pointer',
+                cursor: pointCount === 0 ? 'not-allowed' : 'pointer',
               }}
             >
               <Undo2 size={15} /> Undo

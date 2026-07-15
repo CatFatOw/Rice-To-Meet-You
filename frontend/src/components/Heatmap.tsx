@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
+import React, { useMemo, useCallback, useRef, useEffect } from 'react';
 import { Expand, Shrink } from 'lucide-react';
 import DeckGL from '@deck.gl/react';
 import {
@@ -8,7 +8,6 @@ import {
 } from '../api/map';
 import { type City } from '../data/hostCities';
 import { getColor } from '../utils/colors';
-import { type PlacedObject, TOOLBOX_DRAG_MIME } from '../utils/toolbox';
 import { useHeatmapLayers } from '../hooks/useHeatmapLayers';
 import { sampleHeatmapMetricByCity } from '../utils/interpolate';
 import SearchBar from './SearchBar';
@@ -25,6 +24,16 @@ import type { ViewState } from '../types/viewState';
 // keep working now that the search UI lives in its own component.
 export type { GeocodeResult, TooltipState };
 
+// ======================================================
+// Formatting helpers
+// Pure functions: raw metric keys -> human-readable text.
+// ======================================================
+
+/**
+ * Short display name for a raw sub-metric key, used in the tooltip's
+ * `individual_metrics` breakdown (e.g. 'heatIndexF' -> 'Heat Index').
+ * Unknown keys fall through unchanged so new metrics still render.
+ */
 function metricLabel(metricKey: string): string {
   switch (metricKey) {
     case 'temperatureF':
@@ -46,6 +55,11 @@ function metricLabel(metricKey: string): string {
   }
 }
 
+/**
+ * Unit suffix inferred from the metric key's naming convention:
+ * a trailing 'F' means Fahrenheit, a trailing 'Pct' means percent.
+ * Returns an empty string for unitless metrics.
+ */
 function metricUnit(metricKey: string): string {
   if (metricKey.endsWith('F')) return ' deg F';
   if (metricKey.endsWith('Pct')) return '%';
@@ -53,6 +67,8 @@ function metricUnit(metricKey: string): string {
 }
 
 // Convert a #rrggbb hex string to an [r, g, b] tuple for deck.gl color props.
+// Malformed components degrade to 0 rather than NaN, which deck.gl would
+// otherwise render as a transparent/black fill.
 function hexToRgb(hex: string): [number, number, number] {
   const normalized = hex.replace('#', '');
   const r = parseInt(normalized.substring(0, 2), 16);
@@ -65,15 +81,30 @@ function hexToRgb(hex: string): [number, number, number] {
   ];
 }
 
+// ======================================================
+// Colour helpers
+// Map a metric onto the shared palette in utils/colors.
+// ======================================================
+
+/**
+ * Maps a metric to the palette name `getColor` understands.
+ * 'heat_risk_score' has no palette of its own and reuses the temperature ramp.
+ */
 function colorMetricKey(metric: string): string {
   if (metric === 'heat_risk_score') return 'temperature';
   return metric;
 }
 
+/** Format an [r, g, b] tuple plus an alpha as a CSS rgba() string. */
 function rgbaCss(rgb: [number, number, number], alpha: number): string {
   return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
 }
 
+/**
+ * Build the six-stop RGBA colour ramp deck.gl's heatmap layer expects.
+ * The first stop is fully transparent (alpha 0) so low-intensity areas fade
+ * into the basemap instead of tinting the whole city.
+ */
 function metricColorRange(metric: string): [number, number, number, number][] {
   const colorMetric = colorMetricKey(metric);
   const stops = [0, 20, 40, 60, 80, 100];
@@ -85,6 +116,11 @@ function metricColorRange(metric: string): [number, number, number, number][] {
   });
 }
 
+/**
+ * CSS linear-gradient for the HeatRiskScale legend, using the same stops as
+ * `metricColorRange` so the legend always matches the rendered heatmap.
+ * Alpha is near-opaque here (unlike the layer ramp) so the legend stays legible.
+ */
 function metricLegendGradient(metric: string): string {
   const colorMetric = colorMetricKey(metric);
   const stops = [0, 20, 40, 60, 80, 100];
@@ -99,6 +135,11 @@ function metricLegendGradient(metric: string): string {
   return `linear-gradient(to right, ${segments.join(', ')})`;
 }
 
+/**
+ * Title-cased display name for a top-level metric key, used in the legend,
+ * the Toolbox toggle and the tooltip header. Two keys are special-cased;
+ * anything else is snake_case -> Title Case.
+ */
 function formatMetricName(metricKey: string): string {
   if (metricKey === 'heat_risk_score') return 'Heat Risk';
   if (metricKey === 'visitor_activity') return 'Visitor Activity';
@@ -127,10 +168,6 @@ const Heatmap: React.FC<HeatmapProps> = ({
   setTooltip,
   isFullscreen,
   setIsFullscreen,
-  isDrawing,
-  setIsDrawing,
-  draftPoints,
-  setDraftPoints,
   draftColorHex,
   setDraftColorHex,
   draftName,
@@ -153,22 +190,56 @@ const Heatmap: React.FC<HeatmapProps> = ({
   setEditingAreaId,
   isAreaDragging,
   setIsAreaDragging,
-  onPlacedObjectsChange,
+  placedObjectsControls,
   displayToolbox = false,
+  drawControls,
 }) => {
+  // Fallback fullscreen target when the parent doesn't supply one: the root
+  // element of this component.
   const heatmapRootRef = useRef<HTMLDivElement>(null);
 
-  // Objects placed onto the map from the toolbox. Kept local to the component
-  // since they're a self-contained overlay; lift into props if you need them
-  // shared with the parent (e.g. for persistence).
-  const [placedObjects, setPlacedObjects] = useState<PlacedObject[]>([]);
+  // Drawing state lives in the usePolygonDraw hook; aliased here for brevity.
+  const isDrawing = drawControls.isDrawing;
+  const draftPoints = drawControls.draftPoints;
 
-  useEffect(() => {
-    onPlacedObjectsChange?.(placedObjects);
-  }, [onPlacedObjectsChange, placedObjects]);
+  // placedObjectsControls is optional (ExplorePage renders without a toolbox),
+  // so default to an empty list rather than guarding at every use site.
+  const currentPlacedObjects = placedObjectsControls?.placedObjects ?? [];
+
+  // ======================================================
+  // Placed-object handlers
+  // ======================================================
+
+  /** Remove a single placed intervention by id (wired to the layer's X icon). */
+  const removePlacedObject = useCallback((id: string) => {
+    if (placedObjectsControls?.setPlacedObjects) {
+      placedObjectsControls.setPlacedObjects((prev) => prev.filter((o) => o.id !== id));
+    }
+  }, [placedObjectsControls]);
+
+  // ======================================================
+  // Map interaction handlers
+  // ======================================================
+
+  /**
+   * Deck click. Only meaningful in draw mode, where each click appends a
+   * vertex to the in-progress polygon. Ignored otherwise so normal map
+   * clicks (e.g. city markers) are handled by their own layers.
+   */
+  const handleDeckClick = useCallback(
+    (info: any) => {
+      // Add vertices while drawing
+      if (!isDrawing || !info?.coordinate) return;
+      const [lng, lat] = info.coordinate;
+      drawControls.addDraftPoint(lng, lat);
+    },
+    [isDrawing, drawControls],
+  );
 
   // Fly the map + shared view state to a location. Pass cityName to also mark a
   // city as selected (so its heatmap points load); omit for generic places.
+  // Both the deck.gl view state and the underlying MapLibre instance are moved
+  // so the basemap and the overlays stay in sync.
   const flyTo = useCallback(
     (lng: number, lat: number, zoom: number, cityName?: string) => {
       const newState: ViewState = { longitude: lng, latitude: lat, zoom, pitch: 0, bearing: 0 };
@@ -182,22 +253,24 @@ const Heatmap: React.FC<HeatmapProps> = ({
     [setViewState, setSelectedCity, mapRef],
   );
 
+  /**
+   * Click on a city marker: zoom to city level and select it, which triggers
+   * the parent to load that city's heatmap points.
+   */
   const handleCityClick = useCallback(
     (city: City) => {
       // While drawing, map clicks add vertices instead of switching cities.
       if (isDrawing) return;
 
-      const newState = {
+      setViewState({
         longitude: city.longitude,
         latitude: city.latitude,
         zoom: 10,
         pitch: 0,
         bearing: 0,
-      };
-      setViewState(newState);
+      });
       setSelectedCity(city.name);
 
-      // Update map camera
       if (mapRef.current) {
         mapRef.current.flyTo({
           center: [city.longitude, city.latitude],
@@ -209,116 +282,19 @@ const Heatmap: React.FC<HeatmapProps> = ({
     [isDrawing, setViewState, setSelectedCity, mapRef],
   );
 
-  // --- Drawing controls ---
-  const startDrawing = useCallback(() => {
-    if (!selectedCity) return;
-    setDraftPoints([]);
-    setIsDrawing(true);
-  }, [selectedCity, setDraftPoints, setIsDrawing]);
+  // ======================================================
+  // Metric selection and derived display data
+  // ======================================================
 
-  const cancelDrawing = useCallback(() => {
-    setDraftPoints([]);
-    setDraftName('');
-    setIsDrawing(false);
-  }, [setDraftPoints, setDraftName, setIsDrawing]);
-
-  const undoLastPoint = useCallback(() => {
-    setDraftPoints((prev) => prev.slice(0, -1));
-  }, [setDraftPoints]);
-
-  const finishArea = useCallback(() => {
-    if (!selectedCity || draftPoints.length < 3) return;
-
-    const rgb = hexToRgb(draftColorHex);
-    const newArea: CityPOIArea = {
-      id: `custom-${Date.now()}-${userPOIAreas.length + 1}`,
-      cityName: selectedCity,
-      name: draftName.trim() || `Custom Area ${userPOIAreas.length + 1}`,
-      polygon: draftPoints,
-      color: [...rgb, 140],
-    } as CityPOIArea;
-
-    setUserPOIAreas((prev) => [...prev, newArea]);
-    setDraftPoints([]);
-    setDraftName('');
-    setIsDrawing(false);
-  }, [
-    selectedCity,
-    draftPoints,
-    draftColorHex,
-    draftName,
-    userPOIAreas.length,
-    setUserPOIAreas,
-    setDraftPoints,
-    setDraftName,
-    setIsDrawing,
-  ]);
-
-  const clearMyAreas = useCallback(() => {
-    setUserPOIAreas((prev) => prev.filter((a) => a.cityName !== selectedCity));
-  }, [selectedCity, setUserPOIAreas]);
-
-  // Add a vertex on any map click while drawing.
-  const handleDeckClick = useCallback(
-    (info: any) => {
-      if (!isDrawing || isAreaDragging || editingAreaId || !info?.coordinate) return;
-      const [lng, lat] = info.coordinate;
-      setDraftPoints((prev) => [...prev, [lng, lat]]);
-    },
-    [isDrawing, isAreaDragging, editingAreaId, setDraftPoints],
-  );
-
-  // --- Toolbox object placement (HTML5 drag from palette -> drop on map) ---
-
-  // Only accept our custom drag payload; lets normal map interaction through.
-  const handleObjectDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    if (e.dataTransfer.types.includes(TOOLBOX_DRAG_MIME)) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
-    }
-  }, []);
-
-  // Convert the drop point (viewport px) into map lng/lat via maplibre and
-  // append a placed object there.
-  const handleObjectDrop = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
-      const type = e.dataTransfer.getData(TOOLBOX_DRAG_MIME);
-      if (!type) return;
-      e.preventDefault();
-
-      const map = mapRef.current;
-      const container = mapContainerRef.current;
-      if (!map || !container) return;
-
-      const rect = container.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      const { lng, lat } = map.unproject([x, y]);
-
-      setPlacedObjects((prev) => [
-        ...prev,
-        {
-          id: `placed-${Date.now()}-${prev.length + 1}`,
-          type,
-          longitude: lng,
-          latitude: lat,
-        },
-      ]);
-    },
-    [mapRef, mapContainerRef],
-  );
-
-  const removePlacedObject = useCallback((id: string) => {
-    setPlacedObjects((prev) => prev.filter((o) => o.id !== id));
-  }, []);
-
-  const clearPlacedObjects = useCallback(() => setPlacedObjects([]), []);
-
+  /** Metric layers available for the selected city on the selected date. */
   const availableMetricLayers: HeatmapMetricSnapshot[] = useMemo(
     () => (selectedCity ? (heatmapPointsByCity[selectedCity] ?? []) : []),
     [selectedCity, heatmapPointsByCity],
   );
 
+  // Keep selectedMetric valid as the available layers change (city switch, date
+  // change, simulation run): preserve the current metric if it still exists,
+  // otherwise fall back to the first layer, or null when there's no data.
   useEffect(() => {
     if (availableMetricLayers.length === 0) {
       setSelectedMetric(null);
@@ -331,6 +307,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
     });
   }, [availableMetricLayers, setSelectedMetric]);
 
+  /** The metric layer actually being rendered; falls back to the first layer. */
   const activeMetricLayer = useMemo(
     () =>
       availableMetricLayers.find((m) => m.metric === selectedMetric) ??
@@ -338,11 +315,14 @@ const Heatmap: React.FC<HeatmapProps> = ({
     [availableMetricLayers, selectedMetric],
   );
 
+  /** Point set fed to the deck.gl heatmap layer. */
   const displayedHeatmapPoints: HeatmapMetricValue[] = useMemo(
     () => activeMetricLayer?.points ?? [],
     [activeMetricLayer],
   );
 
+  // Presentation derived from the active metric: key, display name, layer
+  // colour ramp and matching legend gradient.
   const activeMetricKey = activeMetricLayer?.metric ?? 'heat_risk_score';
   const metricLabelText = formatMetricName(activeMetricKey);
   const activeMetricColorRange = useMemo(
@@ -355,6 +335,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
   );
 
   // Cycle to the next available metric (drives the Toolbox metric toggle).
+  // Wraps around at the end of the list; no-op when there's nothing to cycle to.
   const cycleMetric = useCallback(() => {
     if (availableMetricLayers.length <= 1) return;
     const idx = availableMetricLayers.findIndex((m) => m.metric === selectedMetric);
@@ -363,14 +344,13 @@ const Heatmap: React.FC<HeatmapProps> = ({
     setSelectedMetric(next.metric);
   }, [availableMetricLayers, selectedMetric, setSelectedMetric]);
 
+  /** Server-provided POI areas for the city, plus any the user drew themselves. */
   const displayedPOIAreas: CityPOIArea[] = useMemo(() => {
     if (!selectedCity) return [];
-    return [
-      ...(cityPOIAreas[selectedCity] ?? []),
-      ...userPOIAreas.filter((poi) => poi.cityName === selectedCity),
-    ];
+    return [...(cityPOIAreas[selectedCity] ?? []), ...userPOIAreas];
   }, [selectedCity, cityPOIAreas, userPOIAreas]);
 
+  /** Draft polygon colour as an RGB tuple for the deck.gl draft layer. */
   const draftRgb = useMemo(() => hexToRgb(draftColorHex), [draftColorHex]);
 
   // All deck.gl layers (city markers, heatmap surface, POI areas, placed
@@ -383,21 +363,30 @@ const Heatmap: React.FC<HeatmapProps> = ({
     displayedPOIAreas,
     userPOIAreas,
     editingAreaId,
-    placedObjects,
+    placedObjects: currentPlacedObjects,
     draftPoints,
     draftRgb,
     onCityClick: handleCityClick,
     onRemovePlacedObject: removePlacedObject,
     setEditingAreaId,
-    setIsDrawing,
+    setIsDrawing: drawControls.cancelDrawing,
     setIsAreaDragging,
     setUserPOIAreas,
-    setDraftPoints,
+    setDraftPoints: drawControls.setDraftPoints,
   });
 
+  // ======================================================
+  // Hover, cursor and fullscreen
+  // ======================================================
+
+  /**
+   * Hover on the heatmap: sample the metric at the cursor from the *anchor*
+   * data (not the rendered points, which are interpolated and coarser),
+   * classify the basemap surface under the pointer, and publish a tooltip.
+   * Clears the tooltip while drawing or when there's nothing under the cursor.
+   */
   const handleDeckHover = useCallback(
     (info: { coordinate?: number[]; x: number; y: number }) => {
-      
       if (
         isDrawing ||
         !selectedCity ||
@@ -421,6 +410,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
         latitude,
       );
 
+      // Cursor is inside the city view but outside the sampled grid.
       if (!sampledPoint) {
         setHoveringHeatmap(false);
         setTooltip(null);
@@ -428,6 +418,8 @@ const Heatmap: React.FC<HeatmapProps> = ({
       }
 
       setHoveringHeatmap(true);
+      // Surface classification needs the MapLibre instance to query rendered
+      // basemap features at the pixel; degrade to 'unknown' if it isn't ready.
       const surface = mapRef.current
         ? classifySurface(mapRef.current, info.x, info.y)
         : { type: 'unknown' as SurfaceType };
@@ -446,6 +438,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
       displayedHeatmapPoints.length,
       heatmapAnchorsByCity,
       isDrawing,
+      mapRef,
       selectedCity,
       selectedDate,
       setHoveringHeatmap,
@@ -465,21 +458,9 @@ const Heatmap: React.FC<HeatmapProps> = ({
     [isDrawing, hoveringHeatmap, editingAreaId, isAreaDragging],
   );
 
-  // useEffect(() => {
-  //   if (!selectedCity || !selectedDate) return;
-  //   const p = sampleHeatmapMetricByCity(
-  //     heatmapAnchorsByCity, selectedCity, selectedDate, activeMetricKey,
-  //     -95.398001, 29.718004,   // lng, lat
-  //   );
-  //   console.log('[probe]', selectedCity, selectedDate, activeMetricKey, p);
-  // }, [heatmapAnchorsByCity, selectedCity, selectedDate, activeMetricKey]);
-
-
-  useEffect(() => {
-    onPlacedObjectsChange?.(placedObjects);
-    console.table(placedObjects);   // id, type, longitude, latitude
-  }, [onPlacedObjectsChange, placedObjects]);
-
+  // Mirror the browser's fullscreen state into React. Needed because the user
+  // can leave fullscreen via Esc or the browser chrome, which never goes
+  // through toggleFullscreen below.
   useEffect(() => {
     const handleFullscreenChange = () => {
       const target = fullscreenTargetRef?.current ?? heatmapRootRef.current;
@@ -493,6 +474,12 @@ const Heatmap: React.FC<HeatmapProps> = ({
     };
   }, [setIsFullscreen, fullscreenTargetRef]);
 
+  /**
+   * Enter/exit fullscreen on the parent-supplied target (so the page can
+   * fullscreen the map *and* the stats panel together), falling back to this
+   * component's root. Note isFullscreen is not set here — the
+   * 'fullscreenchange' listener above is the single source of truth.
+   */
   const toggleFullscreen = useCallback(async () => {
     const target = fullscreenTargetRef?.current ?? heatmapRootRef.current;
     if (!target) return;
@@ -508,15 +495,19 @@ const Heatmap: React.FC<HeatmapProps> = ({
     }
   }, [fullscreenTargetRef]);
 
+  /**
+   * Keep the MapLibre basemap locked to deck.gl's camera as the user pans/zooms.
+   *
+   * Two guards matter here:
+   *  - The epsilon comparison returns the previous state object when the camera
+   *    hasn't meaningfully moved, so React can bail out of a re-render.
+   *  - The basemap sync is throttled to one rAF frame (cancelling any pending
+   *    one) because deck.gl fires this far more often than the browser paints.
+   * jumpTo (not flyTo) is used so the basemap tracks the drag with no easing lag.
+   */
   const handleViewStateChange = useCallback(
     (e: any) => {
-      const nextState = e.viewState as {
-        longitude: number;
-        latitude: number;
-        zoom: number;
-        pitch: number;
-        bearing: number;
-      };
+      const nextState = e.viewState as ViewState;
       const newState: ViewState = {
         longitude: nextState.longitude,
         latitude: nextState.latitude,
@@ -557,17 +548,28 @@ const Heatmap: React.FC<HeatmapProps> = ({
     [setViewState, mapRef, mapSyncFrameRef],
   );
 
+  // ======================================================
+  // UI Component
+  // Layered bottom-to-top: MapLibre basemap -> deck.gl overlays ->
+  // SearchBar / Toolbox / fullscreen button / legend -> tooltip.
+  // ======================================================
+
   return (
     <div
       ref={heatmapRootRef}
       style={{ width: '100%', height: '100%', minHeight: '480px', position: 'relative' }}
-      onDragOver={handleObjectDragOver}
-      onDrop={handleObjectDrop}
+      onDragOver={(e) => placedObjectsControls?.handleObjectDragOver?.(e)}
+      onDrop={(e) => placedObjectsControls?.handleObjectDrop?.(e)}
     >
+      {/* MapLibre basemap. Positioned absolutely beneath the deck.gl canvas and
+          kept in sync by handleViewStateChange. */}
       <div
         ref={mapContainerRef}
         style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}
       />
+
+      {/* deck.gl overlay canvas. dragPan is disabled while an area is being
+          dragged so the map doesn't pan out from under the vertex handle. */}
       <DeckGL
         viewState={viewState}
         onViewStateChange={handleViewStateChange}
@@ -599,8 +601,10 @@ const Heatmap: React.FC<HeatmapProps> = ({
         metricLabel={metricLabelText}
         canToggleMetric={availableMetricLayers.length > 1}
         onToggleMetric={cycleMetric}
-        placedCount={placedObjects.length}
-        onClearObjects={clearPlacedObjects}
+        placedCount={currentPlacedObjects.length}
+        onClearObjects={() => placedObjectsControls?.setPlacedObjects([])}
+        placedObjectsControls={placedObjectsControls}
+        onSelectPolygonTool={() => {}}
         selectedCity={selectedCity}
         draftName={draftName}
         setDraftName={setDraftName}
@@ -608,19 +612,42 @@ const Heatmap: React.FC<HeatmapProps> = ({
         setDraftColorHex={setDraftColorHex}
         isDrawing={isDrawing}
         draftPointCount={draftPoints.length}
-        onStartDrawing={startDrawing}
-        onFinishArea={finishArea}
-        onUndoLastPoint={undoLastPoint}
-        onCancelDrawing={cancelDrawing}
-        hasUserAreasInCity={userPOIAreas.some((a) => a.cityName === selectedCity)}
-        onClearMyAreas={clearMyAreas}
+        onStartDrawing={() => drawControls.startDrawing()}
+        onCommitDrawing={() => drawControls.commitDrawing()}
+        draftPoints={draftPoints}
+        // Commit the draft polygon into a saved user POI area. commitDrawing()
+        // returns null when the ring is invalid (fewer than the minimum
+        // vertices), in which case the draft is left untouched. Name defaults
+        // to a numbered "Custom Area" when the input is blank; the stored
+        // colour is the draft RGB plus a fixed 140 alpha for the fill.
+        onFinishArea={() => {
+          const ring = drawControls.commitDrawing();
+          if (ring && selectedCity) {
+            setUserPOIAreas((prev) => [
+              ...prev,
+              {
+                id: `custom-${Date.now()}-${prev.length + 1}`,
+                name: draftName.trim() || `Custom Area ${prev.length + 1}`,
+                polygon: ring,
+                color: [...hexToRgb(draftColorHex), 140],
+              } as CityPOIArea,
+            ]);
+            setDraftName('');
+          }
+        }}
+        onUndoLastPoint={() => drawControls.undoDraftPoint()}
+        onCancelDrawing={() => drawControls.cancelDrawing()}
+        hasUserAreasInCity={userPOIAreas.length > 0}
+        onClearMyAreas={() => setUserPOIAreas([])}
         editingAreaId={editingAreaId}
+        // Leave edit mode and drop any in-flight vertex drag.
         onFinishEdit={() => {
           setEditingAreaId(null);
           setIsAreaDragging(false);
         }}
       />
 
+      {/* Fullscreen toggle, floating top-right over the map. */}
       <button
         type="button"
         onClick={toggleFullscreen}
@@ -646,8 +673,11 @@ const Heatmap: React.FC<HeatmapProps> = ({
         {isFullscreen ? <Shrink size={20} /> : <Expand size={20} />}
       </button>
 
+      {/* Legend. Shares its gradient with the active layer's colour ramp. */}
       <HeatRiskScale label={metricLabelText} gradient={activeMetricLegendGradient} />
 
+      {/* Hover tooltip, positioned in screen space from the deck.gl pixel
+          coordinates. pointerEvents: none so it never swallows map hovers. */}
       {tooltip && (
         <div
           style={{
@@ -670,6 +700,8 @@ const Heatmap: React.FC<HeatmapProps> = ({
             {tooltip.point.location_name}
           </div>
 
+          {/* Primary metric value, colour-coded by severity band:
+              >= 85 red, >= 70 orange, otherwise yellow. */}
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: '#cbd5e1' }}>
             <span>{metricLabelText} Score</span>
             <span
@@ -717,6 +749,8 @@ const Heatmap: React.FC<HeatmapProps> = ({
             </span>
           </div>
 
+          {/* Basemap surface under the cursor (e.g. park, building, road),
+              with the classifier's extra detail in parentheses when present. */}
           <div
             style={{
               display: 'flex',
@@ -734,6 +768,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
             </span>
           </div>
 
+          {/* Optional breakdown of the sub-metrics behind the headline score. */}
           {tooltip.point.individual_metrics && (
             <div
               style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(148, 163, 184, 0.35)' }}

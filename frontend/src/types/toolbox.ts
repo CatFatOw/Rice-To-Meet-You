@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react';
+import type { Geometry, GeometryKind } from './simulation';
 
 // Definition of a draggable structure available in the toolbox palette.
 export interface ToolboxItemDef {
@@ -7,6 +8,7 @@ export interface ToolboxItemDef {
   type: string;
   label: string;
   color: string; // hex; drives both the palette chip and the map pin
+  kind: GeometryKind;
   Icon: ComponentType<{ size?: number | string; color?: string }>;
 }
 
@@ -14,6 +16,7 @@ export interface ToolboxItemDef {
 export interface PlacedObject {
   id: string;
   type: string;
-  longitude: number;
-  latitude: number;
+  name?: string;
+  color?: string;
+  geometry: Geometry;
 }

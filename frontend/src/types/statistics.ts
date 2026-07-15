@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { PlacedObject } from './toolbox';
 
 export type IconKey = 'sun' | 'users' | 'wind';
 
@@ -56,8 +57,10 @@ export interface POIStatisticsProps {
   fromDate?: string | null;
   toDate?: string | null;
   availableDates?: string[];
+  placedObjects?: PlacedObject[];
   onFromDateChange?: (isoDate: string) => void;
   onToDateChange?: (isoDate: string) => void;
+  onPlacedObjectsChange?: (placedObjects: PlacedObject[]) => void;
   onSimulate?: () => void;
 }
 

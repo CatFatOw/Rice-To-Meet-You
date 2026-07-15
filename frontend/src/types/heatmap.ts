@@ -1,11 +1,15 @@
 export type Polygon = [number, number][];
 
 export interface CityPOIArea {
+
   id: string;
+
   name: string;
-  cityName: string;
+
   color: [number, number, number, number];
+
   polygon: Polygon;
+
 }
 
 export type CityPOIAreaMap = Record<string, CityPOIArea[]>;

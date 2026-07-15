@@ -24,20 +24,6 @@ export const TOOLBOX_DRAG_MIME = 'application/x-heatmap-toolbox-item';
 // tool, otherwise it falls back to a plain dot.
 function toolboxGlyph(type: string, color: string): string {
   switch (type) {
-    case 'cooling_station':
-      return `<g stroke="${color}" stroke-width="1.8" stroke-linecap="round">
-        <line x1="0" y1="-8.5" x2="0" y2="8.5"/>
-        <line x1="-7.4" y1="-4.25" x2="7.4" y2="4.25"/>
-        <line x1="-7.4" y1="4.25" x2="7.4" y2="-4.25"/>
-      </g>`;
-    case 'shade_canopy':
-      return `<g fill="${color}">
-        <path d="M-9 1 A9 9 0 0 1 9 1 Z"/>
-        <rect x="-0.9" y="1" width="1.8" height="8" rx="0.9"/>
-      </g>`;
-    case 'water_station':
-      return `<path d="M0 -9 C5 -2.5 7.5 1 7.5 4.2 A7.5 7.5 0 1 1 -7.5 4.2 C-7.5 1 -5 -2.5 0 -9 Z" fill="${color}"/>`;
-    case 'misting_fan':
     case 'misting_station':
       return `<g fill="${color}">
         <circle r="2.2"/>
@@ -46,15 +32,17 @@ function toolboxGlyph(type: string, color: string): string {
         <path d="M0 2.4 C6 9 9 4 2.2 1 Z"/>
         <path d="M-2.4 0 C-9 6 -4 9 -1 2.2 Z"/>
       </g>`;
-    case 'first_aid':
+    case 'shade_canopy':
       return `<g fill="${color}">
-        <rect x="-2.6" y="-8" width="5.2" height="16" rx="1.6"/>
-        <rect x="-8" y="-2.6" width="16" height="5.2" rx="1.6"/>
+        <path d="M-9 1 A9 9 0 0 1 9 1 Z"/>
+        <rect x="-0.9" y="1" width="1.8" height="8" rx="0.9"/>
       </g>`;
-    case 'tree_planting':
-      return `<g fill="${color}">
-        <polygon points="0,-9 6.5,3.5 -6.5,3.5"/>
-        <rect x="-1.5" y="3.5" width="3" height="5" rx="0.6"/>
+    case 'cool_roofs':
+      return `<g fill="${color}" stroke="${color}" stroke-width="1.6" stroke-linecap="round">
+        <path d="M-9 2.5 L0 -4 L9 2.5 L9 5 L-9 5 Z" stroke="none"/>
+        <line x1="0" y1="-9" x2="0" y2="-6.5"/>
+        <line x1="-6" y1="-7" x2="-4.6" y2="-5.4"/>
+        <line x1="6" y1="-7" x2="4.6" y2="-5.4"/>
       </g>`;
     default:
       return `<circle r="5" fill="${color}"/>`;

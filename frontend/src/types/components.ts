@@ -1,10 +1,11 @@
 import type React from 'react';
 import type { ViewState } from './viewState';
 import type { HeatmapMetricValue, HeatmapMetricSnapshot, CityPOIArea, CityPOIAreaMap, HeatmapMetricPointByCity } from './heatmap';
-import type { PlacedObject as ToolboxPlacedObject } from './toolbox';
+import type { PlacedObject as ToolboxPlacedObject, ToolboxItemDef } from './toolbox';
 import type { SurfaceType } from './map';
 import type { GeocodeResult } from './search';
 import type { City } from './city';
+import type { PolygonDraw } from '../hooks/usePolygonDraw';
 
 // ---------------------------------------------------------------------------
 // SelectDate props
@@ -70,6 +71,20 @@ export interface ToolboxProps {
   // --- Placeable objects palette ---
   placedCount: number;
   onClearObjects: () => void;
+  onSelectPolygonTool: (item: ToolboxItemDef) => void;
+  placedObjectsControls?: {
+    placedObjects: ToolboxPlacedObject[];
+    setPlacedObjects: React.Dispatch<React.SetStateAction<ToolboxPlacedObject[]>>;
+    addPlacedObject: (object: ToolboxPlacedObject) => void;
+    removePlacedObject: (id: string) => void;
+    clearPlacedObjects: () => void;
+    patchPlacedObject: (id: string, patch: Partial<ToolboxPlacedObject>) => void;
+    commitPlacedObject?: (patch?: Partial<ToolboxPlacedObject>) => void;
+    handleObjectDragOver: (e: React.DragEvent<HTMLDivElement>) => void;
+    handleObjectDrop: (e: React.DragEvent<HTMLDivElement>) => void;
+  };
+  draftPoints: [number, number][];
+  onCommitDrawing: () => [number, number][] | null;
 
   // --- Create POI Area ---
   selectedCity: string | null;
@@ -147,10 +162,6 @@ export interface HeatmapProps {
   setTooltip: React.Dispatch<React.SetStateAction<TooltipState | null>>;
   isFullscreen: boolean;
   setIsFullscreen: React.Dispatch<React.SetStateAction<boolean>>;
-  isDrawing: boolean;
-  setIsDrawing: React.Dispatch<React.SetStateAction<boolean>>;
-  draftPoints: [number, number][];
-  setDraftPoints: React.Dispatch<React.SetStateAction<[number, number][]>>;
   draftColorHex: string;
   setDraftColorHex: React.Dispatch<React.SetStateAction<string>>;
   draftName: string;
@@ -173,12 +184,22 @@ export interface HeatmapProps {
   setEditingAreaId: React.Dispatch<React.SetStateAction<string | null>>;
   isAreaDragging: boolean;
   setIsAreaDragging: React.Dispatch<React.SetStateAction<boolean>>;
-  onPlacedObjectsChange?: (objects: ToolboxPlacedObject[]) => void;
+  placedObjectsControls?: {
+    placedObjects: ToolboxPlacedObject[];
+    setPlacedObjects: React.Dispatch<React.SetStateAction<ToolboxPlacedObject[]>>;
+    addPlacedObject: (object: ToolboxPlacedObject) => void;
+    removePlacedObject: (id: string) => void;
+    clearPlacedObjects: () => void;
+    patchPlacedObject: (id: string, patch: Partial<ToolboxPlacedObject>) => void;
+    handleObjectDragOver: (e: React.DragEvent<HTMLDivElement>) => void;
+    handleObjectDrop: (e: React.DragEvent<HTMLDivElement>) => void;
+  };
   /**
    * When true, the left panel renders as a full toolbox. When false (default)
    * only the metric toggle and Create POI Area are shown.
    */
   displayToolbox?: boolean;
+  drawControls: PolygonDraw;
 }
 
 // ---------------------------------------------------------------------------

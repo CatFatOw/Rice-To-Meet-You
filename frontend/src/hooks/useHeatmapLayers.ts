@@ -35,6 +35,33 @@ function translatePolygon(
   return points.map(([lng, lat]) => [lng + deltaLng, lat + deltaLat]);
 }
 
+// #rrggbb -> [r, g, b] for deck.gl color props. PlacedObject.color is a hex
+// string, but PolygonLayer needs RGBA arrays. Malformed components degrade to
+// 0 rather than NaN, which deck.gl would render as transparent/black.
+function hexToRgb(hex: string): [number, number, number] {
+  const n = hex.replace('#', '');
+  const r = parseInt(n.substring(0, 2), 16);
+  const g = parseInt(n.substring(2, 4), 16);
+  const b = parseInt(n.substring(4, 6), 16);
+  return [Number.isNaN(r) ? 0 : r, Number.isNaN(g) ? 0 : g, Number.isNaN(b) ? 0 : b];
+}
+
+function geometryAnchor(geometry: PlacedObject['geometry']): [number, number] {
+  if (geometry.kind === 'point') {
+    return [geometry.longitude, geometry.latitude];
+  }
+
+  const points = geometry.kind === 'line' ? geometry.coordinates : geometry.ring;
+  if (points.length === 0) return [0, 0];
+
+  const total = points.reduce(
+    (acc, [lng, lat]) => ({ lng: acc.lng + lng, lat: acc.lat + lat }),
+    { lng: 0, lat: 0 },
+  );
+
+  return [total.lng / points.length, total.lat / points.length];
+}
+
 // Transient state for a drag-in-progress on either the draft polygon or an
 // existing (editing) POI area. Lives here because only the layers below read
 // or write it.
@@ -163,17 +190,19 @@ export function useHeatmapLayers({
     [displayedHeatmapPoints, activeMetricColorRange],
   );
 
-  // Toolbox objects dropped onto the map. Click a pin to remove it.
-  const placedObjectLayer = useMemo(
+  // Placed objects with point/line geometry, rendered as toolbox marker icons
+  // at the geometry's anchor. Polygon-geometry objects are handled separately
+  // by placedObjectPolygonLayer below. Click a pin to remove it.
+  const placedObjectPointLayer = useMemo(
     () =>
       new IconLayer({
-        id: 'placed-object-layer',
-        data: placedObjects,
+        id: 'placed-object-point-layer',
+        data: placedObjects.filter((o) => o.geometry.kind !== 'polygon'),
         pickable: !isDrawing,
-        getPosition: (d: PlacedObject) => [d.longitude, d.latitude],
+        getPosition: (d: PlacedObject) => geometryAnchor(d.geometry),
         getIcon: (d: PlacedObject) => {
           const def = TOOLBOX_BY_TYPE[d.type];
-          const color = def?.color ?? '#f8fafc';
+          const color = d.color ?? def?.color ?? '#f8fafc';
           return {
             url: toolboxMarkerDataUrl(d.type, color),
             width: 48,
@@ -185,6 +214,37 @@ export function useHeatmapLayers({
         },
         getSize: 46,
         sizeUnits: 'pixels',
+        onClick: (info: any) => {
+          if (info.object) onRemovePlacedObject((info.object as PlacedObject).id);
+        },
+      }),
+    [placedObjects, isDrawing, onRemovePlacedObject],
+  );
+
+  // Placed objects with polygon geometry, rendered as filled areas (POI-style)
+  // instead of an icon. Fill/stroke come from the object's own color, falling
+  // back to the toolbox definition. Click to remove.
+  const placedObjectPolygonLayer = useMemo(
+    () =>
+      new PolygonLayer({
+        id: 'placed-object-polygon-layer',
+        data: placedObjects.filter((o) => o.geometry.kind === 'polygon'),
+        pickable: !isDrawing,
+        stroked: true,
+        filled: true,
+        opacity: 0.55,
+        getPolygon: (d: PlacedObject) =>
+          d.geometry.kind === 'polygon' ? d.geometry.ring : [],
+        getFillColor: (d: PlacedObject) => {
+          const color = d.color ?? TOOLBOX_BY_TYPE[d.type]?.color ?? '#f8fafc';
+          return [...hexToRgb(color), 140];
+        },
+        getLineColor: (d: PlacedObject) => {
+          const color = d.color ?? TOOLBOX_BY_TYPE[d.type]?.color ?? '#f8fafc';
+          return [...hexToRgb(color), 255];
+        },
+        getLineWidth: 2,
+        lineWidthUnits: 'pixels',
         onClick: (info: any) => {
           if (info.object) onRemovePlacedObject((info.object as PlacedObject).id);
         },
@@ -337,20 +397,22 @@ export function useHeatmapLayers({
     () => [
       interpolatedHeatmapLayer,
       poiAreaLayer,
+      placedObjectPolygonLayer,
       draftPolygonLayer,
       draftPathLayer,
       draftPointsLayer,
-      placedObjectLayer,
+      placedObjectPointLayer,
       cityIconLayer,
       cityLabelLayer,
     ],
     [
       interpolatedHeatmapLayer,
       poiAreaLayer,
+      placedObjectPolygonLayer,
       draftPolygonLayer,
       draftPathLayer,
       draftPointsLayer,
-      placedObjectLayer,
+      placedObjectPointLayer,
       cityIconLayer,
       cityLabelLayer,
     ],

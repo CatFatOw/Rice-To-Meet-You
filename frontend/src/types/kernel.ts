@@ -3,7 +3,6 @@ import type { HeatmapMetricValue } from './heatmap';
 type IndividualMetrics = HeatmapMetricValue['individual_metrics'];
 
 type SpatialKernel = (distanceMeters: number) => number;
-type TemporalKernel = (elapsedHours: number, activeHours: number) => number;
 type ResponseKernel = (baseValue: number) => number;
 type SuitabilityKernel = (metrics: IndividualMetrics) => number;
 type EnvironmentalKernel = (metrics: IndividualMetrics, time: string) => number;
@@ -12,7 +11,6 @@ export interface MetricEffectModel {
   intensity: number;
   floor: number;
   spatial: SpatialKernel;
-  temporal: TemporalKernel;
   response: ResponseKernel;
   suitability?: SuitabilityKernel;
   environmental?: EnvironmentalKernel;

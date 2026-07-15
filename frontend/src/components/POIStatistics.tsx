@@ -1,6 +1,14 @@
-import { ArrowRight, ExternalLink, SlidersHorizontal } from "lucide-react";
-import SelectDate from './SelectDate';
-import SimulateButton from './SimulateButton';
+import { useRef } from "react";
+import {
+  ArrowRight,
+  Expand,
+  ExternalLink,
+  Shrink,
+  SlidersHorizontal,
+} from "lucide-react";
+import SimulatePanel from './SimulatePanel';
+import ToolboxTable from './ToolboxTable';
+import { useFullscreen } from '../hooks/useFullScreen';
 import type { Column, POI, POIStatisticsProps } from '../types/statistics';
 export type { Column, POI, POIStatisticsProps };
 
@@ -95,97 +103,104 @@ export default function POIStatistics({
   fromDate,
   toDate,
   availableDates,
+  placedObjects,
+  onPlacedObjectsChange,
   onFromDateChange,
   onToDateChange,
   onSimulate,
 }: POIStatisticsProps) {
-  return (
-    <section className="flex h-full w-full flex-col rounded-xl border border-slate-800 bg-[#07111f] p-5 text-white shadow-lg">
-      <h2 className="mb-4 shrink-0 text-lg font-semibold">{title}</h2>
+  const panelRef = useRef<HTMLElement>(null);
+  const { isFullscreen, toggleFullscreen } = useFullscreen(panelRef);
 
-      {containSimulation && (
-        <div className="mb-4 shrink-0 rounded-lg border border-slate-800 bg-slate-950/55 p-4">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-300">
-            Simulate
+  return (
+    <section
+      ref={panelRef}
+      className={`relative flex h-full w-full flex-col border-slate-800 bg-[#07111f] p-5 text-white shadow-lg ${
+        isFullscreen ? 'rounded-none border-0' : 'rounded-xl border'
+      }`}
+    >
+      {/* Floating corner control - sits above the content, never scrolls away */}
+      <button
+        type="button"
+        onClick={toggleFullscreen}
+        aria-label={isFullscreen ? 'Exit fullscreen' : 'View fullscreen'}
+        title={isFullscreen ? 'Exit fullscreen' : 'View fullscreen'}
+        className="absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-lg border border-slate-600/60 bg-slate-950/85 text-slate-100 shadow-md transition hover:border-slate-500 hover:bg-slate-900"
+      >
+        {isFullscreen ? <Shrink size={18} /> : <Expand size={18} />}
+      </button>
+
+      {/* Fixed header - stays put while the body below it scrolls. pr-12 keeps
+          the title clear of the corner button. */}
+      <h2 className="mb-4 shrink-0 pr-12 text-lg font-semibold">Planner's Workspace</h2>
+
+      {/* Scroll container: everything else lives in here */}
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
+        {containSimulation && (
+          <>
+            <SimulatePanel
+              fromDate={fromDate}
+              toDate={toDate}
+              availableDates={availableDates}
+              onFromDateChange={onFromDateChange}
+              onToDateChange={onToDateChange}
+              onSimulate={onSimulate}
+            />
+
+            <ToolboxTable
+              placedObjects={placedObjects}
+              onPlacedObjectsChange={onPlacedObjectsChange}
+              availableDates={availableDates}
+            />
+          </>
+        )}
+
+        <div className="flex shrink-0 flex-col">
+          <h3 className="mb-3 shrink-0 text-sm font-semibold uppercase tracking-wide text-slate-300">
+            Key POIs in View
           </h3>
 
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-52 flex-1">
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                From
-              </p>
-              <SelectDate
-                label="From"
-                value={fromDate ?? null}
-                onChange={(isoDate) => onFromDateChange?.(isoDate)}
-                availableDates={availableDates}
-                variant="bare"
-                className="w-full"
-              />
-            </div>
+          <div className="overflow-x-auto rounded-lg border border-slate-800">
+            <table className="w-full border-collapse text-left">
+              <thead>
+                <tr className="border-b border-slate-800 text-sm text-slate-400">
+                  {columns.map((column) => (
+                    <th key={column.header} className="px-5 py-4 font-semibold">
+                      {column.header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
 
-            <div className="min-w-52 flex-1">
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                To
-              </p>
-              <SelectDate
-                label="To"
-                value={toDate ?? null}
-                onChange={(isoDate) => onToDateChange?.(isoDate)}
-                availableDates={availableDates}
-                variant="bare"
-                className="w-full"
-              />
-            </div>
-
-            <SimulateButton onClick={onSimulate} className="h-10 min-w-28" />
+              <tbody>
+                {pois.map((poi) => (
+                  <tr
+                    key={poi.name}
+                    className="border-b border-slate-800 last:border-b-0"
+                  >
+                    {columns.map((column) => (
+                      <td
+                        key={column.header}
+                        className={`px-5 py-4 ${resolveClassName(
+                          column.className,
+                          poi,
+                        )}`}
+                      >
+                        {column.cell(poi)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
-      )}
 
-      <h3 className="mb-3 shrink-0 text-sm font-semibold uppercase tracking-wide text-slate-300">
-        Key POIs in View
-      </h3>
-
-      <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-800">
-        <table className="w-full border-collapse text-left">
-          <thead>
-            <tr className="border-b border-slate-800 text-sm text-slate-400">
-              {columns.map((column) => (
-                <th key={column.header} className="px-5 py-4 font-semibold">
-                  {column.header}
-                </th>
-              ))}
-            </tr>
-          </thead>
-
-          <tbody>
-            {pois.map((poi) => (
-              <tr
-                key={poi.name}
-                className="border-b border-slate-800 last:border-b-0"
-              >
-                {columns.map((column) => (
-                  <td
-                    key={column.header}
-                    className={`px-5 py-4 ${resolveClassName(
-                      column.className,
-                      poi,
-                    )}`}
-                  >
-                    {column.cell(poi)}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <button className="shrink-0 flex items-center gap-2 font-semibold text-blue-400 transition hover:text-blue-300">
+          View all POIs in {cityName}
+          <ArrowRight size={20} />
+        </button>
       </div>
-
-      <button className="mt-4 shrink-0 flex items-center gap-2 font-semibold text-blue-400 transition hover:text-blue-300">
-        View all POIs in {cityName}
-        <ArrowRight size={20} />
-      </button>
     </section>
   );
 }
