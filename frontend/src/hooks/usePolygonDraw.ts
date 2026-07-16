@@ -3,9 +3,10 @@ import { useState, useCallback, useMemo } from 'react';
 
 export type Ring = [number, number][];
 
-export function usePolygonDraw(minPoints = 3) {
+export function usePolygonDraw(minPoints = 3, initialColor = '#22c55e') {
   const [isDrawing, setIsDrawing] = useState(false);
   const [draftPoints, setDraftPoints] = useState<Ring>([]);
+  const [draftColor, setDraftColor] = useState<string>(initialColor);
 
   const startDrawing = useCallback(() => {
     setDraftPoints([]);
@@ -42,6 +43,8 @@ export function usePolygonDraw(minPoints = 3) {
       setIsDrawing,
       draftPoints,
       setDraftPoints,
+      draftColor,
+      setDraftColor,
       startDrawing,
       addDraftPoint,
       undoDraftPoint,
@@ -52,6 +55,7 @@ export function usePolygonDraw(minPoints = 3) {
     [
       isDrawing,
       draftPoints,
+      draftColor,
       startDrawing,
       addDraftPoint,
       undoDraftPoint,

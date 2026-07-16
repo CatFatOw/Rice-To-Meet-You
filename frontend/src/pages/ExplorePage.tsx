@@ -14,8 +14,8 @@ import {
   type HeatmapMetricSnapshot,
 } from '../api/map';
 import { callMockStatistics } from '../api/statistics';
-import { determineCityView } from '../utils/cityViews';
-import { interpolateByCity } from '../utils/interpolate';
+import { determineCityView } from '../services/cityViews';
+import { interpolateByCity } from '../services/interpolate';
 import type { ViewState } from '../types/viewState';
 import type { GeocodeResult } from '../types/search';
 import type { TooltipState } from '../types/components';

@@ -1,16 +1,24 @@
-import type { ComponentType } from 'react';
-import type { Geometry, GeometryKind } from './simulation';
 
-// Definition of a draggable structure available in the toolbox palette.
-export interface ToolboxItemDef {
-  // Stable id. Also selects the map-pin glyph in utils/toolbox (toolboxGlyph);
-  // a new type with no matching glyph falls back to a plain dot.
-  type: string;
+import type { Geometry } from './simulation';
+
+// ../types/toolbox
+export interface VegetationParams   { coverPct: number; lai: number; irrigation: number }
+export interface HighAlbedoParams   { albedo: number; coverage: number; emissivity: number }
+export interface ShadeParams        { opacity: number; coverage: number }
+export interface EvaporativeParams  { flowRate: number; radius: number; activeFraction: number }
+
+type ToolboxItemBase = {
   label: string;
-  color: string; // hex; drives both the palette chip and the map pin
-  kind: GeometryKind;
-  Icon: ComponentType<{ size?: number | string; color?: string }>;
-}
+  color: string;
+  kind: 'polygon' | 'point';
+  Icon: React.ComponentType<{ size?: number | string; color?: string }>;
+};
+
+export type ToolboxItemDef =
+  | (ToolboxItemBase & { type: 'vegetation';    params: VegetationParams })
+  | (ToolboxItemBase & { type: 'cool_surface';  params: HighAlbedoParams })
+  | (ToolboxItemBase & { type: 'shade_canopy';  params: ShadeParams })
+  | (ToolboxItemBase & { type: 'water_misting'; params: EvaporativeParams });
 
 // A placed instance of a toolbox item, positioned in map (lng/lat) space.
 export interface PlacedObject {
@@ -19,4 +27,7 @@ export interface PlacedObject {
   name?: string;
   color?: string;
   geometry: Geometry;
+  params?: Record<string, number>;
+  activeFrom?: string;
+  activeTo?: string;
 }

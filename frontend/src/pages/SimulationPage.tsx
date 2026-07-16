@@ -14,10 +14,10 @@ import {
   type HeatmapMetricSnapshot,
 } from '../api/map';
 import { callMockStatistics } from '../api/statistics';
-import { determineCityView } from '../utils/cityViews';
-import { interpolateByCity } from '../utils/interpolate';
+import { determineCityView } from '../services/cityViews';
+import { interpolateByCity } from '../services/interpolate';
 import { KERNEL_MODEL as BASE_KERNEL_MODEL } from '../data/kernel';
-import { eachDay, runSimulation, type KernelModel, type KernelInput } from '../utils/simulation';
+import { eachDay, runSimulation, type KernelModel, type KernelInput } from '../services/simulation';
 import type { PlacedObject as ToolboxPlacedObject } from '../types/toolbox';
 import type { Geometry, PlacedObject as SimulationPlacedObject, Schedule } from '../types/simulation';
 import type { ViewState } from '../types/viewState';

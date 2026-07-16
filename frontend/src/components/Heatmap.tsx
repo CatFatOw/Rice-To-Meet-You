@@ -7,18 +7,23 @@ import {
   type HeatmapMetricValue,
 } from '../api/map';
 import { type City } from '../data/hostCities';
-import { getColor } from '../utils/colors';
+import { getColor } from '../services/colors';
 import { useHeatmapLayers } from '../hooks/useHeatmapLayers';
-import { sampleHeatmapMetricByCity } from '../utils/interpolate';
+import { sampleHeatmapMetricByCity } from '../services/interpolate';
 import SearchBar from './SearchBar';
 import Toolbox from './Toolbox';
 import HeatRiskScale from './Heatriskscale';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import type { SurfaceType } from '../utils/map';
-import { classifySurface } from '../utils/map';
+import type { SurfaceType } from '../services/map';
+import { classifySurface } from '../services/map';
 import type { GeocodeResult } from '../types/search';
 import type { HeatmapProps, TooltipState } from '../types/components';
 import type { ViewState } from '../types/viewState';
+import { fetchPlacedObjects } from '../api/tool';
+import type { Geometry } from '../types/simulation';
+import { isPointInPolygon } from '../services/toolbox';
+
+
 
 // Re-exported so existing imports (`import Heatmap, { type GeocodeResult }`)
 // keep working now that the search UI lives in its own component.
@@ -204,7 +209,36 @@ const Heatmap: React.FC<HeatmapProps> = ({
 
   // placedObjectsControls is optional (ExplorePage renders without a toolbox),
   // so default to an empty list rather than guarding at every use site.
-  const currentPlacedObjects = placedObjectsControls?.placedObjects ?? [];
+const currentPlacedObjects = placedObjectsControls?.placedObjects ?? [];
+const pendingPlacedObjects = useMemo(
+  () =>
+    placedObjectsControls?.pendingPlacedObject
+      ? [placedObjectsControls.pendingPlacedObject]
+      : [],
+  [placedObjectsControls?.pendingPlacedObject],
+);
+
+// Polygon things the hover test should check: committed + pending placed
+// objects whose geometry is a polygon, plus the user-drawn POI areas. Each
+// entry is normalized to a { ring } with a tagged source so the tooltip can
+// render the right details. Server POI areas (cityPOIAreas) are NOT included.
+const hoverablePolygons = useMemo(() => {
+  const placed = [...currentPlacedObjects, ...pendingPlacedObjects]
+    .filter((o) => o.geometry.kind === 'polygon')
+    .map((o) => ({
+      source: 'placed' as const,
+      ring: o.geometry.kind === 'polygon' ? o.geometry.ring : [],
+      object: o,
+    }));
+
+  const poi = userPOIAreas.map((area) => ({
+    source: 'poi' as const,
+    ring: area.polygon,
+    area,
+  }));
+
+  return [...placed, ...poi];
+}, [currentPlacedObjects, pendingPlacedObjects, userPOIAreas]);
 
   // ======================================================
   // Placed-object handlers
@@ -334,6 +368,65 @@ const Heatmap: React.FC<HeatmapProps> = ({
     [activeMetricKey],
   );
 
+  // Load mock placed-object tools for the selected city + date and push them
+  // into placedObjectsControls. Re-runs on city/date change; clears when either
+  // is missing. The ignore flag drops a stale response if the selection changes
+  // mid-fetch.
+  useEffect(() => {
+    if (!placedObjectsControls?.setPlacedObjects) return;
+
+    if (!selectedCity || !selectedDate) {
+      placedObjectsControls.setPlacedObjects([]);
+      return;
+    }
+
+    let ignore = false;
+
+    fetchPlacedObjects()
+      .then((byDateCity) => {
+        if (ignore) return;
+        const tools = byDateCity[selectedDate]?.[selectedCity] ?? [];
+        placedObjectsControls.setPlacedObjects(tools);
+      })
+      .catch((error) => {
+        if (ignore) return;
+        console.error('Failed to load placed objects', error);
+        placedObjectsControls.setPlacedObjects([]);
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [selectedCity, selectedDate, placedObjectsControls]);
+
+
+  // Mirror the in-progress polygon draft into a pending placed object so it
+  // renders through the same placed-object path and can be named/colored before
+  // commit. While drawing, keep pending metadata alive even with <3 points so
+  // selecting a polygon tool doesn't get immediately wiped on draw start.
+  useEffect(() => {
+    const setPending = placedObjectsControls?.setPendingPlacedObject;
+    if (!setPending) return;
+
+    setPending((prev) => {
+      if (!isDrawing) {
+        // Only clear polygon drafts when drawing ends; keep non-polygon pending
+        // objects (e.g. dragged point tools) untouched.
+        return prev?.geometry?.kind === 'polygon' ? null : prev;
+      }
+
+      return {
+        type: prev?.type ?? 'polygon',
+        name: prev?.name ?? 'polygon',
+        color: prev?.color,
+        params: prev?.params,
+        activeFrom: prev?.activeFrom,
+        activeTo: prev?.activeTo,
+        geometry: { kind: 'polygon', ring: draftPoints } as Geometry,
+      };
+    });
+  }, [draftPoints, isDrawing, placedObjectsControls?.setPendingPlacedObject]);
+
   // Cycle to the next available metric (drives the Toolbox metric toggle).
   // Wraps around at the end of the list; no-op when there's nothing to cycle to.
   const cycleMetric = useCallback(() => {
@@ -351,7 +444,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
   }, [selectedCity, cityPOIAreas, userPOIAreas]);
 
   /** Draft polygon colour as an RGB tuple for the deck.gl draft layer. */
-  const draftRgb = useMemo(() => hexToRgb(draftColorHex), [draftColorHex]);
+  const draftRgb = useMemo(() => hexToRgb(drawControls.draftColor), [drawControls.draftColor]);
 
   // All deck.gl layers (city markers, heatmap surface, POI areas, placed
   // objects, and the in-progress draft) are built in this hook.
@@ -364,6 +457,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
     userPOIAreas,
     editingAreaId,
     placedObjects: currentPlacedObjects,
+    pendingPlacedObjects,
     draftPoints,
     draftRgb,
     onCityClick: handleCityClick,
@@ -417,6 +511,22 @@ const Heatmap: React.FC<HeatmapProps> = ({
         return;
       }
 
+      // Prefer polygon context over raw coordinate label when the hovered
+      // point is inside a user/placed polygon.
+      const hoveredPolygon = hoverablePolygons.find(({ ring }) =>
+        isPointInPolygon(ring, longitude, latitude),
+      );
+
+      const prioritizedPoint = hoveredPolygon
+        ? {
+            ...sampledPoint,
+            location_name:
+              hoveredPolygon.source === 'placed'
+                ? (hoveredPolygon.object.name?.trim() || hoveredPolygon.object.type)
+                : hoveredPolygon.area.name,
+          }
+        : sampledPoint;
+
       setHoveringHeatmap(true);
       // Surface classification needs the MapLibre instance to query rendered
       // basemap features at the pixel; degrade to 'unknown' if it isn't ready.
@@ -425,7 +535,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
         : { type: 'unknown' as SurfaceType };
 
       setTooltip({
-        point: sampledPoint,
+        point: prioritizedPoint,
         metric: activeMetricKey,
         x: info.x,
         y: info.y,
@@ -439,6 +549,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
       heatmapAnchorsByCity,
       isDrawing,
       mapRef,
+      hoverablePolygons,
       selectedCity,
       selectedDate,
       setHoveringHeatmap,
@@ -620,6 +731,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
         // vertices), in which case the draft is left untouched. Name defaults
         // to a numbered "Custom Area" when the input is blank; the stored
         // colour is the draft RGB plus a fixed 140 alpha for the fill.
+        onSetDraftColor={(color) => drawControls.setDraftColor(color)}
         onFinishArea={() => {
           const ring = drawControls.commitDrawing();
           if (ring && selectedCity) {
@@ -629,7 +741,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
                 id: `custom-${Date.now()}-${prev.length + 1}`,
                 name: draftName.trim() || `Custom Area ${prev.length + 1}`,
                 polygon: ring,
-                color: [...hexToRgb(draftColorHex), 140],
+                color: [...hexToRgb(drawControls.draftColor), 140],
               } as CityPOIArea,
             ]);
             setDraftName('');

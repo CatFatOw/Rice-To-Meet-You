@@ -1,5 +1,6 @@
 import { TOOLBOX_ITEMS, type ToolboxItemDef } from '../data/toolboxItems';
 import type { PlacedObject } from '../types/toolbox';
+import type { Ring } from '../hooks/usePolygonDraw';
 export type { PlacedObject };
 
 // --- Toolbox plumbing + rendering -------------------------------------------
@@ -60,4 +61,86 @@ export function toolboxMarkerSvg(type: string, color: string): string {
 
 export function toolboxMarkerDataUrl(type: string, color: string): string {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(toolboxMarkerSvg(type, color))}`;
+}
+
+
+/**
+ * Returns the area centroid (center of mass) of a polygon ring as [lng, lat].
+ * Works for any simple polygon; ring may be open or closed (first point
+ * repeated at the end is fine). Falls back to the vertex average for
+ * degenerate rings (zero area, e.g. all points collinear or identical).
+ */
+export function polygonCenter(ring: Ring): [number, number] {
+  const n = ring.length;
+  if (n === 0) throw new Error('polygonCenter: ring has no points');
+  if (n === 1) return [ring[0][0], ring[0][1]];
+  if (n === 2) {
+    return [(ring[0][0] + ring[1][0]) / 2, (ring[0][1] + ring[1][1]) / 2];
+  }
+
+  let twiceArea = 0;
+  let cx = 0;
+  let cy = 0;
+
+  // Shoelace-weighted centroid. Sum over each edge (i -> i+1), wrapping the
+  // last vertex back to the first so an open ring is treated as closed.
+  for (let i = 0; i < n; i++) {
+    const [x0, y0] = ring[i];
+    const [x1, y1] = ring[(i + 1) % n];
+    const cross = x0 * y1 - x1 * y0;
+    twiceArea += cross;
+    cx += (x0 + x1) * cross;
+    cy += (y0 + y1) * cross;
+  }
+
+  // Degenerate polygon (no area): fall back to the mean of the vertices.
+  if (twiceArea === 0) {
+    const sum = ring.reduce<[number, number]>(
+      (acc, [x, y]) => [acc[0] + x, acc[1] + y],
+      [0, 0],
+    );
+    return [sum[0] / n, sum[1] / n];
+  }
+
+  const factor = 1 / (3 * twiceArea);
+  return [cx * factor, cy * factor];
+}
+
+
+
+/**
+ * Returns true if [longitude, latitude] lies inside the polygon ring.
+ * Ray-casting (even–odd rule): counts edge crossings of a ray going right
+ * from the point; odd = inside. Ring may be open or closed (repeating the
+ * first point at the end is fine). Points exactly on an edge/vertex are
+ * boundary cases and may return either result — see note below.
+ */
+export function isPointInPolygon(
+  ring: Ring,
+  longitude: number,
+  latitude: number,
+): boolean {
+  const n = ring.length;
+  if (n < 3) return false; // not a polygon — no interior
+
+  const x = longitude;
+  const y = latitude;
+  let inside = false;
+
+  // Walk each edge (j -> i), wrapping the last vertex back to the first so an
+  // open ring is treated as closed.
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+
+    // Does the horizontal ray at y cross this edge, and is the crossing to the
+    // right of x? Each qualifying crossing flips the inside/outside state.
+    const intersects =
+      yi > y !== yj > y &&
+      x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+
+    if (intersects) inside = !inside;
+  }
+
+  return inside;
 }

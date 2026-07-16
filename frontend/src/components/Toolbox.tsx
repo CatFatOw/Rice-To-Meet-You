@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pencil, Check, Undo2, X, Trash2, Crosshair } from 'lucide-react';
-import { TOOLBOX_ITEMS, TOOLBOX_DRAG_MIME, type ToolboxItemDef } from '../utils/toolbox';
+import { TOOLBOX_ITEMS, TOOLBOX_DRAG_MIME, type ToolboxItemDef } from '../services/toolbox';
 import type { ToolboxProps } from '../types/components';
 import SelectDate from './SelectDate';
 
@@ -41,7 +41,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
   editingAreaId,
   onFinishEdit,
   placedCount,
-  onClearObjects,
+  onClearObjects: _onClearObjects,
   isDrawing,
   draftPointCount,
   onStartDrawing,
@@ -49,17 +49,68 @@ const Toolbox: React.FC<ToolboxProps> = ({
   onUndoLastPoint,
   onCancelDrawing,
   onClearMyAreas,
+  onSetDraftColor,
   placedObjectsControls,
-  onCommitDrawing
+  onCommitDrawing: _onCommitDrawing,
+  draftPoints: _draftPoints,
 }) => {
   const pointCount = draftPointCount;
-  const [toolName, setToolName] = React.useState('');
-  const [toolColor, setToolColor] = React.useState('#22c55e');
-  const [toolType, setToolType] = React.useState<string | null>(null);
-  const [toolKind, setToolKind] = React.useState<string | null>(null);
+  const citySelected = Boolean(selectedCity);
+  const pendingPlacedObject = placedObjectsControls?.pendingPlacedObject ?? null;
+  const setPendingPlacedObject = placedObjectsControls?.setPendingPlacedObject;
+  const updatePendingPlacedObject = placedObjectsControls?.updatePendingPlacedObject;
+  const toolType = pendingPlacedObject?.type ?? null;
+  const toolName = pendingPlacedObject?.name ?? '';
+  const toolColor = pendingPlacedObject?.color ?? '';
+  const toolParams = pendingPlacedObject?.params ?? {};
+  const toolActiveFrom = pendingPlacedObject?.activeFrom ?? null;
+  const toolActiveTo = pendingPlacedObject?.activeTo ?? null;
 
+  const selectedTool = React.useMemo(
+    () => TOOLBOX_ITEMS.find((item) => item.type === toolType) ?? null,
+    [toolType],
+  );
 
+  React.useEffect(() => {
+    if (!selectedTool) return;
+    updatePendingPlacedObject?.({
+      name: selectedTool.label,
+      color: selectedTool.color,
+      params: { ...selectedTool.params },
+    });
+  }, [selectedTool, updatePendingPlacedObject]);
 
+  React.useEffect(() => {
+    if (!selectedTool) return;
+    onSetDraftColor(selectedTool.color);
+  }, [selectedTool, onSetDraftColor]);
+
+  const toolParamEntries = React.useMemo(
+    () =>
+      Object.keys(selectedTool?.params ?? {}).map(
+        (key) => [key, toolParams[key]] as const,
+      ),
+    [selectedTool, toolParams],
+  );
+
+  // A param counts as "filled" only if it's non-blank and a real number.
+  // Vacuously true for tools with no params (there's nothing left unfilled).
+  const allParamsFilled = React.useMemo(
+    () => toolParamEntries.every(([, raw]) => typeof raw === 'number' && Number.isFinite(raw)),
+    [toolParamEntries],
+  );
+
+  // Single source of truth for whether the tool can be saved. Every editable
+  // input must be present: a city, a selected tool, a name, a color, all
+  // params, and both active-window dates. "0" passes (it's filled); "" fails.
+  const canSaveTool =
+    citySelected &&
+    Boolean(selectedTool) &&
+    toolName.trim() !== '' &&
+    toolColor.trim() !== '' &&
+    allParamsFilled &&
+    (toolActiveFrom ?? '').trim() !== '' &&
+    (toolActiveTo ?? '').trim() !== '';
 
   return (
     <div
@@ -82,6 +133,21 @@ const Toolbox: React.FC<ToolboxProps> = ({
         gap: 10,
       }}
     >
+      {!citySelected && (
+        <div
+          style={{
+            fontSize: 12,
+            color: '#fca5a5',
+            backgroundColor: 'rgba(127, 29, 29, 0.25)',
+            border: '1px solid rgba(248, 113, 113, 0.35)',
+            borderRadius: 6,
+            padding: '6px 8px',
+          }}
+        >
+          Select a city on the map to enable all toolbox inputs.
+        </div>
+      )}
+
       {/* --- Date selector (drives selected heatmap day) --- */}
       <div style={{ fontSize: 13, fontWeight: 700 }}>Date</div>
       <SelectDate
@@ -89,6 +155,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
         value={selectedDate}
         onChange={(isoDate) => setSelectedDate(isoDate)}
         availableDates={availableDates}
+        disabled={!citySelected}
         variant="bare"
         style={{ width: '100%' }}
       />
@@ -99,13 +166,13 @@ const Toolbox: React.FC<ToolboxProps> = ({
       <button
         type="button"
         onClick={onToggleMetric}
-        disabled={!canToggleMetric}
+        disabled={!citySelected || !canToggleMetric}
         title="Toggle metric"
         style={{
           ...toolbarButtonStyle,
           backgroundColor: 'rgba(15, 23, 42, 0.9)',
           color: '#e2e8f0',
-          cursor: canToggleMetric ? 'pointer' : 'default',
+          cursor: citySelected && canToggleMetric ? 'pointer' : 'not-allowed',
         }}
       >
         <Crosshair size={14} />
@@ -120,27 +187,53 @@ const Toolbox: React.FC<ToolboxProps> = ({
           <div style={{ fontSize: 12, color: '#94a3b8', marginTop: -4 }}>
             Drag point tools onto the map. Click polygon tools to start drawing them on the map.
           </div>
-
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             {TOOLBOX_ITEMS.map((item: ToolboxItemDef) => {
               const Icon = item.Icon;
               const isPoint = item.kind === 'point';
+              const isSelected = citySelected && toolType === item.type;
               return (
                 <div
                   key={item.type}
-                  draggable={isPoint}
+                  draggable={isPoint && citySelected}
                   onDragStart={(e) => {
-                    if (!isPoint) return;
-                    setToolType(item.type);
-                    setToolKind(item.kind);
+                    if (!isPoint || !citySelected) return;
                     e.dataTransfer.setData(TOOLBOX_DRAG_MIME, item.type);
+                    e.dataTransfer.setData(
+                      'application/x-toolbox-params',
+                      JSON.stringify(item.params),
+                    );
                     e.dataTransfer.effectAllowed = 'copy';
+                    // Seed a pending object so dragover has something to reposition.
+                    setPendingPlacedObject?.({
+                 
+                      type: item.type,
+                      name: item.label,
+                      color: item.color,
+                      params: { ...item.params },
+                      geometry: { kind: 'point', longitude: 0, latitude: 0 },
+                    });
                   }}
                   onClick={() => {
-                    setToolKind(item.kind);
-                    setToolType(item.type);
+                    if (!citySelected) return;
+                    setPendingPlacedObject?.({
+
+                      type: item.type,
+                      name: pendingPlacedObject?.name?.trim() ? pendingPlacedObject.name : item.label,
+                      color: pendingPlacedObject?.color ?? item.color,
+                      params:
+                        pendingPlacedObject?.type === item.type && pendingPlacedObject.params
+                          ? pendingPlacedObject.params
+                          : { ...item.params },
+                      activeFrom: pendingPlacedObject?.activeFrom,
+                      activeTo: pendingPlacedObject?.activeTo,
+                      geometry: { kind: 'polygon', ring: [] },
+                    });
                     if (item.kind === 'polygon'){
                       onStartDrawing();
+                      onSetDraftColor(pendingPlacedObject?.color ?? item.color);
+                      
+                      
                     }
                     // Pass the whole item: the ring it produces becomes a placed
                     // object of this type, not a POI area.
@@ -155,11 +248,16 @@ const Toolbox: React.FC<ToolboxProps> = ({
                     gap: 6,
                     padding: '10px 6px',
                     borderRadius: 8,
-                    border: '1px solid rgba(148, 163, 184, 0.35)',
-                    backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                    cursor: isPoint ? 'grab' : 'pointer',
+                    border: isSelected
+                      ? `1px solid ${item.color}`
+                      : '1px solid rgba(148, 163, 184, 0.35)',
+                    backgroundColor: isSelected ? `${item.color}22` : 'rgba(15, 23, 42, 0.9)',
+                    boxShadow: isSelected ? `0 0 0 1px ${item.color}` : 'none',
+                    cursor: !citySelected ? 'not-allowed' : isPoint ? 'grab' : 'pointer',
                     userSelect: 'none',
                     textAlign: 'center',
+                    opacity: citySelected ? 1 : 0.6,
+                    pointerEvents: citySelected ? 'auto' : 'none',
                   }}
                 >
                   <span
@@ -191,7 +289,8 @@ const Toolbox: React.FC<ToolboxProps> = ({
             <input
               type="text"
               value={toolName}
-              onChange={(e) => setToolName(e.target.value)}
+              onChange={(e) => updatePendingPlacedObject?.({ name: e.target.value })}
+              disabled={!citySelected}
               placeholder="Enter tool name"
               style={{
                 padding: '6px 8px',
@@ -217,7 +316,8 @@ const Toolbox: React.FC<ToolboxProps> = ({
             <input
               type="color"
               value={toolColor}
-              onChange={(e) => setToolColor(e.target.value)}
+              onChange={(e) => updatePendingPlacedObject?.({ color: e.target.value })}
+              disabled={!citySelected}
               style={{
                 width: 44,
                 height: 28,
@@ -229,40 +329,93 @@ const Toolbox: React.FC<ToolboxProps> = ({
             />
           </label>
 
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ fontSize: 12, color: '#cbd5e1' }}>Tool Params</div>
+            {toolParamEntries.length === 0 ? (
+              <div style={{ fontSize: 11, color: '#94a3b8' }}>Select a tool to edit params.</div>
+            ) : (
+              toolParamEntries.map(([paramKey, paramValue]) => {
+                const isBlank = typeof paramValue !== 'number' || !Number.isFinite(paramValue);
+                return (
+                  <label
+                    key={paramKey}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
+                  >
+                    <span style={{ fontSize: 12, color: '#cbd5e1' }}>{paramKey}</span>
+                    <input
+                      type="number"
+                      value={isBlank ? '' : paramValue}
+                      disabled={!citySelected}
+                      onChange={(e) => {
+                        const nextValue = e.target.value === '' ? Number.NaN : Number(e.target.value);
+                        updatePendingPlacedObject?.({
+                          params: { ...toolParams, [paramKey]: nextValue },
+                        });
+                      }}
+                      style={{
+                        width: 92,
+                        padding: '4px 6px',
+                        borderRadius: 6,
+                        // Flag empty/invalid params so the user sees what's blocking Save.
+                        border: isBlank
+                          ? '1px solid rgba(248, 113, 113, 0.7)'
+                          : '1px solid rgba(148, 163, 184, 0.45)',
+                        backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                        color: '#f1f5f9',
+                        fontSize: 12,
+                      }}
+                    />
+                  </label>
+                );
+              })
+            )}
+          </div>
+
+          {/* --- Active window: both dates required before Save is enabled --- */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ fontSize: 12, color: '#cbd5e1' }}>Active From</div>
+            <SelectDate
+              label="Active From"
+              value={toolActiveFrom}
+              onChange={(isoDate) => updatePendingPlacedObject?.({ activeFrom: isoDate })}
+              availableDates={availableDates}
+              disabled={!citySelected}
+              variant="bare"
+              style={{ width: '100%' }}
+            />
+            <div style={{ fontSize: 12, color: '#cbd5e1' }}>Active To</div>
+            <SelectDate
+              label="Active To"
+              value={toolActiveTo}
+              onChange={(isoDate) => updatePendingPlacedObject?.({ activeTo: isoDate })}
+              availableDates={availableDates}
+              disabled={!citySelected}
+              variant="bare"
+              style={{ width: '100%' }}
+            />
+          </div>
+
           <button
             type="button"
             style={{
               ...toolbarButtonStyle,
-              backgroundColor: 'rgba(14, 116, 144, 0.85)',
+              backgroundColor: canSaveTool ? 'rgba(14, 116, 144, 0.85)' : 'rgba(71, 85, 105, 0.6)',
               color: '#e0f2fe',
+              cursor: canSaveTool ? 'pointer' : 'not-allowed',
+              opacity: canSaveTool ? 1 : 0.6,
             }}
             onClick={() => {
-              if (!toolKind || !toolType) return;
-
-              if (toolKind === 'polygon') {
-                const ring = onCommitDrawing();
-                if (!ring || !placedObjectsControls?.setPlacedObjects) return;
-
-                placedObjectsControls.setPlacedObjects((prev) => [
-                  ...prev,
-                  {
-                    id: `placed-${Date.now()}-${prev.length + 1}`,
-                    type: toolType,
-                    name: toolName.trim() || toolType,
-                    color: toolColor,
-                    geometry: {
-                      kind: 'polygon',
-                      ring,
-                    },
-                  },
-                ]);
-              } else if (toolKind === 'point') {
-                placedObjectsControls?.commitPlacedObject?.({
-                  name: toolName.trim() || undefined,
-                  color: toolColor,
-                });
-              }
+              if (!canSaveTool) return;
+              void placedObjectsControls?.commitPendingPlacedObject?.();
             }}
+            disabled={!canSaveTool}
+            title={
+              !citySelected
+                ? 'Select a city on the map first'
+                : !canSaveTool
+                  ? 'Fill in the tool name, params, and active dates before saving'
+                  : undefined
+            }
           >
             <Check size={15} /> Save Changes
           </button>
@@ -270,14 +423,16 @@ const Toolbox: React.FC<ToolboxProps> = ({
           {placedCount > 0 && (
             <button
               type="button"
-              onClick={onClearObjects}
+              onClick={() => placedObjectsControls?.clearPendingPlacedObject?.()}
+              disabled={!citySelected}
+              title={!citySelected ? 'Select a city on the map first' : undefined}
               style={{
                 ...toolbarButtonStyle,
                 backgroundColor: 'rgba(30, 41, 59, 0.9)',
                 color: '#fca5a5',
               }}
             >
-              <Trash2 size={15} /> Clear objects ({placedCount})
+              <Trash2 size={15} /> Clear objects 
             </button>
           )}
 
@@ -308,6 +463,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
           type="text"
           value={draftName}
           onChange={(e) => setDraftName(e.target.value)}
+          disabled={!citySelected}
           placeholder="e.g. Downtown Core"
           style={{
             padding: '6px 8px',
@@ -334,6 +490,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
           type="color"
           value={draftColorHex}
           onChange={(e) => setDraftColorHex(e.target.value)}
+          disabled={!citySelected}
           style={{
             width: 44,
             height: 28,
@@ -356,6 +513,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
             color: '#f8fafc',
             cursor: selectedCity ? 'pointer' : 'not-allowed',
           }}
+          title={!citySelected ? 'Select a city on the map first' : undefined}
         >
           <Pencil size={15} /> Draw new area
         </button>
@@ -368,26 +526,28 @@ const Toolbox: React.FC<ToolboxProps> = ({
             <button
               type="button"
               onClick={onFinishArea}
-              disabled={pointCount < 3}
+              disabled={!citySelected || pointCount < 3}
               style={{
                 ...toolbarButtonStyle,
-                backgroundColor: pointCount >= 3 ? '#16a34a' : 'rgba(71, 85, 105, 0.6)',
+                backgroundColor: citySelected && pointCount >= 3 ? '#16a34a' : 'rgba(71, 85, 105, 0.6)',
                 color: '#f8fafc',
-                cursor: pointCount >= 3 ? 'pointer' : 'not-allowed',
+                cursor: citySelected && pointCount >= 3 ? 'pointer' : 'not-allowed',
               }}
+              title={!citySelected ? 'Select a city on the map first' : undefined}
             >
               <Check size={15} /> Finish
             </button>
             <button
               type="button"
               onClick={onUndoLastPoint}
-              disabled={pointCount === 0}
+              disabled={!citySelected || pointCount === 0}
               style={{
                 ...toolbarButtonStyle,
                 backgroundColor: 'rgba(30, 41, 59, 0.9)',
                 color: '#e2e8f0',
-                cursor: pointCount === 0 ? 'not-allowed' : 'pointer',
+                cursor: citySelected && pointCount > 0 ? 'pointer' : 'not-allowed',
               }}
+              title={!citySelected ? 'Select a city on the map first' : undefined}
             >
               <Undo2 size={15} /> Undo
             </button>
@@ -395,11 +555,14 @@ const Toolbox: React.FC<ToolboxProps> = ({
           <button
             type="button"
             onClick={onCancelDrawing}
+            disabled={!citySelected}
             style={{
               ...toolbarButtonStyle,
               backgroundColor: 'rgba(30, 41, 59, 0.9)',
               color: '#fca5a5',
+              cursor: citySelected ? 'pointer' : 'not-allowed',
             }}
+            title={!citySelected ? 'Select a city on the map first' : undefined}
           >
             <X size={15} /> Cancel
           </button>
@@ -410,11 +573,14 @@ const Toolbox: React.FC<ToolboxProps> = ({
         <button
           type="button"
           onClick={onClearMyAreas}
+          disabled={!citySelected}
           style={{
             ...toolbarButtonStyle,
             backgroundColor: 'rgba(30, 41, 59, 0.9)',
             color: '#fca5a5',
+            cursor: citySelected ? 'pointer' : 'not-allowed',
           }}
+          title={!citySelected ? 'Select a city on the map first' : undefined}
         >
           <Trash2 size={15} /> Clear my areas
         </button>
@@ -424,11 +590,14 @@ const Toolbox: React.FC<ToolboxProps> = ({
         <button
           type="button"
           onClick={onFinishEdit}
+          disabled={!citySelected}
           style={{
             ...toolbarButtonStyle,
             backgroundColor: 'rgba(14, 116, 144, 0.85)',
             color: '#e0f2fe',
+            cursor: citySelected ? 'pointer' : 'not-allowed',
           }}
+          title={!citySelected ? 'Select a city on the map first' : undefined}
         >
           <Check size={15} /> Finish Edit
         </button>

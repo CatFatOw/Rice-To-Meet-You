@@ -9,8 +9,9 @@ import {
 import { HeatmapLayer } from '@deck.gl/aggregation-layers';
 import { type CityPOIArea, type HeatmapMetricValue } from '../api/map';
 import { cities, type City } from '../data/hostCities';
-import { TOOLBOX_BY_TYPE, toolboxMarkerDataUrl, type PlacedObject } from '../utils/toolbox';
+import { TOOLBOX_BY_TYPE, toolboxMarkerDataUrl, type PlacedObject } from '../services/toolbox';
 import type { UseHeatmapLayersArgs } from '../types/components';
+import { polygonCenter } from '../services/toolbox';
 
 // Colored soccer-ball SVG for city markers. Rendered via IconLayer (not
 // TextLayer) so it keeps its colors — TextLayer's grayscale glyph atlas turns
@@ -92,6 +93,7 @@ export function useHeatmapLayers({
   userPOIAreas,
   editingAreaId,
   placedObjects,
+  pendingPlacedObjects,
   draftPoints,
   draftRgb,
   onCityClick,
@@ -103,6 +105,13 @@ export function useHeatmapLayers({
   setDraftPoints,
 }: UseHeatmapLayersArgs) {
   const dragContextRef = useRef<DragContext | null>(null);
+
+  // Committed objects plus any pending (staged) ones, rendered identically.
+  // pendingPlacedObjects is optional (pages without a toolbox omit it).
+  const allPlacedObjects = useMemo(
+    () => [...placedObjects, ...(pendingPlacedObjects ?? [])],
+    [placedObjects, pendingPlacedObjects],
+  );
 
   // Football icon marking each city (replaces the old red dots). Uses an
   // IconLayer with a colored SVG so it renders in full color.
@@ -197,7 +206,7 @@ export function useHeatmapLayers({
     () =>
       new IconLayer({
         id: 'placed-object-point-layer',
-        data: placedObjects.filter((o) => o.geometry.kind !== 'polygon'),
+        data: allPlacedObjects.filter((o) => o.geometry.kind !== 'polygon'),
         pickable: !isDrawing,
         getPosition: (d: PlacedObject) => geometryAnchor(d.geometry),
         getIcon: (d: PlacedObject) => {
@@ -218,7 +227,7 @@ export function useHeatmapLayers({
           if (info.object) onRemovePlacedObject((info.object as PlacedObject).id);
         },
       }),
-    [placedObjects, isDrawing, onRemovePlacedObject],
+    [allPlacedObjects, isDrawing, onRemovePlacedObject],
   );
 
   // Placed objects with polygon geometry, rendered as filled areas (POI-style)
@@ -228,7 +237,7 @@ export function useHeatmapLayers({
     () =>
       new PolygonLayer({
         id: 'placed-object-polygon-layer',
-        data: placedObjects.filter((o) => o.geometry.kind === 'polygon'),
+        data: allPlacedObjects.filter((o) => o.geometry.kind === 'polygon'),
         pickable: !isDrawing,
         stroked: true,
         filled: true,
@@ -249,7 +258,41 @@ export function useHeatmapLayers({
           if (info.object) onRemovePlacedObject((info.object as PlacedObject).id);
         },
       }),
-    [placedObjects, isDrawing, onRemovePlacedObject],
+    [allPlacedObjects, isDrawing, onRemovePlacedObject],
+  );
+
+// Toolbox marker icon centered on each polygon placed object (in addition to
+  // the filled area from placedObjectPolygonLayer). Anchored at the polygon's
+  // area centroid via polygonCenter. Click to remove, same as the pins.
+  const placedObjectPolygonIconLayer = useMemo(
+    () =>
+      new IconLayer({
+        id: 'placed-object-polygon-icon-layer',
+        data: allPlacedObjects.filter(
+          (o) => o.geometry.kind === 'polygon' && o.geometry.ring.length >= 3,
+        ),
+        pickable: !isDrawing,
+        getPosition: (d: PlacedObject) =>
+          d.geometry.kind === 'polygon' ? polygonCenter(d.geometry.ring) : [0, 0],
+        getIcon: (d: PlacedObject) => {
+          const def = TOOLBOX_BY_TYPE[d.type];
+          const color = d.color ?? def?.color ?? '#f8fafc';
+          return {
+            url: toolboxMarkerDataUrl(d.type, color),
+            width: 48,
+            height: 60,
+            anchorX: 24,
+            anchorY: 58,
+            id: d.type,
+          };
+        },
+        getSize: 46,
+        sizeUnits: 'pixels',
+        onClick: (info: any) => {
+          if (info.object) onRemovePlacedObject((info.object as PlacedObject).id);
+        },
+      }),
+    [allPlacedObjects, isDrawing, onRemovePlacedObject],
   );
 
   const poiAreaLayer = useMemo(
@@ -398,6 +441,7 @@ export function useHeatmapLayers({
       interpolatedHeatmapLayer,
       poiAreaLayer,
       placedObjectPolygonLayer,
+      placedObjectPolygonIconLayer,
       draftPolygonLayer,
       draftPathLayer,
       draftPointsLayer,
@@ -409,6 +453,7 @@ export function useHeatmapLayers({
       interpolatedHeatmapLayer,
       poiAreaLayer,
       placedObjectPolygonLayer,
+      placedObjectPolygonIconLayer,
       draftPolygonLayer,
       draftPathLayer,
       draftPointsLayer,

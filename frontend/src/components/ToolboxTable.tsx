@@ -13,12 +13,41 @@ export interface ToolboxTableProps {
 function describeGeometry(geometry: unknown): string {
   if (!geometry) return '—';
 
+  // Bare array of points — treat as a polygon ring.
   if (Array.isArray(geometry)) {
     return `polygon · ${geometry.length} pts`;
   }
 
   const g = geometry as Record<string, unknown>;
 
+  // Discriminated union used across the app: { kind: 'point' | 'line' | 'polygon' }.
+  if (typeof g.kind === 'string') {
+    switch (g.kind) {
+      case 'point':
+        return typeof g.longitude === 'number' && typeof g.latitude === 'number'
+          ? `point · ${(g.latitude as number).toFixed(4)}, ${(g.longitude as number).toFixed(4)}`
+          : 'point';
+      case 'polygon': {
+        const ring = Array.isArray(g.ring) ? (g.ring as [number, number][]) : [];
+        if (ring.length === 0) return 'polygon · 0 pts';
+        const total = ring.reduce(
+          (acc, [lng, lat]) => ({ lng: acc.lng + lng, lat: acc.lat + lat }),
+          { lng: 0, lat: 0 },
+        );
+        const centerLng = total.lng / ring.length;
+        const centerLat = total.lat / ring.length;
+        return `polygon · ${ring.length} pts · ${centerLat.toFixed(4)}, ${centerLng.toFixed(4)}`;
+      }
+      case 'line': {
+        const coords = Array.isArray(g.coordinates) ? g.coordinates : [];
+        return `line · ${coords.length} pts`;
+      }
+      default:
+        return g.kind;
+    }
+  }
+
+  // --- Legacy / loose fallbacks (kept so non-union shapes still describe) ---
   if (typeof g.longitude === 'number' && typeof g.latitude === 'number') {
     return `point · ${(g.latitude as number).toFixed(4)}, ${(g.longitude as number).toFixed(4)}`;
   }

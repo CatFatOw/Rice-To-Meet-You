@@ -221,3 +221,26 @@ export function runSimulation(
 
   return out;
 }
+
+
+
+// heatmapMetricSimulation.ts
+//
+// Mock cooling simulation that takes a list of HeatmapMetricPoint and produces
+// one cooled list per day, keyed by date — ready to feed into
+// useSimulationRunner's runTimeline() as `framesByDate`.
+//
+// Here TFrame = HeatmapMetricPoint[] (each frame is the whole cooled list).
+//
+// Cooling schedule (each day compounds on the PREVIOUS day's values):
+//   day 1: -2%   day 2: -4%   day 3: -6%   day 4: -8%   ...
+//   i.e. the per-day decrease grows by 2 percentage points each day.
+
+// NOTE: assumed shape — swap in your real type if it differs. The only field
+// the simulation touches is `temperature`.
+export interface HeatmapMetricPoint {
+  x: number;
+  y: number;
+  temperature: number;
+}
+

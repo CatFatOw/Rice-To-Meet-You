@@ -75,11 +75,15 @@ export interface ToolboxProps {
   placedObjectsControls?: {
     placedObjects: ToolboxPlacedObject[];
     setPlacedObjects: React.Dispatch<React.SetStateAction<ToolboxPlacedObject[]>>;
+    pendingPlacedObject?: Omit<ToolboxPlacedObject, 'id'> | null;
+    setPendingPlacedObject?: React.Dispatch<React.SetStateAction<Omit<ToolboxPlacedObject, 'id'> | null>>;
+    updatePendingPlacedObject?: (patch: Partial<Omit<ToolboxPlacedObject, 'id'>>) => void;
+    commitPendingPlacedObject?: () => Promise<void>;
+    clearPendingPlacedObject?: () => void;
     addPlacedObject: (object: ToolboxPlacedObject) => void;
     removePlacedObject: (id: string) => void;
     clearPlacedObjects: () => void;
     patchPlacedObject: (id: string, patch: Partial<ToolboxPlacedObject>) => void;
-    commitPlacedObject?: (patch?: Partial<ToolboxPlacedObject>) => void;
     handleObjectDragOver: (e: React.DragEvent<HTMLDivElement>) => void;
     handleObjectDrop: (e: React.DragEvent<HTMLDivElement>) => void;
   };
@@ -94,6 +98,7 @@ export interface ToolboxProps {
   setDraftColorHex: React.Dispatch<React.SetStateAction<string>>;
   isDrawing: boolean;
   draftPointCount: number;
+  onSetDraftColor: (color: string) => void;
   onStartDrawing: () => void;
   onFinishArea: () => void;
   onUndoLastPoint: () => void;
@@ -187,6 +192,11 @@ export interface HeatmapProps {
   placedObjectsControls?: {
     placedObjects: ToolboxPlacedObject[];
     setPlacedObjects: React.Dispatch<React.SetStateAction<ToolboxPlacedObject[]>>;
+    pendingPlacedObject?: Omit<ToolboxPlacedObject, 'id'> | null;
+    setPendingPlacedObject?: React.Dispatch<React.SetStateAction<Omit<ToolboxPlacedObject, 'id'> | null>>;
+    updatePendingPlacedObject?: (patch: Partial<Omit<ToolboxPlacedObject, 'id'>>) => void;
+    commitPendingPlacedObject?: () => Promise<void>;
+    clearPendingPlacedObject?: () => void;
     addPlacedObject: (object: ToolboxPlacedObject) => void;
     removePlacedObject: (id: string) => void;
     clearPlacedObjects: () => void;
@@ -217,6 +227,7 @@ export interface UseHeatmapLayersArgs {
   editingAreaId: string | null;
 
   placedObjects: ToolboxPlacedObject[];
+  pendingPlacedObjects?: Omit<ToolboxPlacedObject, 'id'>[];
 
   draftPoints: [number, number][];
   draftRgb: [number, number, number];
