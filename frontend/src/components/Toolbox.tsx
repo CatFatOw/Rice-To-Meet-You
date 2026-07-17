@@ -52,7 +52,8 @@ const Toolbox: React.FC<ToolboxProps> = ({
   onSetDraftColor,
   placedObjectsControls,
   onCommitDrawing: _onCommitDrawing,
-  draftPoints: _draftPoints,
+  draftPoints,
+  draftIsSimple,
 }) => {
   const pointCount = draftPointCount;
   const citySelected = Boolean(selectedCity);
@@ -70,6 +71,10 @@ const Toolbox: React.FC<ToolboxProps> = ({
     () => TOOLBOX_ITEMS.find((item) => item.type === toolType) ?? null,
     [toolType],
   );
+
+  // Polygon tools are the only ones whose ring can self-intersect; point tools
+  // are never blocked by the simple-polygon check below.
+  const isPolygonTool = selectedTool?.kind === 'polygon';
 
   React.useEffect(() => {
     if (!selectedTool) return;
@@ -103,6 +108,9 @@ const Toolbox: React.FC<ToolboxProps> = ({
   // Single source of truth for whether the tool can be saved. Every editable
   // input must be present: a city, a selected tool, a name, a color, all
   // params, and both active-window dates. "0" passes (it's filled); "" fails.
+  // For polygon tools the drawn ring must also be simple (non-self-intersecting);
+  // isPolygonSimple returns true for empty/short rings, so this only blocks once
+  // an actual crossing exists.
   const canSaveTool =
     citySelected &&
     Boolean(selectedTool) &&
@@ -110,7 +118,8 @@ const Toolbox: React.FC<ToolboxProps> = ({
     toolColor.trim() !== '' &&
     allParamsFilled &&
     (toolActiveFrom ?? '').trim() !== '' &&
-    (toolActiveTo ?? '').trim() !== '';
+    (toolActiveTo ?? '').trim() !== '' &&
+    (!isPolygonTool || draftIsSimple);
 
   return (
     <div
@@ -371,6 +380,67 @@ const Toolbox: React.FC<ToolboxProps> = ({
             )}
           </div>
 
+          {/* --- Polygon coordinates + self-intersection warning ---
+              Only shown for polygon tools. draftPoints are stored [lng, lat];
+              displayed as "lat, lng" to match the hover tooltip's convention. */}
+          {isPolygonTool && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 12, color: '#cbd5e1' }}>Polygon Coordinates</div>
+
+              <div
+                style={{
+                  maxHeight: 132,
+                  overflowY: 'auto',
+                  border: '1px solid rgba(148, 163, 184, 0.35)',
+                  borderRadius: 6,
+                  padding: '6px 8px',
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                  fontSize: 12,
+                }}
+              >
+                {draftPoints.length === 0 ? (
+                  <div style={{ color: '#64748b' }}>No points yet</div>
+                ) : (
+                  draftPoints.map(([lng, lat], i) => (
+                    <div
+                      key={i}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        color: '#cbd5e1',
+                        padding: '1px 0',
+                      }}
+                    >
+                      <span style={{ color: '#64748b' }}>#{i + 1}</span>
+                      <span>
+                        {lat.toFixed(6)}, {lng.toFixed(6)}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {!draftIsSimple && (
+                <div
+                  role="alert"
+                  style={{
+                    padding: '8px 10px',
+                    borderRadius: 6,
+                    border: '1px solid rgba(245, 158, 11, 0.5)',
+                    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                    color: '#fbbf24',
+                    fontSize: 12,
+                    lineHeight: 1.4,
+                  }}
+                >
+                  This polygon&apos;s edges cross each other. Adjust the points so
+                  the outline doesn&apos;t overlap before saving.
+                </div>
+              )}
+            </div>
+          )}
+
           {/* --- Active window: both dates required before Save is enabled --- */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ fontSize: 12, color: '#cbd5e1' }}>Active From</div>
@@ -412,9 +482,11 @@ const Toolbox: React.FC<ToolboxProps> = ({
             title={
               !citySelected
                 ? 'Select a city on the map first'
-                : !canSaveTool
-                  ? 'Fill in the tool name, params, and active dates before saving'
-                  : undefined
+                : isPolygonTool && !draftIsSimple
+                  ? 'Fix the self-intersecting polygon before saving'
+                  : !canSaveTool
+                    ? 'Fill in the tool name, params, and active dates before saving'
+                    : undefined
             }
           >
             <Check size={15} /> Save Changes
@@ -423,7 +495,11 @@ const Toolbox: React.FC<ToolboxProps> = ({
           {placedCount > 0 && (
             <button
               type="button"
-              onClick={() => placedObjectsControls?.clearPendingPlacedObject?.()}
+              onClick={() => {
+                placedObjectsControls?.clearPendingPlacedObject?.()
+                onCancelDrawing()
+
+              }}
               disabled={!citySelected}
               title={!citySelected ? 'Select a city on the map first' : undefined}
               style={{
@@ -432,7 +508,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
                 color: '#fca5a5',
               }}
             >
-              <Trash2 size={15} /> Clear objects 
+              <Trash2 size={15} /> Clear object 
             </button>
           )}
 
@@ -502,7 +578,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
         />
       </label>
 
-      {!isDrawing ? (
+      {!isDrawing || isPolygonTool ? (
         <button
           type="button"
           onClick={onStartDrawing}
@@ -522,18 +598,50 @@ const Toolbox: React.FC<ToolboxProps> = ({
           <div style={{ fontSize: 12, color: '#cbd5e1' }}>
             Click the map to add points ({pointCount} placed, need 3+).
           </div>
+
+          {/* Reuse the same crossing warning for the POI-area draw flow. */}
+          {pointCount >= 3 && !draftIsSimple (
+            <div
+              role="alert"
+              style={{
+                padding: '8px 10px',
+                borderRadius: 6,
+                border: '1px solid rgba(245, 158, 11, 0.5)',
+                backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                color: '#fbbf24',
+                fontSize: 12,
+                lineHeight: 1.4,
+              }}
+            >
+              This area&apos;s edges cross each other. Fix the outline before
+              finishing.
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               type="button"
               onClick={onFinishArea}
-              disabled={!citySelected || pointCount < 3}
+              disabled={!citySelected || pointCount < 3 || !draftIsSimple}
               style={{
                 ...toolbarButtonStyle,
-                backgroundColor: citySelected && pointCount >= 3 ? '#16a34a' : 'rgba(71, 85, 105, 0.6)',
+                backgroundColor:
+                  citySelected && pointCount >= 3 && draftIsSimple
+                    ? '#16a34a'
+                    : 'rgba(71, 85, 105, 0.6)',
                 color: '#f8fafc',
-                cursor: citySelected && pointCount >= 3 ? 'pointer' : 'not-allowed',
+                cursor:
+                  citySelected && pointCount >= 3 && draftIsSimple
+                    ? 'pointer'
+                    : 'not-allowed',
               }}
-              title={!citySelected ? 'Select a city on the map first' : undefined}
+              title={
+                !citySelected
+                  ? 'Select a city on the map first'
+                  : pointCount >= 3 && !draftIsSimple
+                    ? 'Fix the self-intersecting area before finishing'
+                    : undefined
+              }
             >
               <Check size={15} /> Finish
             </button>

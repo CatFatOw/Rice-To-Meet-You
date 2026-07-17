@@ -22,6 +22,7 @@ import type { ViewState } from '../types/viewState';
 import { fetchPlacedObjects } from '../api/tool';
 import type { Geometry } from '../types/simulation';
 import { isPointInPolygon } from '../services/toolbox';
+import { isPolygonSimple } from '../services/polygon';
 
 
 
@@ -448,6 +449,11 @@ const hoverablePolygons = useMemo(() => {
 
   // All deck.gl layers (city markers, heatmap surface, POI areas, placed
   // objects, and the in-progress draft) are built in this hook.
+
+  const draftIsSimple = useMemo(() => isPolygonSimple(draftPoints), [draftPoints]);
+
+  
+ 
   const layers = useHeatmapLayers({
     isDrawing,
     selectedCity,
@@ -726,6 +732,7 @@ const hoverablePolygons = useMemo(() => {
         onStartDrawing={() => drawControls.startDrawing()}
         onCommitDrawing={() => drawControls.commitDrawing()}
         draftPoints={draftPoints}
+        draftIsSimple={draftIsSimple}
         // Commit the draft polygon into a saved user POI area. commitDrawing()
         // returns null when the ring is invalid (fewer than the minimum
         // vertices), in which case the draft is left untouched. Name defaults

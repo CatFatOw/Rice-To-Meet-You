@@ -99,7 +99,7 @@ export function usePlacedObjects<TPlacedObject extends BasePlacedObject = BasePl
     useState<PendingPlacedObject<TPlacedObject> | null>(null);
 
   
-  console.log(pendingPlacedObject)
+
   useEffect(() => {
     onChange?.(placedObjects);
   }, [onChange, placedObjects]);
