@@ -7,14 +7,18 @@ export interface SimulatePanelProps {
   availableDates?: string[];
   onFromDateChange?: (isoDate: string) => void;
   onToDateChange?: (isoDate: string) => void;
+  onStartSimulation?: () => void;
   onSimulate?: () => void;
+  onStopSimulation?: () => void;
+  isRunning?: boolean;
   title?: string;
 }
 
 /**
  * Date range + run control for a scenario. Pulled out of POIStatistics so the
  * dashboard doesn't own simulation concerns; drop it anywhere a scenario needs
- * a window and a trigger.
+ * a window and a trigger. Swaps the run control for a stop control while a
+ * simulation is running.
  */
 export default function SimulatePanel({
   fromDate,
@@ -22,9 +26,14 @@ export default function SimulatePanel({
   availableDates,
   onFromDateChange,
   onToDateChange,
+  onStartSimulation,
   onSimulate,
+  onStopSimulation,
+  isRunning,
   title = 'Simulate',
 }: SimulatePanelProps) {
+  const handleStart = onStartSimulation ?? onSimulate;
+
   return (
     <div className="shrink-0 rounded-lg border border-slate-800 bg-slate-950/55 p-4">
       <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-300">
@@ -60,7 +69,17 @@ export default function SimulatePanel({
           />
         </div>
 
-        <SimulateButton onClick={onSimulate} className="h-10 min-w-28" />
+        {isRunning ? (
+          <button
+            type="button"
+            onClick={() => onStopSimulation?.()}
+            className="inline-flex h-10 min-w-28 items-center justify-center rounded-md bg-red-600 px-4 text-sm font-semibold text-white transition hover:bg-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+          >
+            Stop
+          </button>
+        ) : (
+          <SimulateButton onClick={handleStart} className="h-10 min-w-28" />
+        )}
       </div>
     </div>
   );

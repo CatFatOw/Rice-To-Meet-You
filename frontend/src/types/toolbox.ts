@@ -8,6 +8,8 @@ export interface ShadeParams        { opacity: number; coverage: number }
 export interface EvaporativeParams  { flowRate: number; radius: number; activeFraction: number }
 
 type ToolboxItemBase = {
+  id: string;
+  type: string;
   label: string;
   color: string;
   kind: 'polygon' | 'point';
@@ -15,15 +17,16 @@ type ToolboxItemBase = {
 };
 
 export type ToolboxItemDef =
-  | (ToolboxItemBase & { type: 'vegetation';    params: VegetationParams })
-  | (ToolboxItemBase & { type: 'cool_surface';  params: HighAlbedoParams })
-  | (ToolboxItemBase & { type: 'shade_canopy';  params: ShadeParams })
-  | (ToolboxItemBase & { type: 'water_misting'; params: EvaporativeParams });
+  | (ToolboxItemBase & { type: string; params: VegetationParams })
+  | (ToolboxItemBase & { type: string; params: HighAlbedoParams })
+  | (ToolboxItemBase & { type: string; params: ShadeParams })
+  | (ToolboxItemBase & { type: string; params: EvaporativeParams });
 
 // A placed instance of a toolbox item, positioned in map (lng/lat) space.
 export interface PlacedObject {
   id: string;
   type: string;
+  category?: string;
   name?: string;
   color?: string;
   geometry: Geometry;

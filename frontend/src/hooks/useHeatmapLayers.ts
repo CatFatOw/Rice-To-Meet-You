@@ -181,23 +181,30 @@ export function useHeatmapLayers({
 
   // Continuous, interpolated density surface (GPU kernel-density estimation).
   // Larger radius + lower threshold = smoother blending between points.
-  const interpolatedHeatmapLayer = useMemo(
-    () =>
-      new HeatmapLayer({
-        id: 'interpolated-heatmap-layer',
-        data: displayedHeatmapPoints,
-        pickable: false,
-        getPosition: (d: HeatmapMetricValue) => d.location_coordinates,
-        getWeight: (d: HeatmapMetricValue) => d.value,
-        aggregation: 'SUM',
-        radiusPixels: 60,
-        intensity: 1.2,
-        threshold: 0.03,
-        weightsTextureSize: 1024,
-        colorRange: activeMetricColorRange as any,
-      }),
-    [displayedHeatmapPoints, activeMetricColorRange],
-  );
+const interpolatedHeatmapLayer = useMemo(
+  () =>
+    new HeatmapLayer<HeatmapMetricValue>({
+      id: 'interpolated-heatmap-layer',
+      data: displayedHeatmapPoints,
+
+      getPosition: (d) => d.location_coordinates,
+      getWeight: (d) => d.value,
+
+      // Nearby observations contribute to a weighted average.
+      aggregation: 'MEAN',
+
+      radiusPixels: 60,
+      intensity: 1,
+      threshold: 0.02,
+
+      // Keep this fixed for the metric so colors do not rescale every day.
+      colorDomain: [10, 50],
+      colorRange: activeMetricColorRange,
+
+      pickable: false,
+    }),
+  [displayedHeatmapPoints, activeMetricColorRange],
+);
 
   // Placed objects with point/line geometry, rendered as toolbox marker icons
   // at the geometry's anchor. Polygon-geometry objects are handled separately

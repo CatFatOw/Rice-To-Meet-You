@@ -107,10 +107,14 @@ export default function POIStatistics({
   onPlacedObjectsChange,
   onFromDateChange,
   onToDateChange,
+  onStartSimulation,
   onSimulate,
+  onStopSimulation,
+  isRunning
 }: POIStatisticsProps) {
   const panelRef = useRef<HTMLElement>(null);
   const { isFullscreen, toggleFullscreen } = useFullscreen(panelRef);
+  const handleStartSimulation = onStartSimulation ?? onSimulate;
 
   return (
     <section
@@ -132,7 +136,7 @@ export default function POIStatistics({
 
       {/* Fixed header - stays put while the body below it scrolls. pr-12 keeps
           the title clear of the corner button. */}
-      <h2 className="mb-4 shrink-0 pr-12 text-lg font-semibold">Planner's Workspace</h2>
+      <h2 className="mb-4 shrink-0 pr-12 text-lg font-semibold">{title}</h2>
 
       {/* Scroll container: everything else lives in here */}
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
@@ -144,7 +148,9 @@ export default function POIStatistics({
               availableDates={availableDates}
               onFromDateChange={onFromDateChange}
               onToDateChange={onToDateChange}
-              onSimulate={onSimulate}
+              onStartSimulation={handleStartSimulation}
+              onStopSimulation={onStopSimulation}
+              isRunning={isRunning}
             />
 
             <ToolboxTable

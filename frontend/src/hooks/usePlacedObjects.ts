@@ -10,12 +10,34 @@ import type { Geometry } from '../types/simulation';
 // BasePlacedObject (see note at bottom of file).
 export type PlacedObjectParams = Record<string, number>;
 
+// The archetype buckets a placed object can belong to. Same four categories the
+// Toolbox / TOOLBOX_ITEMS use, so an object's category lines up 1:1 with the
+// archetype it was placed from.
+export type PlacedObjectCategory =
+  | 'Vegetation'
+  | 'High-albedo surface'
+  | 'Shade structure'
+  | 'Evaporative / water';
+
+// Canonical iteration order and a stable list of every category. Used to build
+// empty collections and to sweep all buckets during id-based lookups.
+export const PLACED_OBJECT_CATEGORIES: PlacedObjectCategory[] = [
+  'Vegetation',
+  'High-albedo surface',
+  'Shade structure',
+  'Evaporative / water',
+];
+
 export interface BasePlacedObject {
   // Only COMMITTED objects carry an id. It's assigned in commitPendingPlacedObject,
   // never while the object is still pending/staged.
   id: string;
+  // Toolbox-facing type identifier used by the simulation/rendering path.
   type: string;
-  name: string;
+  // Category is optional so the hook can carry both toolbox objects and mock
+  // API objects without forcing every caller to populate it.
+  category?: string;
+  name?: string;
   color?: string;
   geometry: Geometry;
   params?: PlacedObjectParams;
@@ -26,12 +48,28 @@ export interface BasePlacedObject {
   activeTo?: string;
 }
 
-// The staged/pending shape: everything a placed object has EXCEPT the id, which
-// doesn't exist until commit. The pending slot and its editors use this type.
+// The staged/pending shape: a BasePlacedObject (which already includes
+// `category`) with the id omitted, since the id doesn't exist until commit.
+// Stays generic so a narrowed placed-object type keeps its extra fields while
+// still dropping only the id.
 export type PendingPlacedObject<TPlacedObject extends BasePlacedObject> = Omit<
   TPlacedObject,
   'id'
 >;
+
+// Placed objects grouped by archetype category: each category maps to the list
+// of committed objects that belong to it. This is the shape of `placedObjects`.
+export type BasePlacedObjectCategorized<
+  TPlacedObject extends BasePlacedObject = BasePlacedObject,
+> = Record<PlacedObjectCategory, TPlacedObject[]>;
+
+// Convenience for consumers that just need one flat list (e.g. rendering every
+// object on the map) out of the categorized collection.
+export function flattenCategorized<TPlacedObject extends BasePlacedObject>(
+  categorized: BasePlacedObjectCategorized<TPlacedObject>,
+): TPlacedObject[] {
+  return PLACED_OBJECT_CATEGORIES.flatMap((category) => categorized[category]);
+}
 
 export interface UsePlacedObjectsOptions<TPlacedObject extends BasePlacedObject> {
   initialObjects?: TPlacedObject[];
@@ -53,8 +91,11 @@ export interface UsePlacedObjectsReturn<TPlacedObject extends BasePlacedObject> 
   commitPendingPlacedObject: () => Promise<void>;
   clearPendingPlacedObject: () => void;
   addPlacedObject: (object: TPlacedObject) => void;
+  // Remove is targeted by id.
   removePlacedObject: (id: string) => void;
+  // Empties the list at once.
   clearPlacedObjects: () => void;
+  // Patch is targeted by id.
   patchPlacedObject: (id: string, patch: Partial<TPlacedObject>) => void;
   patchPlacedObjectParams: (id: string, paramsPatch: Partial<PlacedObjectParams>) => void;
   handleObjectDragOver: (e: React.DragEvent<HTMLDivElement>) => void;
@@ -69,7 +110,7 @@ function makePlacedId(): string {
 
 // Stubbed persistence call. Swap the body for a real fetch when the endpoint
 // exists; the signature (object in, Promise out) is what callers rely on.
-async function savePlacedObject<T extends BasePlacedObject>(_object: T): Promise<void> {
+async function savePlacedObject<T extends BasePlacedObject>(_object: Omit<T, 'id'>): Promise<void> {
   // no-op API — resolves immediately
 }
 
@@ -77,8 +118,12 @@ async function savePlacedObject<T extends BasePlacedObject>(_object: T): Promise
  * Owns the map toolbox object lifecycle:
  * - a single pending (staged) object, seeded by the Toolbox on drag start
  * - dragover / drop only REPOSITION that staged object (they never create one)
- * - add / patch / remove / clear operations, including per-param patching
+ * - patch / remove / clear operations, including per-param patching
  * - optional upstream sync callback when objects change
+ *
+ * `placedObjects` is a flat list of committed objects. The only path that
+ * adds a committed object is commitPendingPlacedObject (there is no
+ * free-standing add helper); remove/patch target objects by id.
  *
  * The pending object is id-less (PendingPlacedObject); the id is minted in
  * commitPendingPlacedObject when the object becomes a real placed object.
@@ -88,62 +133,53 @@ async function savePlacedObject<T extends BasePlacedObject>(_object: T): Promise
  * dedicated helper needed (unlike the nested params).
  */
 export function usePlacedObjects<TPlacedObject extends BasePlacedObject = BasePlacedObject>({
-  initialObjects = [],
+  initialObjects,
   onChange,
   mapRef,
   mapContainerRef,
   dragMime = TOOLBOX_DRAG_MIME,
 }: UsePlacedObjectsOptions<TPlacedObject> = {}): UsePlacedObjectsReturn<TPlacedObject> {
-  const [placedObjects, setPlacedObjects] = useState<TPlacedObject[]>(initialObjects);
+  const [placedObjects, setPlacedObjects] = useState<TPlacedObject[]>(() => initialObjects ?? []);
   const [pendingPlacedObject, setPendingPlacedObject] =
     useState<PendingPlacedObject<TPlacedObject> | null>(null);
 
-  
+ 
 
-  useEffect(() => {
-    onChange?.(placedObjects);
-  }, [onChange, placedObjects]);
+
+
+  // Drop the object from the flat list by id.
+  const removePlacedObject = useCallback((id: string) => {
+    setPlacedObjects((prev) => prev.filter((obj) => obj.id !== id));
+  }, []);
+
+  // Empty the list in one shot.
+  const clearPlacedObjects = useCallback(() => {
+    setPlacedObjects([]);
+  }, []);
 
   const addPlacedObject = useCallback((object: TPlacedObject) => {
     setPlacedObjects((prev) => [...prev, object]);
   }, []);
 
-  const removePlacedObject = useCallback((id: string) => {
-    setPlacedObjects((prev) => prev.filter((obj) => obj.id !== id));
-  }, []);
-
-  const clearPlacedObjects = useCallback(() => {
-    setPlacedObjects([]);
-  }, []);
-
-  // Shallow field patch on a COMMITTED object (keyed by id). Good for flat
-  // fields including activeFrom / activeTo. NOTE: passing { params } here
-  // REPLACES the whole params object — use patchPlacedObjectParams instead.
+  // Shallow field patch on a COMMITTED object located by id.
   const patchPlacedObject = useCallback((id: string, patch: Partial<TPlacedObject>) => {
-    setPlacedObjects((prev) =>
-      prev.map((obj) => (obj.id === id ? { ...obj, ...patch } : obj)),
-    );
+    setPlacedObjects((prev) => prev.map((obj) => (obj.id === id ? { ...obj, ...patch } : obj)));
   }, []);
 
   // Merge a partial into a committed object's params, preserving untouched keys.
-  // The cast is safe: we overlay a partial onto the object's existing full
-  // params, so every required key is still present at runtime.
-  const patchPlacedObjectParams = useCallback(
-    (id: string, paramsPatch: Partial<PlacedObjectParams>) => {
-      setPlacedObjects((prev) =>
-        prev.map((obj) =>
-          obj.id === id
-            ? ({ ...obj, params: { ...(obj.params ?? {}), ...paramsPatch } } as TPlacedObject)
-            : obj,
-        ),
-      );
-    },
-    [],
-  );
+  const patchPlacedObjectParams = useCallback((id: string, paramsPatch: Partial<PlacedObjectParams>) => {
+    setPlacedObjects((prev) =>
+      prev.map((obj) =>
+        obj.id === id
+          ? ({ ...obj, params: { ...(obj.params ?? {}), ...paramsPatch } } as TPlacedObject)
+          : obj,
+      ),
+    );
+  }, []);
 
   // Merge a partial into the current pending object. No-op if nothing is staged.
   // Cannot touch id (it's not part of the pending shape). This is how the
-  // Toolbox writes activeFrom / activeTo (and name/color) before committing.
+  // Toolbox writes activeFrom / activeTo (and name/color/category) before commit.
   const updatePendingPlacedObject = useCallback(
     (patch: Partial<PendingPlacedObject<TPlacedObject>>) => {
       setPendingPlacedObject((pending) =>
@@ -168,9 +204,10 @@ export function usePlacedObjects<TPlacedObject extends BasePlacedObject = BasePl
     [],
   );
 
-  // Mint the id, persist, move the now-complete object into placedObjects, and
-  // clear the pending slot. Reads the latest pending value through the
-  // functional setter so it doesn't need pending in its deps.
+  // Mint the id, persist, drop the now-complete object into the flat list,
+  // and clear the pending slot. Reads the latest pending value through the
+  // functional setter so it doesn't need pending in its deps. This is the ONLY
+  // way a committed object enters placedObjects.
   const commitPendingPlacedObject = useCallback(async () => {
     // Capture the current pending object without a stale closure.
     let toCommit: PendingPlacedObject<TPlacedObject> | null = null;
@@ -181,14 +218,12 @@ export function usePlacedObjects<TPlacedObject extends BasePlacedObject = BasePl
 
     if (!toCommit) return;
 
-    // id is added HERE — this is the moment a pending object becomes a real one.
-    const committed = {
-      ...(toCommit as PendingPlacedObject<TPlacedObject>),
-      id: makePlacedId(),
-    } as TPlacedObject;
+    const committed = Object.assign({}, toCommit, { id: makePlacedId() }) as TPlacedObject;
 
-    await savePlacedObject(committed);
+    // Persist only the pending object.
+    await savePlacedObject(toCommit);
 
+    // Drop it into the flat list as-is.
     setPlacedObjects((prev) => [...prev, committed]);
     setPendingPlacedObject(null);
   }, []);
@@ -243,7 +278,8 @@ export function usePlacedObjects<TPlacedObject extends BasePlacedObject = BasePl
 
       // Like dragover, drop ONLY updates the already-staged pending object with
       // its final position — it never rebuilds/creates one, so the name, color,
-      // and params seeded on drag start are preserved. No-op if nothing staged.
+      // category, and params seeded on drag start are preserved. No-op if
+      // nothing staged.
       setPendingPlacedObject((pending) =>
         pending
           ? {

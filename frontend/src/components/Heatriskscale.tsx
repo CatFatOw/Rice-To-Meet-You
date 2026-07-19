@@ -2,6 +2,9 @@ import React from 'react';
 import type { HeatRiskScaleProps } from '../types/components';
 
 const HeatRiskScale: React.FC<HeatRiskScaleProps> = ({ label, gradient }) => {
+  const isTemperature = label.trim().toLowerCase() === 'temperature';
+  const tickLabels = isTemperature ? ['10', '20', '30', '40', '50'] : ['0', '25', '50', '75', '100'];
+
   return (
     <div
       style={{
@@ -37,11 +40,9 @@ const HeatRiskScale: React.FC<HeatRiskScaleProps> = ({ label, gradient }) => {
           color: '#cbd5e1',
         }}
       >
-        <span>0</span>
-        <span>25</span>
-        <span>50</span>
-        <span>75</span>
-        <span>100</span>
+        {tickLabels.map((tick) => (
+          <span key={tick}>{tick}</span>
+        ))}
       </div>
       <div
         style={{

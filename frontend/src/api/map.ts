@@ -1,7 +1,5 @@
 // ============================================================================
-
 // Mock POI Polygon Inputs by City
-
 // ============================================================================
 
 import type {
@@ -35,147 +33,82 @@ export type {
 };
 
 // ============================================================================
-
 // Houston POIs
-
 // ============================================================================
 
 const riceUniversityPolygon: Polygon = [
-
   [-95.40895, 29.72245],
-
   [-95.4062, 29.72305],
-
   [-95.40195, 29.72305],
-
   [-95.39735, 29.72195],
-
   [-95.3964, 29.71875],
-
   [-95.39675, 29.7152],
-
   [-95.3992, 29.71175],
-
   [-95.4034, 29.71085],
-
   [-95.4079, 29.71145],
-
   [-95.40945, 29.7147],
-
   [-95.40955, 29.7192],
-
   [-95.40895, 29.72245],
-
 ];
 
 const nrgStadiumPolygon: Polygon = [
-
   [-95.41195, 29.68655],
-
   [-95.4104, 29.68635],
-
   [-95.40935, 29.68545],
-
   [-95.4092, 29.6841],
-
   [-95.41025, 29.6831],
-
   [-95.41195, 29.68285],
-
   [-95.4136, 29.6831],
-
   [-95.4146, 29.68405],
-
   [-95.4145, 29.68545],
-
   [-95.41345, 29.68635],
-
   [-95.41195, 29.68655],
-
 ];
 
 // ============================================================================
-
 // City → Key POI Areas
-
 // ============================================================================
 
 const cityPOIAreas: CityPOIAreaMap = {
-
   Houston: [
-
     {
-
       id: "nrg-stadium",
-
       name: "NRG Stadium",
-
       cityName: "Houston",
-
       color: [255, 165, 0, 150],
-
       polygon: nrgStadiumPolygon,
-
     },
-
     {
-
       id: "rice-university",
-
       name: "Rice University",
-
       cityName: "Houston",
-
       color: [70, 130, 180, 150],
-
       polygon: riceUniversityPolygon,
-
     },
-
   ],
-
   // Add additional FIFA host cities here.
-
   Dallas: [],
-
   Atlanta: [],
-
   Miami: [],
-
   "New York/New Jersey": [],
-
 };
 
-
-
 // ============================================================================
-
 // Mock API Calls
-
 // ============================================================================
 
 export async function callMockCityPOIs(
-
-  cityName: string
-
+  cityName: string,
 ): Promise<CityPOIArea[]> {
-
   // Simulate network latency
-
   await new Promise((resolve) => setTimeout(resolve, 500));
-
   return cityPOIAreas[cityName] ?? [];
-
 }
 
 export async function callMockAllCityPOIs(): Promise<CityPOIAreaMap> {
-
   // Simulate network latency
-
   await new Promise((resolve) => setTimeout(resolve, 500));
-
   return cityPOIAreas;
-
 }
 
 // ============================================================================
@@ -183,71 +116,23 @@ export async function callMockAllCityPOIs(): Promise<CityPOIAreaMap> {
 // Interpolation is NOT done here; the client interpolates on demand (see utils).
 // ============================================================================
 
-// A single measured / interpolated reading at one coordinate.
 // ---------------------------------------------------------------------------
-// Source of truth: one physical reading per location. All three published
-// metrics (temperature, visitor density, heat risk) are derived from these,
-// so the layers stay consistent with each other.
+// Source of truth: one physical reading per location, shaped as a
+// GridCellMetricResponse. The published metrics (temperature, visitor density)
+// read straight off these fields, so the layers stay consistent.
 // ---------------------------------------------------------------------------
-
-function reading(
-  name: string,
-  lon: number,
-  lat: number,
-  temperatureF: number,
-  visitorDensity: number,
-  treeCanopyPct: number,
-  imperviousSurfacePct: number,
-): LocationReading {
-  return {
-    name,
-    lon,
-    lat,
-    temperatureF,
-    visitorDensity,
-    treeCanopyPct,
-    imperviousSurfacePct,
-  };
-}
 
 const clamp = (n: number, lo = 0, hi = 100): number =>
   Math.max(lo, Math.min(hi, n));
 
-// Map air temperature (°F) onto the shared 0–100 heatmap weight.
-const TEMP_MIN_F = 84; // -> 0
-const TEMP_MAX_F = 110; // -> 100
-const temperatureToWeight = (tempF: number): number =>
-  clamp(Math.round(((tempF - TEMP_MIN_F) / (TEMP_MAX_F - TEMP_MIN_F)) * 100));
+// Heat-warning cutoff on air temperature (°C) ≈ 95 °F.
+const HEAT_THRESHOLD_C = 35;
 
-// Heat risk = weighted blend of how hot it is and how many people are exposed.
-// Hotter AND busier => higher risk.
-const TEMP_RISK_WEIGHT = 0.6;
-const VISITOR_RISK_WEIGHT = 0.4;
-const riskFromWeights = (tempWeight: number, visitorDensity: number): number =>
-  clamp(
-    Math.round(
-      TEMP_RISK_WEIGHT * tempWeight + VISITOR_RISK_WEIGHT * visitorDensity,
-    ),
-  );
+const DEFAULT_READING_DATE = "2026-07-05";
+const DEFAULT_MARKET = "Houston";
 
-// Rough physical sub-metrics derived from the reading, for display only.
-function derivedSubMetrics(r: LocationReading) {
-  const relativeHumidityPct = clamp(
-    Math.round(72 - r.imperviousSurfacePct * 0.12 + r.treeCanopyPct * 0.1),
-    30,
-    95,
-  );
-  const heatIndexF = Math.round(
-    r.temperatureF + Math.max(0, (relativeHumidityPct - 40) / 4),
-  );
-  const landSurfaceTempF = Math.round(
-    r.temperatureF + r.imperviousSurfacePct * 0.28 - r.treeCanopyPct * 0.2,
-  );
-  const nighttimeTempF = Math.round(
-    r.temperatureF - 15 + r.imperviousSurfacePct * 0.11,
-  );
-  return { relativeHumidityPct, heatIndexF, landSurfaceTempF, nighttimeTempF };
-}
+// Monotonic id so each mock reading looks like a distinct DB row.
+let nextReadingId = 1;
 
 function visitorCategory(density: number): string {
   if (density >= 90) return "Match venue / fan zone";
@@ -257,166 +142,169 @@ function visitorCategory(density: number): string {
   return "Low activity";
 }
 
-function riskCategory(risk: number): string {
-  if (risk >= 85) return "Extreme";
-  if (risk >= 70) return "High";
-  if (risk >= 55) return "Elevated";
-  if (risk >= 40) return "Moderate";
-  return "Low";
+// ---------------------------------------------------------------------------
+// Convenience factory: keeps the mock's human-friendly inputs (°F, a 0–100
+// visitor density, and land-cover %) and maps them onto the
+// GridCellMetricResponse schema. The heat_weather_point fields (humidity, UHI,
+// wind) are derived from land cover so that data isn't lost in the migration.
+// reading(name, lon, lat, temperatureF, visitorDensity, treeCanopy%, impervious%)
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Literal factory: takes exactly the fields the temperature + visitor_density
+// anchors read off a reading, and maps them straight onto the
+// GridCellMetricResponse schema. No derivation.
+// ---------------------------------------------------------------------------
+function reading(
+  name: string,
+  lon: number,
+  lat: number,
+  avgTemperatureC: number,
+  relativeHumidity: number,
+  uhi: number,
+  windSpeedKnots: number,
+  source: "measured" | "interpolated",
+  visitorCount: number,
+  category: string,
+  market: string,
+  visitorCountSource: string,
+): LocationReading {
+  return {
+    id: nextReadingId++,
+    date: DEFAULT_READING_DATE,
+    latitude: lat,
+    longitude: lon,
+    name,
+
+    // --- heat_weather_point fields (read by temperatureAnchor) ---
+    avg_temperature_c: avgTemperatureC,
+    relative_humidity: relativeHumidity,
+    uhi,
+    wind_speed_knots: windSpeedKnots,
+    source,
+
+    // --- visitor_poi fields (read by visitorDensityAnchor) ---
+    visitor_count: visitorCount,
+    category,
+    market,
+    visitor_count_source: visitorCountSource,
+  };
 }
 
-const estimatedFootfall = (density: number): string =>
-  `${Math.round(density * 130).toLocaleString("en-US")} people/hr`;
-
 // ---- Builders: one reading -> one anchor per metric ------------------------
+// Fields now come off the GridCellMetricResponse directly (no derivation).
+
+const coordsOf = (r: LocationReading): [number, number] => [
+  r.longitude,
+  r.latitude,
+];
+const labelOf = (r: LocationReading): string =>
+  r.name ?? `${r.latitude.toFixed(4)}, ${r.longitude.toFixed(4)}`;
+
 function temperatureAnchor(r: LocationReading): HeatmapMetricValue {
-  const d = derivedSubMetrics(r);
+  const tempC = r.avg_temperature_c ?? 0;
+
   return {
-    value: r.temperatureF,
-    location_name: r.name,
-    location_coordinates: [r.lon, r.lat],
+    value: tempC, // temperature layer is now in °C (avg_temperature_c)
+    location_name: labelOf(r),
+    location_coordinates: coordsOf(r),
     individual_metrics: {
-      temperatureF: `${r.temperatureF}°F`,
-      heatIndexF: `${d.heatIndexF}°F`,
-      relativeHumidityPct: `${d.relativeHumidityPct}%`,
-      landSurfaceTempF: `${d.landSurfaceTempF}°F`,
-      nighttimeTempF: `${d.nighttimeTempF}°F`,
-      treeCanopyPct: `${r.treeCanopyPct}%`,
-      imperviousSurfacePct: `${r.imperviousSurfacePct}%`,
+      avg_temperature_c: `${tempC.toFixed(1)}°C`,
+      relative_humidity:
+        r.relative_humidity != null ? `${Math.round(r.relative_humidity)}%` : "—",
+      uhi: r.uhi != null ? `${r.uhi.toFixed(1)}°C` : "—",
+      wind_speed_knots:
+        r.wind_speed_knots != null ? `${r.wind_speed_knots.toFixed(1)} kn` : "—",
+      source: r.source ?? "—",
     },
   };
 }
 
 function visitorDensityAnchor(r: LocationReading): HeatmapMetricValue {
+  const count = r.visitor_density ?? 0;
   return {
-    value: r.visitorDensity,
-    location_name: r.name,
-    location_coordinates: [r.lon, r.lat],
+    value: count, // now a raw visitor_count, not the old 0–100 density
+    location_name: labelOf(r),
+    location_coordinates: coordsOf(r),
     individual_metrics: {
-      visitorDensity: `${r.visitorDensity} / 100`,
-      category: visitorCategory(r.visitorDensity),
-      estimatedFootfall: estimatedFootfall(r.visitorDensity),
-    },
-  };
-}
-
-function heatRiskAnchor(r: LocationReading): HeatmapMetricValue {
-  const tempWeight = temperatureToWeight(r.temperatureF);
-  const risk = riskFromWeights(tempWeight, r.visitorDensity);
-  return {
-    value: risk,
-    location_name: r.name,
-    location_coordinates: [r.lon, r.lat],
-    individual_metrics: {
-      heatRiskScore: `${risk} / 100`,
-      riskCategory: riskCategory(risk),
-      temperatureContribution: `${Math.round(TEMP_RISK_WEIGHT * tempWeight)} / 100`,
-      visitorContribution: `${Math.round(VISITOR_RISK_WEIGHT * r.visitorDensity)} / 100`,
-      temperatureF: `${r.temperatureF}°F`,
-      visitorDensity: `${r.visitorDensity} / 100`,
+      visitor_count: count.toLocaleString("en-US"),
+      category: r.category ?? "—",
+      market: r.market ?? "—",
+      visitor_count_source: r.visitor_count_source ?? "—",
     },
   };
 }
 
 // ---------------------------------------------------------------------------
-// The readings: landmark cluster around the venue + regional spread.
+// The readings: dense clusters over three adjacent areas only —
+// Rice University, Texas Medical Center, and Hermann Park.
 // reading(name, lon, lat, temperatureF, visitorDensity, treeCanopy%, impervious%)
 // ---------------------------------------------------------------------------
 const HOUSTON_READINGS: LocationReading[] = [
-  // --- Match venue cluster (dense, for smooth interpolation near NRG) --------
-  reading("NRG Stadium", -95.4109, 29.6847, 99, 100, 5, 90),
-  reading("NRG Park Fan Fest", -95.412, 29.6855, 98, 95, 6, 88),
-  reading("NRG Park Entrance Plaza", -95.4095, 29.6825, 99, 93, 4, 92),
-  reading("NRG Park Parking (South)", -95.4145, 29.684, 101, 60, 2, 96),
-  reading("NRG Park Parking (North)", -95.41, 29.687, 100, 58, 3, 94),
-
-  // --- Texas Medical Center -------------------------------------------------
-  reading("Texas Medical Center", -95.3992, 29.7067, 98, 70, 10, 85),
-  reading("TMC South", -95.3962, 29.7082, 97, 68, 12, 82),
-  reading("TMC West", -95.4015, 29.709, 99, 66, 8, 88),
-
-  // --- Rice / parks / museums (leafier, big draws) --------------------------
-  reading("Rice University", -95.4018, 29.7174, 92, 66, 35, 55),
-  reading("Rice University West", -95.404, 29.716, 93, 60, 32, 58),
-  reading("Museum District", -95.3893, 29.724, 93, 88, 25, 68),
-  reading("Houston Zoo", -95.3925, 29.721, 91, 87, 40, 45),
-  reading("Hermann Park", -95.387, 29.7154, 89, 84, 45, 35),
-
-  // --- Downtown / urban core (busy + low canopy) ----------------------------
-  reading("Downtown Houston", -95.3698, 29.7604, 98, 96, 8, 92),
-  reading("Discovery Green", -95.3585, 29.7527, 93, 94, 30, 60),
-  reading("George R. Brown Convention Center", -95.3577, 29.7517, 97, 93, 6, 90),
-  reading("Avenida Houston / Toyota Center", -95.362, 29.756, 96, 92, 7, 88),
-  reading("Midtown", -95.378, 29.742, 95, 86, 14, 80),
-  reading("Montrose", -95.39, 29.743, 93, 85, 28, 62),
-  reading("EaDo / Shell Energy Stadium", -95.351, 29.749, 96, 85, 10, 86),
-  reading("The Heights", -95.398, 29.801, 93, 82, 30, 60),
-  reading("Third Ward", -95.355, 29.735, 96, 55, 15, 78),
-  reading("Buffalo Bayou Park", -95.39, 29.76, 89, 83, 42, 30),
-
-  // --- West side / Galleria / affluent leafy --------------------------------
-  reading("Galleria / Uptown", -95.4614, 29.7397, 96, 90, 12, 84),
-  reading("River Oaks", -95.42, 29.755, 89, 68, 48, 40),
-  reading("Memorial Park", -95.43, 29.765, 88, 72, 55, 22),
-  reading("Memorial (residential)", -95.55, 29.77, 88, 45, 50, 32),
-  reading("Bellaire", -95.46, 29.705, 91, 50, 30, 58),
-  reading("Meyerland", -95.46, 29.68, 92, 48, 28, 60),
-  reading("West University Place", -95.4315, 29.718, 90, 52, 38, 50),
-  reading("Gulfton", -95.48, 29.71, 98, 45, 8, 88),
-  reading("Sharpstown", -95.53, 29.7, 96, 42, 12, 82),
-  reading("Alief", -95.58, 29.7, 95, 40, 14, 80),
-  reading("Energy Corridor", -95.6349, 29.783, 94, 60, 20, 66),
-
-  // --- East side industrial (very hot, few visitors) ------------------------
-  reading("Houston Ship Channel", -95.28, 29.73, 106, 20, 2, 95),
-  reading("Galena Park Refineries", -95.23, 29.74, 107, 18, 1, 97),
-  reading("Pasadena Industrial", -95.21, 29.69, 105, 16, 2, 96),
-  reading("Baytown Industrial", -94.98, 29.74, 104, 15, 3, 94),
-  reading("Deer Park", -95.13, 29.7, 102, 30, 6, 88),
-  reading("Channelview", -95.11, 29.78, 101, 28, 8, 85),
-  reading("Fifth Ward", -95.33, 29.78, 98, 45, 10, 84),
-  reading("Denver Harbor", -95.3, 29.78, 99, 40, 9, 85),
-  reading("Sunnyside", -95.36, 29.66, 100, 38, 12, 82),
-
-  // --- Airports -------------------------------------------------------------
-  reading("George Bush Intercontinental (IAH)", -95.3414, 29.9902, 97, 86, 8, 88),
-  reading("Hobby Airport", -95.2789, 29.6454, 97, 80, 7, 89),
-
-  // --- Suburban rings -------------------------------------------------------
-  reading("Katy", -95.82, 29.79, 93, 58, 20, 62),
-  reading("Sugar Land", -95.62, 29.62, 92, 68, 25, 58),
-  reading("Missouri City", -95.54, 29.62, 93, 40, 22, 60),
-  reading("Pearland", -95.29, 29.56, 94, 46, 18, 64),
-  reading("League City", -95.09, 29.51, 92, 44, 22, 58),
-  reading("Spring", -95.42, 30.08, 93, 41, 25, 58),
-  reading("Cypress", -95.7, 29.97, 93, 39, 22, 56),
-  reading("The Woodlands (forested)", -95.45, 30.16, 89, 66, 55, 30),
-  reading("Kingwood (forested)", -95.18, 30.05, 88, 40, 58, 28),
-
-  // --- Clear Lake / NASA ----------------------------------------------------
-  reading("Space Center Houston", -95.092, 29.552, 90, 84, 20, 60),
-  reading("Clear Lake / NASA", -95.09, 29.56, 90, 64, 28, 50),
-
-  // --- Water / reservoirs (coolest, sparse visitors) ------------------------
-  reading("Addicks / Barker Reservoir", -95.63, 29.77, 86, 22, 45, 12),
-  reading("George Bush Park", -95.68, 29.72, 86, 30, 50, 10),
-  reading("Lake Houston", -95.14, 29.92, 85, 18, 30, 8),
-  reading("Galveston Bay shoreline", -94.9, 29.53, 87, 24, 10, 15),
+  // --- Rice University (leafy campus) ---------------------------------------
+  reading("Rice University Main Quad", -95.4015, 29.717, 32.8, 69, 1.52, 6.9, "measured", 66, "Busy district", "Houston", "mock"),
+  reading("Rice Academic Quad", -95.4008, 29.7175, 33.3, 69, 1.73, 6.8, "measured", 68, "Busy district", "Houston", "mock"),
+  reading("Rice Fondren Library", -95.4002, 29.7182, 33.3, 68, 1.89, 6.7, "measured", 70, "Busy district", "Houston", "mock"),
+  reading("Rice Student Center", -95.3995, 29.7165, 33.9, 68, 2, 6.7, "measured", 72, "Busy district", "Houston", "mock"),
+  reading("Rice Brochstein Pavilion", -95.3999, 29.7178, 33.3, 69, 1.71, 6.8, "measured", 74, "Busy district", "Houston", "mock"),
+  reading("Rice Central Campus", -95.402, 29.7168, 32.8, 70, 1.44, 7, "measured", 63, "Busy district", "Houston", "mock"),
+  reading("Rice Engineering Quad", -95.3988, 29.7168, 33.9, 68, 1.87, 6.8, "measured", 64, "Busy district", "Houston", "mock"),
+  reading("Rice North Colleges", -95.4025, 29.7195, 32.8, 70, 1.26, 7.1, "measured", 58, "Busy district", "Houston", "mock"),
+  reading("Rice South Colleges", -95.403, 29.7145, 33.3, 70, 1.39, 7, "measured", 55, "Busy district", "Houston", "mock"),
+  reading("Rice Inner Loop (East)", -95.3975, 29.7185, 33.3, 69, 1.55, 6.9, "measured", 56, "Busy district", "Houston", "mock"),
+  reading("Rice Inner Loop (West)", -95.4065, 29.7185, 33.3, 69, 1.76, 6.8, "measured", 50, "Residential", "Houston", "mock"),
+  reading("Rice Stadium", -95.4075, 29.716, 34.4, 66, 2.6, 6.4, "measured", 60, "Busy district", "Houston", "mock"),
+  reading("Rice Tudor Fieldhouse", -95.406, 29.715, 34.4, 67, 2.44, 6.5, "measured", 62, "Busy district", "Houston", "mock"),
+  reading("Rice Football Practice Fields", -95.407, 29.714, 33.9, 68, 2.15, 6.7, "measured", 45, "Residential", "Houston", "mock"),
+  reading("Rice West Lot", -95.4082, 29.7175, 35, 66, 2.76, 6.4, "measured", 40, "Residential", "Houston", "mock"),
+  reading("Rice Entrance (Main St)", -95.4038, 29.7118, 33.9, 68, 2.16, 6.6, "measured", 66, "Busy district", "Houston", "mock"),
+ 
+  // --- Texas Medical Center (hot, dense medical core) -----------------------
+  reading("Texas Medical Center Core", -95.3992, 29.7067, 36.7, 63, 3.95, 5.6, "measured", 70, "Busy district", "Houston", "mock"),
+  reading("TMC MD Anderson", -95.4015, 29.7075, 37.2, 62, 4.16, 5.5, "measured", 68, "Busy district", "Houston", "mock"),
+  reading("TMC Texas Children's", -95.3985, 29.7075, 36.7, 63, 4.03, 5.6, "measured", 72, "Busy district", "Houston", "mock"),
+  reading("TMC Houston Methodist", -95.3998, 29.7098, 36.7, 63, 3.95, 5.6, "measured", 71, "Busy district", "Houston", "mock"),
+  reading("TMC Memorial Hermann", -95.3968, 29.71, 36.1, 63, 3.87, 5.6, "measured", 69, "Busy district", "Houston", "mock"),
+  reading("TMC Baylor College of Medicine", -95.4008, 29.7085, 37.2, 62, 4.16, 5.5, "measured", 66, "Busy district", "Houston", "mock"),
+  reading("TMC Metro Rail Station", -95.3978, 29.7085, 36.7, 62, 4.24, 5.4, "measured", 67, "Busy district", "Houston", "mock"),
+  reading("TMC Fannin Corridor", -95.397, 29.707, 37.2, 62, 4.32, 5.4, "measured", 64, "Busy district", "Houston", "mock"),
+  reading("TMC Dryden Station", -95.3982, 29.7108, 36.1, 63, 3.95, 5.6, "measured", 68, "Busy district", "Houston", "mock"),
+  reading("TMC Smith Building", -95.4002, 29.7108, 36.7, 63, 4.03, 5.6, "measured", 66, "Busy district", "Houston", "mock"),
+  reading("TMC Ben Taub", -95.3958, 29.7095, 36.1, 63, 3.74, 5.7, "measured", 62, "Busy district", "Houston", "mock"),
+  reading("TMC West Extension", -95.4028, 29.7085, 37.2, 62, 4.16, 5.5, "measured", 63, "Busy district", "Houston", "mock"),
+  reading("TMC Garage District", -95.402, 29.706, 37.8, 61, 4.45, 5.3, "measured", 58, "Busy district", "Houston", "mock"),
+  reading("TMC Holcombe Blvd", -95.403, 29.7048, 37.8, 62, 4.37, 5.4, "measured", 55, "Busy district", "Houston", "mock"),
+  reading("TMC South (TMC3)", -95.3995, 29.703, 37.8, 62, 4.32, 5.4, "measured", 60, "Busy district", "Houston", "mock"),
+  reading("TMC Braeswood Edge", -95.401, 29.702, 37.2, 63, 4.03, 5.6, "measured", 52, "Residential", "Houston", "mock"),
+ 
+  // --- Hermann Park (green, cooler, big draws) ------------------------------
+  reading("Hermann Park Reflection Pool", -95.3905, 29.718, 31.7, 72, 0.44, 7.6, "measured", 84, "Major attraction", "Houston", "mock"),
+  reading("Hermann Park McGovern Lake", -95.392, 29.7135, 31.1, 73, 0.15, 7.8, "measured", 80, "Major attraction", "Houston", "mock"),
+  reading("Hermann Park Miller Outdoor Theatre", -95.3895, 29.7165, 31.7, 73, 0.28, 7.7, "measured", 86, "Major attraction", "Houston", "mock"),
+  reading("Houston Zoo", -95.3925, 29.721, 32.8, 71, 1.05, 7.2, "measured", 88, "Major attraction", "Houston", "mock"),
+  reading("Hermann Park Japanese Garden", -95.3888, 29.7168, 31.1, 73, 0, 7.9, "measured", 78, "Major attraction", "Houston", "mock"),
+  reading("Hermann Park Golf Course", -95.387, 29.713, 31.1, 75, 0, 8.1, "measured", 60, "Busy district", "Houston", "mock"),
+  reading("Hermann Park Centennial Gardens", -95.3892, 29.715, 31.7, 73, 0.12, 7.8, "measured", 82, "Major attraction", "Houston", "mock"),
+  reading("Hermann Park Molly Ann Smith Plaza", -95.3908, 29.7188, 32.2, 72, 0.6, 7.6, "measured", 85, "Major attraction", "Houston", "mock"),
+  reading("Hermann Park Sam Houston Monument", -95.3908, 29.7205, 32.8, 70, 1.05, 7.3, "measured", 87, "Major attraction", "Houston", "mock"),
+  reading("Hermann Park Pinewood Cafe", -95.39, 29.7145, 31.7, 73, 0.18, 7.8, "measured", 79, "Major attraction", "Houston", "mock"),
+  reading("Hermann Park Bill Coats Bridge", -95.3918, 29.712, 31.1, 74, 0, 8, "measured", 70, "Busy district", "Houston", "mock"),
+  reading("Hermann Park Jones Reflection Pool", -95.3902, 29.7175, 31.7, 72, 0.36, 7.7, "measured", 83, "Major attraction", "Houston", "mock"),
+  reading("Hermann Park East Meadow", -95.3878, 29.716, 31.1, 74, 0, 8, "measured", 74, "Busy district", "Houston", "mock"),
+  reading("Hermann Park Marvin Taylor Trail", -95.3885, 29.7125, 31.1, 74, 0, 8.1, "measured", 66, "Busy district", "Houston", "mock"),
+  reading("Hermann Park Lake Plaza", -95.3915, 29.714, 31.7, 73, 0.15, 7.8, "measured", 81, "Major attraction", "Houston", "mock"),
+  reading("Hermann Park Grand Gateway", -95.39, 29.7115, 32.2, 71, 0.86, 7.4, "measured", 76, "Major attraction", "Houston", "mock"),
 ];
 
-// Three published metric layers, all derived from the same readings.
+// Two published metric layers, both derived from the same readings.
 const TEMPERATURE_ANCHORS: HeatmapMetricValue[] =
   HOUSTON_READINGS.map(temperatureAnchor);
 const VISITOR_DENSITY_ANCHORS: HeatmapMetricValue[] =
   HOUSTON_READINGS.map(visitorDensityAnchor);
-const HEAT_RISK_ANCHORS: HeatmapMetricValue[] =
-  HOUSTON_READINGS.map(heatRiskAnchor);
 
 // A day's worth of layers (same anchors reused across the sample dates).
 const daySnapshots = (): HeatmapMetricSnapshot[] => [
   { metric: "temperature", points: TEMPERATURE_ANCHORS },
   { metric: "visitor_density", points: VISITOR_DENSITY_ANCHORS },
-  { metric: "heat_risk_score", points: HEAT_RISK_ANCHORS },
 ];
 
 // ---------------------------------------------------------------------------
@@ -448,9 +336,6 @@ export async function callHeatmapAnchors(): Promise<HeatmapMetricPointByCity> {
 // shape as the anchor API, but every entry is a whole POI area (carries its
 // polygon + fill color instead of a single coordinate).
 // ============================================================================
-
-// Mirrors HeatmapMetricValue, but carries the POI polygon (poi_coordinates)
-// instead of a single point, plus the fill color used to render the area.
 
 // --- Aggregation helpers ----------------------------------------------------
 
@@ -486,7 +371,7 @@ function polygonCentroid(polygon: Polygon): [number, number] {
 // polygon contains none, so every POI stays populated.
 function readingsForPolygon(polygon: Polygon): LocationReading[] {
   const inside = HOUSTON_READINGS.filter((r) =>
-    pointInPolygon(r.lon, r.lat, polygon),
+    pointInPolygon(r.longitude, r.latitude, polygon),
   );
   if (inside.length > 0) return inside;
 
@@ -494,7 +379,7 @@ function readingsForPolygon(polygon: Polygon): LocationReading[] {
   let nearest = HOUSTON_READINGS[0];
   let best = Infinity;
   for (const r of HOUSTON_READINGS) {
-    const d = (r.lon - cx) ** 2 + (r.lat - cy) ** 2;
+    const d = (r.longitude - cx) ** 2 + (r.latitude - cy) ** 2;
     if (d < best) {
       best = d;
       nearest = r;
@@ -504,44 +389,62 @@ function readingsForPolygon(polygon: Polygon): LocationReading[] {
 }
 
 // Mean of the readings, positioned at the polygon centroid. Building a metric
-// anchor from this yields the POI aggregate (the weight functions are linear,
-// so the built value equals the mean of the individual point values).
+// anchor from this yields the POI aggregate (the anchor values are read
+// straight off numeric fields, so the built value equals the mean of the
+// individual point values).
 function meanReading(
   readings: LocationReading[],
   name: string,
   at: [number, number],
 ): LocationReading {
-  const n = readings.length;
-  const acc = readings.reduce(
+  const n = readings.length || 1;
+  const sum = readings.reduce(
     (a, r) => {
-      a.temperatureF += r.temperatureF;
-      a.visitorDensity += r.visitorDensity;
-      a.treeCanopyPct += r.treeCanopyPct;
-      a.imperviousSurfacePct += r.imperviousSurfacePct;
+      a.avg_temperature_c += r.avg_temperature_c ?? 0;
+      a.relative_humidity += r.relative_humidity ?? 0;
+      a.wind_speed_knots += r.wind_speed_knots ?? 0;
+      a.uhi += r.uhi ?? 0;
+      a.distance_to_nearest_station_km += r.distance_to_nearest_station_km ?? 0;
+      a.visitor_count += r.visitor_count ?? 0;
       return a;
     },
-    { temperatureF: 0, visitorDensity: 0, treeCanopyPct: 0, imperviousSurfacePct: 0 },
+    {
+      avg_temperature_c: 0,
+      relative_humidity: 0,
+      wind_speed_knots: 0,
+      uhi: 0,
+      distance_to_nearest_station_km: 0,
+      visitor_count: 0,
+    },
   );
-  return reading(
-    name,
-    at[0],
-    at[1],
-    acc.temperatureF / n,
-    acc.visitorDensity / n,
-    acc.treeCanopyPct / n,
-    acc.imperviousSurfacePct / n,
-  );
-}
 
-// metric name -> the same builder used for point anchors.
-const POI_METRIC_BUILDERS: Record<
-  string,
-  (r: LocationReading) => HeatmapMetricValue
-> = {
-  temperature: temperatureAnchor,
-  visitor_density: visitorDensityAnchor,
-  heat_risk_score: heatRiskAnchor,
-};
+  const avgTemperatureC = sum.avg_temperature_c / n;
+  const visitorCount = sum.visitor_count / n;
+  const first = readings[0];
+
+  return {
+    id: -1, // synthetic aggregate, not a DB row
+    date: first?.date ?? DEFAULT_READING_DATE,
+    latitude: at[1],
+    longitude: at[0],
+    name,
+
+    // --- heat_weather_point fields (averaged) ---
+    avg_temperature_c: avgTemperatureC,
+    relative_humidity: sum.relative_humidity / n,
+    wind_speed_knots: sum.wind_speed_knots / n,
+    uhi: sum.uhi / n,
+    source: "interpolated", // aggregate over measured points
+    distance_to_nearest_station_km: sum.distance_to_nearest_station_km / n,
+    passed_threshold: avgTemperatureC >= HEAT_THRESHOLD_C,
+
+    // --- visitor_poi fields (averaged / representative) ---
+    market: first?.market ?? DEFAULT_MARKET,
+    category: visitorCategory(visitorCount),
+    visitor_count: visitorCount,
+    visitor_count_source: first?.visitor_count_source ?? "mock",
+  };
+}
 
 // Aggregate one POI for one metric.
 function poiMetricValue(
@@ -562,6 +465,15 @@ function poiMetricValue(
     },
   };
 }
+
+// metric name -> the same builder used for point anchors.
+const POI_METRIC_BUILDERS: Record<
+  string,
+  (r: LocationReading) => HeatmapMetricValue
+> = {
+  temperature: temperatureAnchor,
+  visitor_density: visitorDensityAnchor,
+};
 
 // All metric snapshots for a set of POIs (one day).
 function poiDaySnapshots(areas: CityPOIArea[]): HeatmapMetricPOISnapshot[] {

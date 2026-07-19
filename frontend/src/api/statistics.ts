@@ -5,6 +5,8 @@ import type {
 } from '../types/statistics';
 export type { CityStatisticsResponse };
 
+import type { Polygon } from './map';
+
 const CITY_STATISTICS_SEED: Record<string, CitySeedData> = {
     Nationally: {
     averageHeatRisk: 64,
@@ -420,4 +422,31 @@ export async function callMockStatistics(city: string): Promise<CityStatisticsRe
       pois: seed.pois,
     },
   };
+}
+
+
+
+
+
+// Simulated network latency so callers can exercise their loading states.
+const MOCK_LATENCY_MS = 150;
+
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Mock "POST /poi-areas". Takes the drafted area's name, color, and polygon
+ * coordinates. Returns empty for now — the body just resolves without
+ * persisting anything. Swap in a real request (and a created-area return type)
+ * when the endpoint lands; the parameter list is the contract callers rely on.
+ */
+export async function createPOIArea(
+  name: string,
+  color: string,
+  coordinates: Polygon,
+): Promise<void> {
+  await delay(MOCK_LATENCY_MS);
+  void name;
+  void color;
+  void coordinates;
+  // returns empty for now
 }

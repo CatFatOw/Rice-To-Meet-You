@@ -65,11 +65,39 @@ export interface HeatmapMetricPOIByCity {
 }
 
 export interface LocationReading {
-  name: string;
-  lon: number;
-  lat: number;
-  temperatureF: number;
-  visitorDensity: number;
-  treeCanopyPct: number;
-  imperviousSurfacePct: number;
+  id: number;
+  date: string;         // ISO date, e.g. "2026-07-05"
+  latitude: number;
+  longitude: number;
+
+  // --- HeatWeatherPoint fields (set when metric_source_kind === "heat_weather_point") ---
+  avg_temperature_c?: number | null;
+  relative_humidity?: number | null;
+  wind_speed_knots?: number | null;
+  uhi?: number | null;
+  source?: "measured" | "interpolated" | null;
+  distance_to_nearest_station_km?: number | null;
+  passed_threshold?: boolean | null;
+
+  // --- VisitorPOI fields (set when metric_source_kind === "visitor_poi") ---
+  market?: string | null;
+  source_market?: string | null;
+  fsq_place_id?: string | null;
+  placekey?: string | null;
+  name?: string | null;
+  category?: string | null;
+  visitor_count?: number | null;
+  visitor_density?: number | null;
+  visitor_count_source?: string | null;
+  source_period_start?: string | null;  // ISO datetime
+  source_period_end?: string | null;    // ISO datetime
+}
+
+
+
+// This is used for simulation api call
+
+
+export interface HeatmapPointsByDate {
+  [date: string]: HeatmapMetricValue[];
 }

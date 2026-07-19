@@ -23,6 +23,7 @@ import { fetchPlacedObjects } from '../api/tool';
 import type { Geometry } from '../types/simulation';
 import { isPointInPolygon } from '../services/toolbox';
 import { isPolygonSimple } from '../services/polygon';
+import { getSimulatedPointsByDate } from '../api/simulation';
 
 
 
@@ -107,13 +108,25 @@ function rgbaCss(rgb: [number, number, number], alpha: number): string {
 }
 
 /**
+ * Stops (in each metric's own units) used to sample getColor for both the
+ * heatmap colour range and the legend gradient. Temperature is in °C and
+ * spans ~10–44; visitor density is a 0–100 index.
+ */
+function metricStops(colorMetric: string): number[] {
+  if (colorMetric === 'temperature') {
+    return [12, 16, 20, 23, 25, 27, 29, 31, 33, 35, 37, 39, 44];
+  }
+  return [0, 20, 40, 60, 80, 100];
+}
+
+/**
  * Build the six-stop RGBA colour ramp deck.gl's heatmap layer expects.
  * The first stop is fully transparent (alpha 0) so low-intensity areas fade
  * into the basemap instead of tinting the whole city.
  */
 function metricColorRange(metric: string): [number, number, number, number][] {
   const colorMetric = colorMetricKey(metric);
-  const stops = [0, 20, 40, 60, 80, 100];
+  const stops = metricStops(colorMetric);
 
   return stops.map((value, index) => {
     const [r, g, b] = getColor(value, colorMetric);
@@ -129,7 +142,7 @@ function metricColorRange(metric: string): [number, number, number, number][] {
  */
 function metricLegendGradient(metric: string): string {
   const colorMetric = colorMetricKey(metric);
-  const stops = [0, 20, 40, 60, 80, 100];
+  const stops = metricStops(colorMetric);
   const pctStep = 100 / (stops.length - 1);
 
   const segments = stops.map((value, index) => {
@@ -198,7 +211,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
   setIsAreaDragging,
   placedObjectsControls,
   displayToolbox = false,
-  drawControls,
+  drawControls
 }) => {
   // Fallback fullscreen target when the parent doesn't supply one: the root
   // element of this component.
@@ -452,7 +465,7 @@ const hoverablePolygons = useMemo(() => {
 
   const draftIsSimple = useMemo(() => isPolygonSimple(draftPoints), [draftPoints]);
 
-  
+
  
   const layers = useHeatmapLayers({
     isDrawing,

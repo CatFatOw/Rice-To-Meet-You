@@ -1,21 +1,22 @@
-import { TOOLBOX_ITEMS, type ToolboxItemDef } from '../data/toolboxItems';
+import { getToolboxItems, type ToolboxItemDef } from '../data/toolboxItems';
 import type { PlacedObject } from '../types/toolbox';
 import type { Ring } from '../hooks/usePolygonDraw';
 export type { PlacedObject };
 
-// --- Toolbox plumbing + rendering -------------------------------------------
-//
-// The editable list of tools lives in ../data/toolboxItems. This file derives
-// the lookup, the drag identifier, and the map-pin marker SVGs from it.
-//
-// Re-exported so existing imports from '../utils/toolbox' keep working; you can
-// import TOOLBOX_ITEMS / ToolboxItemDef from either path.
-export { TOOLBOX_ITEMS };
-export type { ToolboxItemDef };
 
-export const TOOLBOX_BY_TYPE: Record<string, ToolboxItemDef> = Object.fromEntries(
-  TOOLBOX_ITEMS.map((item) => [item.type, item]),
-);
+
+export const TOOLBOX_BY_TYPE: Record<string, ToolboxItemDef> = {};
+
+void getToolboxItems()
+  .then((itemsByArchetype) => {
+    const entries = Object.values(itemsByArchetype)
+      .flat()
+      .map((item) => [item.type, item] as const);
+    Object.assign(TOOLBOX_BY_TYPE, Object.fromEntries(entries));
+  })
+  .catch((error) => {
+    console.error('Failed to initialize toolbox items by type', error);
+  });
 
 // Custom MIME type used to carry the toolbox item type through an HTML5 drag.
 export const TOOLBOX_DRAG_MIME = 'application/x-heatmap-toolbox-item';

@@ -89,6 +89,7 @@ export interface ToolboxProps {
   };
   draftPoints: [number, number][];
   onCommitDrawing: () => [number, number][] | null;
+  draftIsSimple: boolean;
 
   // --- Create POI Area ---
   selectedCity: string | null;

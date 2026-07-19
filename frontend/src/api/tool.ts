@@ -20,37 +20,27 @@ const polygon = (ring: [number, number][]): Geometry => ({
 // The Houston tool set. misting_station -> point (icon), shade_canopy +
 // cool_roof -> polygon (fill), so both layers have something to render.
 // Same set is used for every date in the range below.
+// The Houston tool set: a single street-tree polygon.
 const HOUSTON_TOOLS: BasePlacedObject[] = [
   {
     id: 'placed-hou-1',
-    type: 'misting_station',
-    name: 'Discovery Green misting',
-    color: '#38bdf8',
-    geometry: point(-95.3595, 29.7529),
-  },
-  {
-    id: 'placed-hou-2',
-    type: 'shade_canopy',
-    name: 'Market Square canopy',
-    color: '#f97316',
+    type: 'street_trees',
+    category: 'Vegetation',
+    name: 'Rice University street trees',
+    color: '#22c55e',
     geometry: polygon([
-      [-95.3625, 29.7643],
-      [-95.3606, 29.7643],
-      [-95.3606, 29.7628],
-      [-95.3625, 29.7628],
+      [-95.400412, 29.718285],
+      [-95.400347, 29.718055],
+      [-95.399941, 29.718152],
+      [-95.400023, 29.718413],
     ]),
-  },
-  {
-    id: 'placed-hou-3',
-    type: 'cool_roof',
-    name: 'Midtown cool roofs',
-    color: '#e2e8f0',
-    geometry: polygon([
-      [-95.3776, 29.7401],
-      [-95.3752, 29.7401],
-      [-95.3752, 29.7382],
-      [-95.3776, 29.7382],
-    ]),
+    params: {
+        coverPct: 0.4, // 0–1  fraction of cell under canopy (scale)
+        lai: 4, //         ~0–6 Leaf Area Index — transpiring surface (intensity)
+        irrigation: 0.6, // 0–1  irrigation level committed to (lever)
+      },
+    activeFrom: '2026-07-05',
+    activeTo: '2026-07-07'
   },
 ];
 

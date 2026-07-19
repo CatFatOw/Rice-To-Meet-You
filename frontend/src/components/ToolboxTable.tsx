@@ -86,7 +86,7 @@ export default function ToolboxTable({
   placedObjects = [],
   onPlacedObjectsChange,
   availableDates,
-  title = 'Tools on map',
+  title = 'Tools on map'
 }: ToolboxTableProps) {
   const readOnly = !onPlacedObjectsChange;
 
