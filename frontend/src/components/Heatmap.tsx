@@ -9,7 +9,6 @@ import {
 import { type City } from '../data/hostCities';
 import { getColor } from '../services/colors';
 import { useHeatmapLayers } from '../hooks/useHeatmapLayers';
-import { sampleHeatmapMetricByCity } from '../services/interpolate';
 import SearchBar from './SearchBar';
 import Toolbox from './Toolbox';
 import HeatRiskScale from './Heatriskscale';
@@ -21,9 +20,7 @@ import type { HeatmapProps, TooltipState } from '../types/components';
 import type { ViewState } from '../types/viewState';
 import { fetchPlacedObjects } from '../api/tool';
 import type { Geometry } from '../types/simulation';
-import { isPointInPolygon } from '../services/toolbox';
 import { isPolygonSimple } from '../services/polygon';
-import { getSimulatedPointsByDate } from '../api/simulation';
 
 
 
@@ -107,6 +104,18 @@ function rgbaCss(rgb: [number, number, number], alpha: number): string {
   return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
 }
 
+
+function metricColorDomain(metric: string): [number, number] {
+  const colorMetric = colorMetricKey(metric);
+  if (colorMetric === 'temperature') return [10, 50];
+  if (colorMetric === 'change_in_temperature') return [0, 10]; // shifted from [-5, 5]
+  return [0, 100];
+}
+
+function metricWeightOffset(metric: string): number {
+  return colorMetricKey(metric) === 'change_in_temperature' ? 5 : 0;
+}
+
 /**
  * Stops (in each metric's own units) used to sample getColor for both the
  * heatmap colour range and the legend gradient. Temperature is in °C and
@@ -115,6 +124,9 @@ function rgbaCss(rgb: [number, number, number], alpha: number): string {
 function metricStops(colorMetric: string): number[] {
   if (colorMetric === 'temperature') {
     return [12, 16, 20, 23, 25, 27, 29, 31, 33, 35, 37, 39, 44];
+  }
+  if (colorMetric === 'change_in_temperature') {
+    return [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5];
   }
   return [0, 20, 40, 60, 80, 100];
 }
@@ -128,9 +140,14 @@ function metricColorRange(metric: string): [number, number, number, number][] {
   const colorMetric = colorMetricKey(metric);
   const stops = metricStops(colorMetric);
 
+  // Sequential metrics fade their lowest stop into the basemap. The ΔT ramp is
+  // diverging — its first stop is strong cooling, not "low intensity" — so it
+  // stays opaque.
+  const fadeFirst = colorMetric !== 'change_in_temperature';
+
   return stops.map((value, index) => {
     const [r, g, b] = getColor(value, colorMetric);
-    const alpha = index === 0 ? 0 : 230;
+    const alpha = index === 0 && fadeFirst ? 0 : 230;
     return [r, g, b, alpha];
   });
 }
@@ -231,6 +248,8 @@ const pendingPlacedObjects = useMemo(
       : [],
   [placedObjectsControls?.pendingPlacedObject],
 );
+
+
 
 // Polygon things the hover test should check: committed + pending placed
 // objects whose geometry is a polygon, plus the user-drawn POI areas. Each
@@ -372,6 +391,10 @@ const hoverablePolygons = useMemo(() => {
   // Presentation derived from the active metric: key, display name, layer
   // colour ramp and matching legend gradient.
   const activeMetricKey = activeMetricLayer?.metric ?? 'heat_risk_score';
+  const activeMetricWeightOffset = useMemo(
+    () => metricWeightOffset(activeMetricKey),
+    [activeMetricKey],
+  );
   const metricLabelText = formatMetricName(activeMetricKey);
   const activeMetricColorRange = useMemo(
     () => metricColorRange(activeMetricKey),
@@ -379,6 +402,10 @@ const hoverablePolygons = useMemo(() => {
   );
   const activeMetricLegendGradient = useMemo(
     () => metricLegendGradient(activeMetricKey),
+    [activeMetricKey],
+  );
+  const activeMetricColorDomain = useMemo(
+    () => metricColorDomain(activeMetricKey),
     [activeMetricKey],
   );
 
@@ -472,6 +499,9 @@ const hoverablePolygons = useMemo(() => {
     selectedCity,
     displayedHeatmapPoints,
     activeMetricColorRange,
+    activeMetricColorDomain,
+    activeMetricWeightOffset,
+    activeMetricKey,
     displayedPOIAreas,
     userPOIAreas,
     editingAreaId,
@@ -499,82 +529,122 @@ const hoverablePolygons = useMemo(() => {
    * Clears the tooltip while drawing or when there's nothing under the cursor.
    */
   const handleDeckHover = useCallback(
-    (info: { coordinate?: number[]; x: number; y: number }) => {
-      if (
-        isDrawing ||
-        !selectedCity ||
-        !selectedDate ||
-        displayedHeatmapPoints.length === 0 ||
-        !info.coordinate ||
-        info.coordinate.length < 2
-      ) {
-        setHoveringHeatmap(false);
-        setTooltip(null);
-        return;
-      }
+      (info: {
+        coordinate?: number[];
+        object?: HeatmapMetricValue | null;
+        x: number;
+        y: number;
+      }) => {
+        if (
+          isDrawing ||
+          !selectedCity ||
+          !selectedDate ||
+          displayedHeatmapPoints.length === 0 ||
+          !info.coordinate ||
+          info.coordinate.length < 2
+        ) {
+          setHoveringHeatmap(false);
+          setTooltip(null);
+          return;
+        }
+        // 👇 TEMP debug — which layer is deck.gl picking under the cursor?
+        // console.log(
+        //   'picked layer:', (info as any).layer?.id,
+        //   '| has object:', !!info.object,
+        //   '| object:', info.object,
+        // );
+        // No picked object under cursor: do not show any tooltip.
+        if (!info.object) {
+          setHoveringHeatmap(false);
+          setTooltip(null);
+          return;
+        }
 
-      const [longitude, latitude] = info.coordinate;
-      const sampledPoint = sampleHeatmapMetricByCity(
+        // Hovering an actual reading (pointPickLayer): report its true,
+        // unblended value instead of the interpolated surface sample below.
+        const pickedLayerId = (info as any).layer?.id;
+        if (pickedLayerId === 'heatmap-point-pick-layer' && info.object) {
+          const point = info.object as HeatmapMetricValue;
+          setHoveringHeatmap(true);
+          setTooltip({
+            point,
+            metric: activeMetricKey,
+            x: info.x,
+            y: info.y,
+            coordinates: {
+              longitude: point.location_coordinates[0],
+              latitude: point.location_coordinates[1],
+            },
+            surface: mapRef.current
+              ? classifySurface(mapRef.current, info.x, info.y)
+              : { type: 'unknown' as SurfaceType },
+          });
+          return;
+        }
+
+
+        
+
+        // const sampledPoint = sampleHeatmapMetricByCity(
+        //   heatmapAnchorsByCity,
+        //   selectedCity,
+        //   selectedDate,
+        //   activeMetricKey,
+        //   longitude,
+        //   latitude,
+        // );
+
+        // // Cursor is inside the city view but outside the sampled grid.
+        // if (!sampledPoint) {
+        //   setHoveringHeatmap(false);
+        //   setTooltip(null);
+        //   return;
+        // }
+
+        // // Prefer polygon context over raw coordinate label when the hovered
+        // // point is inside a user/placed polygon.
+        // const hoveredPolygon = hoverablePolygons.find(({ ring }) =>
+        //   isPointInPolygon(ring, longitude, latitude),
+        // );
+
+        // const prioritizedPoint = hoveredPolygon
+        //   ? {
+        //       ...sampledPoint,
+        //       location_name:
+        //         hoveredPolygon.source === 'placed'
+        //           ? (hoveredPolygon.object.name?.trim() || hoveredPolygon.object.type)
+        //           : hoveredPolygon.area.name,
+        //     }
+        //   : sampledPoint;
+
+        // setHoveringHeatmap(true);
+        // const surface = mapRef.current
+        //   ? classifySurface(mapRef.current, info.x, info.y)
+        //   : { type: 'unknown' as SurfaceType };
+
+        // setTooltip({
+        //   point: prioritizedPoint,
+        //   metric: activeMetricKey,
+        //   x: info.x,
+        //   y: info.y,
+        //   coordinates: { longitude, latitude },
+        //   surface,
+        // });
+        
+      },
+      [
+        activeMetricKey,
+        displayedHeatmapPoints.length,
         heatmapAnchorsByCity,
+        isDrawing,
+        mapRef,
+        hoverablePolygons,
         selectedCity,
         selectedDate,
-        activeMetricKey,
-        longitude,
-        latitude,
-      );
-
-      // Cursor is inside the city view but outside the sampled grid.
-      if (!sampledPoint) {
-        setHoveringHeatmap(false);
-        setTooltip(null);
-        return;
-      }
-
-      // Prefer polygon context over raw coordinate label when the hovered
-      // point is inside a user/placed polygon.
-      const hoveredPolygon = hoverablePolygons.find(({ ring }) =>
-        isPointInPolygon(ring, longitude, latitude),
-      );
-
-      const prioritizedPoint = hoveredPolygon
-        ? {
-            ...sampledPoint,
-            location_name:
-              hoveredPolygon.source === 'placed'
-                ? (hoveredPolygon.object.name?.trim() || hoveredPolygon.object.type)
-                : hoveredPolygon.area.name,
-          }
-        : sampledPoint;
-
-      setHoveringHeatmap(true);
-      // Surface classification needs the MapLibre instance to query rendered
-      // basemap features at the pixel; degrade to 'unknown' if it isn't ready.
-      const surface = mapRef.current
-        ? classifySurface(mapRef.current, info.x, info.y)
-        : { type: 'unknown' as SurfaceType };
-
-      setTooltip({
-        point: prioritizedPoint,
-        metric: activeMetricKey,
-        x: info.x,
-        y: info.y,
-        coordinates: { longitude, latitude },
-        surface,
-      });
-    },
-    [
-      activeMetricKey,
-      displayedHeatmapPoints.length,
-      heatmapAnchorsByCity,
-      isDrawing,
-      mapRef,
-      hoverablePolygons,
-      selectedCity,
-      selectedDate,
-      setHoveringHeatmap,
-      setTooltip,
-    ],
-  );
+        setHoveringHeatmap,
+        setTooltip,
+      ],
+    );
 
   // Crosshair while drawing or hovering the heatmap; grab/grabbing otherwise
   // so normal map panning still reads correctly.
@@ -705,6 +775,7 @@ const hoverablePolygons = useMemo(() => {
         onViewStateChange={handleViewStateChange}
         onClick={handleDeckClick}
         onHover={handleDeckHover}
+        pickingRadius={10}
         controller={{ dragPan: !isAreaDragging, scrollZoom: true, touchZoom: true }}
         layers={layers}
         getCursor={getCursor}

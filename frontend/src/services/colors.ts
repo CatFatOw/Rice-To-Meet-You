@@ -55,6 +55,21 @@ export function getColor(v: number, metric: Metric): [number, number, number] {
     return [37, 52, 148];                 // least dense, deep blue
   }
 
+  if (metric === 'change_in_temperature') {
+    // Diverging ΔT ramp (°C): blue (cooling) → gray (no change) → red (warming)
+    if (v >= 5)  return [165, 0, 38];      // dark red — strong warming
+    if (v >= 4)  return [215, 48, 39];     // red
+    if (v >= 3)  return [244, 109, 67];    // red-orange
+    if (v >= 2)  return [253, 174, 97];    // orange
+    if (v >= 1)  return [254, 224, 144];   // yellow
+    if (v > -1)  return [247, 247, 247];   // light gray/white — no change
+    if (v > -2)  return [209, 229, 240];   // pale cyan
+    if (v > -3)  return [146, 197, 222];   // cyan
+    if (v > -4)  return [67, 147, 195];    // light blue
+    if (v > -5)  return [33, 102, 172];    // blue
+    return [8, 48, 107];                   // dark blue — very strong cooling
+  }
+
   // Fallback for metrics not yet handled — your original YlOrRd ramp
   if (v > 80) return [189, 0, 38];
   if (v > 60) return [240, 59, 32];

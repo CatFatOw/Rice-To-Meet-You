@@ -63,6 +63,7 @@ function geometryAnchor(geometry: PlacedObject['geometry']): [number, number] {
   return [total.lng / points.length, total.lat / points.length];
 }
 
+
 // Transient state for a drag-in-progress on either the draft polygon or an
 // existing (editing) POI area. Lives here because only the layers below read
 // or write it.
@@ -89,6 +90,9 @@ export function useHeatmapLayers({
   selectedCity,
   displayedHeatmapPoints,
   activeMetricColorRange,
+  activeMetricColorDomain,
+  activeMetricWeightOffset,
+  activeMetricKey,
   displayedPOIAreas,
   userPOIAreas,
   editingAreaId,
@@ -106,6 +110,32 @@ export function useHeatmapLayers({
 }: UseHeatmapLayersArgs) {
   const dragContextRef = useRef<DragContext | null>(null);
 
+  const isTemperatureChange =
+    activeMetricKey === 'change_in_temperature';
+
+  const deltaThreshold = 0.05;
+
+    const coolingPoints = useMemo(
+      () =>
+        isTemperatureChange
+          ? displayedHeatmapPoints.filter(
+              (point) => point.value < -deltaThreshold,
+            )
+          : [],
+      [displayedHeatmapPoints, isTemperatureChange],
+    );
+
+    const warmingPoints = useMemo(
+      () =>
+        isTemperatureChange
+          ? displayedHeatmapPoints.filter(
+              (point) => point.value > deltaThreshold,
+            )
+          : [],
+      [displayedHeatmapPoints, isTemperatureChange],
+    );
+
+  
   // Committed objects plus any pending (staged) ones, rendered identically.
   // pendingPlacedObjects is optional (pages without a toolbox omit it).
   const allPlacedObjects = useMemo(
@@ -180,31 +210,134 @@ export function useHeatmapLayers({
   );
 
   // Continuous, interpolated density surface (GPU kernel-density estimation).
-  // Larger radius + lower threshold = smoother blending between points.
-const interpolatedHeatmapLayer = useMemo(
+  // Larger radius + lower threshold = smoother blending between points. This is
+  // the *visible* layer and stays non-pickable — pointPickLayer below handles
+  // hover so the tooltip reports true point values, not the blended surface.
+  
+  const interpolatedHeatmapLayer = useMemo(
+    () =>
+      new HeatmapLayer<HeatmapMetricValue>({
+        id: 'interpolated-heatmap-layer',
+        data: displayedHeatmapPoints,
+
+        getPosition: (d) => d.location_coordinates,
+        getWeight: (d) => d.value + activeMetricWeightOffset,
+
+        // Nearby observations contribute to a weighted average.
+        aggregation: 'MEAN',
+
+        radiusPixels: 60,   // smaller kernel → less spread → thinner halo
+        intensity: 1,
+        threshold: 0.08,    // higher cutoff → trims the faint blue fringe
+
+        // Keep this fixed for the metric so colors do not rescale every day.
+        colorDomain: activeMetricColorDomain,
+        colorRange: activeMetricColorRange,
+
+        pickable: false,
+      }),
+    [
+      displayedHeatmapPoints,
+      activeMetricColorDomain,
+      activeMetricColorRange,
+      activeMetricWeightOffset,
+    ],
+  );
+  const coolingHeatmapLayer = useMemo(
   () =>
     new HeatmapLayer<HeatmapMetricValue>({
-      id: 'interpolated-heatmap-layer',
-      data: displayedHeatmapPoints,
+      id: 'cooling-heatmap-layer',
+      data: coolingPoints,
+
+      getPosition: (d) => d.location_coordinates,
+
+      // Convert negative cooling to positive magnitude.
+      getWeight: (d) => -d.value,
+
+      aggregation: 'MEAN',
+      radiusPixels: 60,
+      intensity: 1,
+      threshold: 0.08,
+
+      colorDomain: [0, 5],
+      colorRange: [
+        [219, 234, 254, 0],   // 0: transparent
+        [147, 197, 253, 100],
+        [96, 165, 250, 160],
+        [59, 130, 246, 210],
+        [30, 64, 175, 240],   // -5°C: strong blue
+      ],
+
+      pickable: false,
+    }),
+  [coolingPoints],
+);
+
+const warmingHeatmapLayer = useMemo(
+  () =>
+    new HeatmapLayer<HeatmapMetricValue>({
+      id: 'warming-heatmap-layer',
+      data: warmingPoints,
 
       getPosition: (d) => d.location_coordinates,
       getWeight: (d) => d.value,
 
-      // Nearby observations contribute to a weighted average.
       aggregation: 'MEAN',
-
       radiusPixels: 60,
       intensity: 1,
-      threshold: 0.02,
+      threshold: 0.08,
 
-      // Keep this fixed for the metric so colors do not rescale every day.
-      colorDomain: [10, 50],
-      colorRange: activeMetricColorRange,
+      colorDomain: [0, 5],
+      colorRange: [
+        [254, 226, 226, 0],   // 0: transparent
+        [252, 165, 165, 100],
+        [248, 113, 113, 160],
+        [239, 68, 68, 210],
+        [153, 27, 27, 240],   // +5°C: strong red
+      ],
 
       pickable: false,
     }),
-  [displayedHeatmapPoints, activeMetricColorRange],
+  [warmingPoints],
 );
+
+const visibleMetricLayers = useMemo(
+  () =>
+    isTemperatureChange
+      ? [coolingHeatmapLayer, warmingHeatmapLayer]
+      : [interpolatedHeatmapLayer],
+  [
+    isTemperatureChange,
+    interpolatedHeatmapLayer,
+    coolingHeatmapLayer,
+    warmingHeatmapLayer,
+  ],
+);
+
+  // Transparent, pickable dots sitting exactly on each reading. The heatmap
+  // above is the visible surface; this layer exists only so hovering a point
+  // returns its true value (via info.object) instead of the interpolated
+  // surface value. Sits just above the heatmap and below every interactive
+  // vector layer, so POI / placed-object / city clicks still win. Bump the
+  // fill alpha if you'd like the raw readings to be visible.
+  const pointPickLayer = useMemo(
+    () =>
+      new ScatterplotLayer<HeatmapMetricValue>({
+        id: 'heatmap-point-pick-layer',
+        data: displayedHeatmapPoints,
+        pickable: !isDrawing,
+        getPosition: (d) => d.location_coordinates,
+        // Keep alpha > 0 so fragments are not discarded by alpha cutoffs in
+        // the picking pass; fully transparent points can become unpickable.
+        getFillColor: [0, 0, 0, 1],
+        opacity: 0.01,
+        radiusUnits: 'pixels',
+        getRadius: 8,
+        radiusMinPixels: 6,
+        radiusMaxPixels: 14,
+      }),
+    [displayedHeatmapPoints, isDrawing],
+  );
 
   // Placed objects with point/line geometry, rendered as toolbox marker icons
   // at the geometry's anchor. Polygon-geometry objects are handled separately
@@ -214,7 +347,7 @@ const interpolatedHeatmapLayer = useMemo(
       new IconLayer({
         id: 'placed-object-point-layer',
         data: allPlacedObjects.filter((o) => o.geometry.kind !== 'polygon'),
-        pickable: !isDrawing,
+        pickable: false,
         getPosition: (d: PlacedObject) => geometryAnchor(d.geometry),
         getIcon: (d: PlacedObject) => {
           const def = TOOLBOX_BY_TYPE[d.type];
@@ -245,7 +378,7 @@ const interpolatedHeatmapLayer = useMemo(
       new PolygonLayer({
         id: 'placed-object-polygon-layer',
         data: allPlacedObjects.filter((o) => o.geometry.kind === 'polygon'),
-        pickable: !isDrawing,
+        pickable: false,
         stroked: true,
         filled: true,
         opacity: 0.55,
@@ -268,7 +401,7 @@ const interpolatedHeatmapLayer = useMemo(
     [allPlacedObjects, isDrawing, onRemovePlacedObject],
   );
 
-// Toolbox marker icon centered on each polygon placed object (in addition to
+  // Toolbox marker icon centered on each polygon placed object (in addition to
   // the filled area from placedObjectPolygonLayer). Anchored at the polygon's
   // area centroid via polygonCenter. Click to remove, same as the pins.
   const placedObjectPolygonIconLayer = useMemo(
@@ -278,7 +411,7 @@ const interpolatedHeatmapLayer = useMemo(
         data: allPlacedObjects.filter(
           (o) => o.geometry.kind === 'polygon' && o.geometry.ring.length >= 3,
         ),
-        pickable: !isDrawing,
+        pickable: false,
         getPosition: (d: PlacedObject) =>
           d.geometry.kind === 'polygon' ? polygonCenter(d.geometry.ring) : [0, 0],
         getIcon: (d: PlacedObject) => {
@@ -307,7 +440,7 @@ const interpolatedHeatmapLayer = useMemo(
       new PolygonLayer({
         id: 'poi-area-layer',
         data: displayedPOIAreas,
-        pickable: true,
+        pickable: false,
         stroked: true,
         filled: true,
         opacity: 0.55,
@@ -378,7 +511,7 @@ const interpolatedHeatmapLayer = useMemo(
       new PolygonLayer({
         id: 'draft-polygon-layer',
         data: draftPoints.length >= 3 ? [{ polygon: draftPoints }] : [],
-        pickable: isDrawing,
+        pickable: false,
         stroked: true,
         filled: true,
         opacity: 0.5,
@@ -445,7 +578,8 @@ const interpolatedHeatmapLayer = useMemo(
 
   return useMemo(
     () => [
-      interpolatedHeatmapLayer,
+      ...visibleMetricLayers,
+      pointPickLayer,
       poiAreaLayer,
       placedObjectPolygonLayer,
       placedObjectPolygonIconLayer,
@@ -457,7 +591,8 @@ const interpolatedHeatmapLayer = useMemo(
       cityLabelLayer,
     ],
     [
-      interpolatedHeatmapLayer,
+      visibleMetricLayers,
+      pointPickLayer,
       poiAreaLayer,
       placedObjectPolygonLayer,
       placedObjectPolygonIconLayer,

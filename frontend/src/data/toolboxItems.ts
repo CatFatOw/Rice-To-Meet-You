@@ -1,20 +1,69 @@
 import {
+
+  // Vegetation
+
   Sprout,
+
   TreePine,
+
   Trees,
+
   Leaf,
+
   Flower2,
+
   Fence,
-  Sun,
+
+  // High-albedo surface
+
+  Home,
+
+  Route,
+
+  SquareParking,
+
+  Footprints,
+
   Building2,
-  Umbrella,
+
+  // Shade structure
+
+  PanelTop,
+
   Tent,
-  Sailboat,
-  CloudRain,
-  Waves,
+
+  Triangle,
+
+  Grid2x2,
+
+  BusFront,
+
+  // Evaporative / water
+
   Droplets,
+
+  Waves,
+
+  SprayCan,
+
+  Droplet,
+
+  Blocks,
+
+  // Misc / existing
+
+  Sun,
+
+  Umbrella,
+
+  Sailboat,
+
+  CloudRain,
+
   ShowerHead,
+
   CircleDot,
+
 } from 'lucide-react';
 import type { ToolboxItemDef } from '../types/toolbox';
 export type { ToolboxItemDef };
@@ -117,9 +166,199 @@ const TOOLBOX_ITEMS: ToolboxItemsByArchetype = {
   ],
 
   // Populated later — declared now so the archetype dropdown lists all four.
-  'High-albedo surface': [],
-  'Shade structure': [],
-  'Evaporative / water': [],
+'High-albedo surface': [
+    {
+      id: 'cool_roof',
+      type: 'cool_roof',
+      label: 'Cool Roof Coating',
+      color: '#f8fafc',
+      kind: 'polygon',
+      Icon: Home,
+      params: {
+        deltaAlbedo: 0.65, // 0–1  albedo increase vs baseline (intensity)
+        coverPct: 0.35, //    0–1  treated fraction of cell (scale)
+      },
+    },
+    {
+      id: 'cool_pavement',
+      type: 'cool_pavement',
+      label: 'Cool Pavement Coating',
+      color: '#e2e8f0',
+      kind: 'polygon',
+      Icon: Route,
+      params: {
+        deltaAlbedo: 0.25,
+        coverPct: 0.25,
+      },
+    },
+    {
+      id: 'reflective_parking',
+      type: 'reflective_parking',
+      label: 'Reflective Parking Lot',
+      color: '#cbd5e1',
+      kind: 'polygon',
+      Icon: SquareParking,
+      params: {
+        deltaAlbedo: 0.35,
+        coverPct: 0.15,
+      },
+    },
+    {
+      id: 'light_sidewalk',
+      type: 'light_sidewalk',
+      label: 'Light Concrete Sidewalk',
+      color: '#f1f5f9',
+      kind: 'polygon',
+      Icon: Footprints,
+      params: {
+        deltaAlbedo: 0.30,
+        coverPct: 0.10,
+      },
+    },
+    {
+      id: 'reflective_facade',
+      type: 'reflective_facade',
+      label: 'Reflective Facade Paint',
+      color: '#e0f2fe',
+      kind: 'polygon',
+      Icon: Building2,
+      params: {
+        deltaAlbedo: 0.30,
+        coverPct: 0.20,
+      },
+    },
+  ],
+
+  'Shade structure': [
+    {
+      id: 'solar_canopy',
+      type: 'solar_canopy',
+      label: 'Solar PV Canopy',
+      color: '#6366f1',
+      kind: 'polygon',
+      Icon: PanelTop,
+      params: {
+        opacity: 0.95, //  0–1  fraction of direct beam blocked (intensity)
+        coverPct: 0.15, // 0–1  shaded footprint as cell fraction (scale)
+      },
+    },
+    {
+      id: 'awning',
+      type: 'awning',
+      label: 'Solid Awning / Canopy',
+      color: '#818cf8',
+      kind: 'polygon',
+      Icon: Tent,
+      params: {
+        opacity: 0.90,
+        coverPct: 0.05,
+      },
+    },
+    {
+      id: 'shade_sail',
+      type: 'shade_sail',
+      label: 'Shade Sail',
+      color: '#a78bfa',
+      kind: 'polygon',
+      Icon: Triangle,
+      params: {
+        opacity: 0.70,
+        coverPct: 0.10,
+      },
+    },
+    {
+      id: 'pergola',
+      type: 'pergola',
+      label: 'Pergola / Trellis',
+      color: '#8b5cf6',
+      kind: 'polygon',
+      Icon: Grid2x2,
+      params: {
+        opacity: 0.40,
+        coverPct: 0.08,
+      },
+    },
+    {
+      id: 'bus_shelter',
+      type: 'bus_shelter',
+      label: 'Bus Shelter Canopy',
+      color: '#7c3aed',
+      kind: 'polygon',
+      Icon: BusFront,
+      params: {
+        opacity: 0.85,
+        coverPct: 0.04,
+      },
+    },
+  ],
+
+  'Evaporative / water': [
+    {
+      id: 'fountain',
+      type: 'fountain',
+      label: 'Spray / Jet Fountain',
+      color: '#0ea5e9',
+      kind: 'polygon',
+      Icon: Droplets,
+      params: {
+        flowRate: 20, //        L/min  effective evaporation budget (intensity)
+        radius: 20, //          m      cooled-plume reach (scale)
+        activeFraction: 1.0, // 0–1    duty cycle (scale)
+      },
+    },
+    {
+      id: 'splash_pad',
+      type: 'splash_pad',
+      label: 'Splash Pad',
+      color: '#06b6d4',
+      kind: 'polygon',
+      Icon: Waves,
+      params: {
+        flowRate: 40,
+        radius: 15,
+        activeFraction: 0.7,
+      },
+    },
+    {
+      id: 'misting',
+      type: 'misting',
+      label: 'High-Pressure Misting',
+      color: '#22d3ee',
+      kind: 'polygon',
+      Icon: SprayCan,
+      params: {
+        flowRate: 5,
+        radius: 8,
+        activeFraction: 0.5,
+      },
+    },
+    {
+      id: 'reflecting_pool',
+      type: 'reflecting_pool',
+      label: 'Reflecting Pool / Pond',
+      color: '#0284c7',
+      kind: 'polygon',
+      Icon: Droplet,
+      params: {
+        flowRate: 8, // effective evaporation, not pumped throughput
+        radius: 25,
+        activeFraction: 1.0,
+      },
+    },
+    {
+      id: 'evaporative_pavement',
+      type: 'evaporative_pavement',
+      label: 'Water-Retentive Pavement',
+      color: '#38bdf8',
+      kind: 'polygon',
+      Icon: Blocks,
+      params: {
+        flowRate: 3,
+        radius: 10,
+        activeFraction: 0.6,
+      },
+    },
+  ],
 };
 
 export const TOOLBOX_ICONS = {

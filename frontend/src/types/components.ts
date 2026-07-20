@@ -222,6 +222,9 @@ export interface UseHeatmapLayersArgs {
 
   displayedHeatmapPoints: HeatmapMetricValue[];
   activeMetricColorRange: [number, number, number, number][];
+  activeMetricColorDomain: [number, number];
+  activeMetricWeightOffset: number;
+  activeMetricKey: string;
 
   displayedPOIAreas: CityPOIArea[];
   userPOIAreas: CityPOIArea[];

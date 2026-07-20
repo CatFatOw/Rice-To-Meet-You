@@ -62,6 +62,8 @@ export interface POIStatisticsProps {
   onToDateChange?: (isoDate: string) => void;
   onPlacedObjectsChange?: (placedObjects: PlacedObject[]) => void;
   onStartSimulation?: () => void;
+  onStopSimulation?: () => void;
+  isRunning?: boolean;
   onSimulate?: () => void;
 }
 

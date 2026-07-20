@@ -74,14 +74,12 @@ const cityPOIAreas: CityPOIAreaMap = {
     {
       id: "nrg-stadium",
       name: "NRG Stadium",
-      cityName: "Houston",
       color: [255, 165, 0, 150],
       polygon: nrgStadiumPolygon,
     },
     {
       id: "rice-university",
       name: "Rice University",
-      cityName: "Houston",
       color: [70, 130, 180, 150],
       polygon: riceUniversityPolygon,
     },
@@ -121,9 +119,6 @@ export async function callMockAllCityPOIs(): Promise<CityPOIAreaMap> {
 // GridCellMetricResponse. The published metrics (temperature, visitor density)
 // read straight off these fields, so the layers stay consistent.
 // ---------------------------------------------------------------------------
-
-const clamp = (n: number, lo = 0, hi = 100): number =>
-  Math.max(lo, Math.min(hi, n));
 
 // Heat-warning cutoff on air temperature (°C) ≈ 95 °F.
 const HEAT_THRESHOLD_C = 35;
@@ -234,6 +229,24 @@ function visitorDensityAnchor(r: LocationReading): HeatmapMetricValue {
   };
 }
 
+function changeInTemperatureAnchor(r: LocationReading): HeatmapMetricValue {
+  const tempC = r.avg_temperature_c ?? 0;
+
+  return {
+    value: 0, // baseline: no change until a simulation runs
+    location_name: labelOf(r),
+    location_coordinates: coordsOf(r),
+    // Share the temperature layer's weather fields so the simulation can read
+    // the true local temp + humidity (the `value` is 0 and can't drive the
+    // weather ceiling on its own).
+    individual_metrics: {
+      avg_temperature_c: `${tempC.toFixed(1)}°C`,
+      relative_humidity:
+        r.relative_humidity != null ? `${Math.round(r.relative_humidity)}%` : "—",
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // The readings: dense clusters over three adjacent areas only —
 // Rice University, Texas Medical Center, and Hermann Park.
@@ -300,11 +313,14 @@ const TEMPERATURE_ANCHORS: HeatmapMetricValue[] =
   HOUSTON_READINGS.map(temperatureAnchor);
 const VISITOR_DENSITY_ANCHORS: HeatmapMetricValue[] =
   HOUSTON_READINGS.map(visitorDensityAnchor);
+const CHANGE_IN_TEMPERATURE_ANCHORS: HeatmapMetricValue[] =
+  HOUSTON_READINGS.map(changeInTemperatureAnchor);
 
 // A day's worth of layers (same anchors reused across the sample dates).
 const daySnapshots = (): HeatmapMetricSnapshot[] => [
   { metric: "temperature", points: TEMPERATURE_ANCHORS },
   { metric: "visitor_density", points: VISITOR_DENSITY_ANCHORS },
+  { metric: "change_in_temperature", points: CHANGE_IN_TEMPERATURE_ANCHORS },
 ];
 
 // ---------------------------------------------------------------------------

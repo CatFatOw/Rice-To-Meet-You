@@ -117,7 +117,7 @@ const SimulationPage: React.FC = () => {
   // --- Date and timeline state ---
   // Controls the active date and simulation period.
   const [selectedDate, setSelectedDate] = useState<string | null>('2026-07-07');
-  const [baselineSelectedDate, setBaselineSelectedDate] = useState<string | null>('2026-07-07');
+  const [baselineSelectedDate] = useState<string | null>('2026-07-07');
   const [fromDate, setFromDate] = useState<string | null>('2026-07-05');
   const [toDate, setToDate] = useState<string | null>('2026-07-08');
   const availableDates = ['2026-07-05', '2026-07-06', '2026-07-07', '2026-07-08'];
@@ -182,10 +182,18 @@ const SimulationPage: React.FC = () => {
   }, [baselineHeatmapAnchorsByCity, selectedCity, selectedMetric]);
 
   
+
+  
   useEffect(() => {
     console.log(heatmapPointsByDate)
 
   }, [heatmapPointsByDate]) 
+
+  const onStopSimulation = () => {
+    stop();
+    setHeatmapAnchorsByCity(baselineHeatmapAnchorsByCity);
+    setSelectedDate(baselineSelectedDate);
+  };
 
   const onStartSimulation = async () => {
     if (!selectedCity || !fromDate || !toDate) return;
@@ -204,6 +212,7 @@ const SimulationPage: React.FC = () => {
         heatmapPointsByDate,
         toCategorizedPlacedObjects(placedObjectsControls.placedObjects),
       );
+      console.log(simulatedPointsByDate)
 
       
 
@@ -235,15 +244,16 @@ const SimulationPage: React.FC = () => {
           [selectedCity]: [{ [date]: frame }],
         }));
       },
+      onComplete: () => {
+        setHeatmapAnchorsByCity(baselineHeatmapAnchorsByCity);
+        setSelectedDate(baselineSelectedDate);
+      }
     });
+
   };
 
 
-const onStopSimulation = () => {
-  stop();
-  setHeatmapAnchorsByCity(baselineHeatmapAnchorsByCity);
-  setSelectedDate(baselineSelectedDate);
-};
+
 
 
 // ======================================================

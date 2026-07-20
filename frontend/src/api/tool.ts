@@ -6,12 +6,6 @@ import type { BasePlacedObject } from '../hooks/usePlacedObjects';
 export type PlacedObjectsByDateCity = Record<string, Record<string, BasePlacedObject[]>>;
 
 // --- Geometry builders (keep the seed data below readable) ---
-const point = (longitude: number, latitude: number): Geometry => ({
-  kind: 'point',
-  longitude,
-  latitude,
-});
-
 const polygon = (ring: [number, number][]): Geometry => ({
   kind: 'polygon',
   ring,
@@ -42,6 +36,65 @@ const HOUSTON_TOOLS: BasePlacedObject[] = [
     activeFrom: '2026-07-05',
     activeTo: '2026-07-07'
   },
+  // --- Cool roof coating (high-albedo surface) — TMC rooftop -----------------
+  {
+    id: 'placed-hou-2',
+    type: 'cool_roof',
+    category: 'High-albedo surface',
+    name: 'TMC cool roof coating',
+    color: '#e2e8f0',
+    geometry: polygon([
+      [-95.39960, 29.70700],
+      [-95.39880, 29.70700],
+      [-95.39880, 29.70640],
+      [-95.39960, 29.70640],
+    ]),
+    params: {
+      deltaAlbedo: 0.6, // 0–1  reflectance gain vs baseline (asphalt ~0.1 → cool coat ~0.7)
+      coverPct: 0.85,   // 0–1  treated fraction of the cell (scale, linear)
+    },
+    activeFrom: '2026-07-05',
+    activeTo: '2026-07-08',
+  },
+
+  // --- Shade sail (shade structure) — Hermann Park plaza ---------------------
+  {
+    id: 'placed-hou-3',
+    type: 'shade_sail',
+    category: 'Shade structure',
+    name: 'Hermann Park shade sail',
+    color: '#a78bfa',
+    geometry: polygon([
+      [-95.39120, 29.71910],
+      [-95.39040, 29.71910],
+      [-95.39040, 29.71850],
+      [-95.39120, 29.71850],
+    ]),
+    params: {
+      opacity: 0.7,           // 0–1  fraction of the direct beam blocked (sail ~0.7)
+      footprintFraction: 0.6, // 0–1  shaded ground as a fraction of the cell (scale, linear)
+    },
+    activeFrom: '2026-07-05',
+    activeTo: '2026-07-08',
+  },
+    // --- High-pressure misting (evaporative) — Hermann Park, point source ------
+  {
+    id: 'placed-hou-4',
+    type: 'misting_station',
+    category: 'Evaporative / water',
+    name: 'Hermann Park misting station',
+    color: '#38bdf8',
+    geometry: { kind: 'point', longitude: -95.3889, latitude: 29.7168 },
+    params: {
+      evapRateLpm: 2.5,    // L/min  effective evaporation (high-pressure misting)
+      coverageRadiusM: 25, // m      plume reach — distance-falloff scale
+      activeFraction: 0.8, // 0–1    duty cycle (humidity/temperature gated)
+    },
+    activeFrom: '2026-07-05',
+    activeTo: '2026-07-08',
+  },
+
+  
 ];
 
 const HOUSTON_DATES = ['2026-07-05', '2026-07-06', '2026-07-07', '2026-07-08'];
