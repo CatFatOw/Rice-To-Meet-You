@@ -18,6 +18,7 @@ class FoursquarePlaceResponse(BaseModel):
 
 
 class FoursquareLookupResponse(BaseModel):
+    """Compact status response for a coordinate-based Places lookup."""
     model_config = ConfigDict(extra="forbid")
     requested_time: datetime | None = None
     latitude: float = Field(ge=-90, le=90)
@@ -25,4 +26,4 @@ class FoursquareLookupResponse(BaseModel):
     radius_m: int = Field(ge=1, le=100000)
     fetched_at: datetime
     historical_visitor_counts_available: bool = False
-    places: list[FoursquarePlaceResponse]
+    place_count: int = Field(ge=0)

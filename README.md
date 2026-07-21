@@ -1,306 +1,165 @@
-# Rice-To-Meet-You: FIFA HeatSafe AI
+# Rice-To-Meet-You · FIFA HeatSafe AI
 
-2026 Rice University FIFA Summer Hackathon project.
+<p align="center">
+  <strong>Decision support for safer FIFA host-city experiences.</strong><br />
+  Map heat, weather, infrastructure, POIs, and relative activity signals in one planning workspace.
+</p>
 
-Rice-To-Meet-You is a FIFA HeatSafe AI prototype: a backend-first decision-support tool for mapping heat, weather, crowd, infrastructure, and intervention risk across host-city grids.
+<p align="center">
+  <img alt="Python" src="https://img.shields.io/badge/backend-Python%20%2B%20FastAPI-3776AB?logo=fastapi&logoColor=white" />
+  <img alt="React" src="https://img.shields.io/badge/frontend-React%20%2B%20Vite-61DAFB?logo=react&logoColor=111827" />
+  <img alt="PostgreSQL" src="https://img.shields.io/badge/data-PostgreSQL%20%2B%20PostGIS-4169E1?logo=postgresql&logoColor=white" />
+  <img alt="License" src="https://img.shields.io/badge/status-hackathon%20prototype-22C55E" />
+</p>
 
-## Start Here
-
-| Need | Go To |
-|---|---|
-| Use the dev container | [Dev Container Setup](#dev-container-setup) |
-| Run the backend locally | [Run Locally](#run-locally) |
-| Understand the backend architecture | [Backend Architecture](#backend-architecture) |
-| Test requests in Postman | [Postman Workflow](#postman-workflow) |
-| See route groups | [API Map](#api-map) |
-| Learn the simulation flow | [Simulation Workflow](#simulation-workflow) |
-| Read detailed app docs | [App README](app/README.md) |
-
-## Project Mission
-
-The goal is to help visitors and city planners understand where heat risk, dehydration risk, crowd activity, weather conditions, and infrastructure pressure overlap.
-
-The prototype turns city/state geometry and heat-safety signals into:
-
-| Feature | Purpose |
-|---|---|
-| Grid generation | Split a city/state into simulation cells. |
-| Grid metrics | Store heat, crowd, population, cooling-center, and infrastructure signals per cell. |
-| Polygon impact regions | Save drawn simulation polygons and mark the grid cells inside them. |
-| Interpolation | Fill metric values across grid centroids for map rendering and simulation. |
-| NWS weather | Attach National Weather Service weather baselines to grid cells. |
-| Postman collection | Provide repeatable API testing flows for teammates. |
-
-## Dev Container Setup
-
-For the easiest team setup, use the repository dev container.
-
-Install and open:
-
-| Tool | Link |
-|---|---|
-| Docker Desktop | <https://www.docker.com/products/docker-desktop/> |
-| VS Code Dev Containers extension | <https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers> |
-
-Windows users should also set up WSL 2:
-
-```text
-https://learn.microsoft.com/en-us/windows/wsl/setup/environment
-```
-
-After cloning the repository, VS Code should offer to reopen the workspace in a container. Accept that prompt, or run:
-
-```text
-Dev Containers: Rebuild and Reopen in Container
-```
-
-Dependencies should install automatically inside the container.
-
-## Frontend APIs
-
-### 1. Get Location POIs
-
-**Purpose:** Retrieve polygon boundaries for points of interest (POIs) to display on the map.
-
-**Request**
-
-```http
-
-GET /heatmap/location-pois
-
-```
-
-**Expected Response**
-
-```ts
-
-interface CityPOIArea {
-
-  id: string;
-
-  name: string;
-
-  cityName: string;
-
-  color: [number, number, number, number]; // RGBA
-
-  polygon: [number, number][];
-
-}
-
-type Response = CityPOIArea[];
-
-```
+> **Built for the 2026 Rice University FIFA Summer Hackathon.**
+> This is a research/demo prototype. Its supplied datasets are transformed and
+> anonymized; outputs demonstrate analytical workflows and must not be treated
+> as real-world operational guidance.
 
 ---
 
-### 2. Get Heatmap Metric Points
+## Why it exists
 
-**Purpose:** Retrieve weighted heatmap points for each city.
+FIFA host cities need to reason about more than temperature alone. A hot grid
+cell becomes materially more important when it intersects with crowd activity,
+POIs, vulnerable infrastructure, and a planned event footprint.
 
-**Request**
+Rice-To-Meet-You turns those signals into an interactive workspace for:
 
-```http
+- exploring heat and weather risk across city grids;
+- finding nearby real-world POI metadata from Foursquare;
+- modeling polygon-based interventions and their impacted cells;
+- comparing relative activity/traffic signals with local historical context;
+- preparing ML-ready feature exports with transparent data provenance.
 
-GET /heatmap/metrics/points
+## What the app does
 
+| Capability | What it provides |
+| --- | --- |
+| **Heat & weather map** | Grid-based metrics, interpolation, and NWS weather baselines. |
+| **POI discovery** | Current Foursquare POIs by latitude/longitude, category, and distance. |
+| **Relative traffic score** | On-demand BestTime busyness score when that provider covers the selected venue. |
+| **Scenario simulation** | Draw polygons, identify affected grid cells, and apply simulated interventions. |
+| **Data pipeline** | Point-level heat/weather and provenance-aware Foursquare/visitor CSV exports. |
+
+## System overview
+
+```mermaid
+flowchart LR
+  UI[React + Vite map workspace] --> API[FastAPI router layer]
+  API --> GEO[Grid / polygon / interpolation services]
+  API --> DB[(PostgreSQL + PostGIS)]
+  API --> NWS[National Weather Service]
+  API --> FSQ[Foursquare Places]
+  API --> BT[BestTime traffic score]
+  GEO --> UI
+  DB --> GEO
 ```
 
-**Expected Response**
+## Live data, explained honestly
 
-```ts
+| Source | Used for | Important limitation |
+| --- | --- | --- |
+| **Foursquare Places** | POI name, category, coordinates, address, and distance. | Does **not** provide public daily visitor counts. |
+| **BestTime** | Relative live/forecast busyness score, normally `0–100`. | It is not an absolute visitor count and may be unavailable for a venue. |
+| **NWS** | Weather and forecast baselines. | Weather is station/grid data, not a crowd sensor. |
+| **Rice hackathon datasets** | Historical transformed visitor, weather, UHI, spend, and POI signals. | Visitor data is sometimes only available at brand/market grain. |
 
-interface HeatmapMetricPoint {
+The UI and CSV exports keep this distinction explicit: raw visitor counts,
+relative traffic scores, interpolated values, and unavailable fields are never
+presented as the same measurement.
 
-  metric: string;
+## Quick start
 
-  value: number;
-
-  location_name: string;
-
-  location_coordinates: [number, number]; // [longitude, latitude]
-
-}
-
-type Response = Record<string, HeatmapMetricPoint[]>;
-
-```
-
-## App Guide
-
-## Run Locally
-
-If you are not using the dev container, install dependencies from the repo root:
+### 1. Backend
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-```
 
-Set environment variables:
-
-```bash
 export DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
 export JWT_KEY="dev-secret-key"
-```
+export FOURSQUARE_API_KEY="your-foursquare-key"
+export BESTTIME_API_KEY="your-besttime-key"
 
-Run migrations:
-
-```bash
 cd app
 alembic upgrade head
-```
-
-Start FastAPI from the `app/` folder:
-
-```bash
 python3 -m uvicorn main:app --reload
 ```
 
-Open:
+Backend docs: <http://127.0.0.1:8000/docs>
 
-```text
-http://127.0.0.1:8000/docs
+### 2. Frontend
+
+```bash
+cd frontend-backend-wired
+npm install
+npm run dev
 ```
 
-## Backend Architecture
+Open <http://127.0.0.1:5173/explore>.
 
-The backend uses a router/service/repository structure:
+> Keep API keys in your shell, deployment secrets manager, or `.env` file that
+> is ignored by Git. Never place them in client-side React code.
 
-```text
-request
-  -> routers/       FastAPI endpoints and HTTP errors
-  -> services/      business logic, GeoJSON conversion, interpolation, NWS calls
-  -> repository/    SQLAlchemy database reads/writes
-  -> models/        SQLAlchemy tables
-  -> schemas/       Pydantic payloads/responses
-```
+## Key API routes
 
-Key folders:
+| Route | Purpose |
+| --- | --- |
+| `GET /heatmap/metrics/grid` | Interpolated heatmap grid values. |
+| `GET /heatmap/core-pois` | Stored core POI geometries. |
+| `GET /foursquare/lookup?lat=...&lon=...` | Live nearby Foursquare POIs. |
+| `GET /besttime/traffic?venue_name=...&venue_address=...` | On-demand relative BestTime score. |
+| `POST /simulation/polygon` | Save an intervention polygon and compute impacted cells. |
+| `POST /simulation/apply` | Apply a scenario to affected grid metrics. |
 
-| Path | Purpose |
-|---|---|
-| [`app/routers/`](app/routers/) | API route definitions. |
-| [`app/services/`](app/services/) | Business logic and external API calls. |
-| [`app/repository/`](app/repository/) | Database query helpers. |
-| [`app/models/`](app/models/) | SQLAlchemy models. |
-| [`app/schemas/`](app/schemas/) | Pydantic schemas. |
-| [`app/alembic/`](app/alembic/) | Migrations. |
-| [`app/README.md`](app/README.md) | Detailed backend guide. |
+## Data outputs
 
-## Simulation Workflow
+| File | Purpose |
+| --- | --- |
+| `heat_weather_points.csv` | Dated weather-station point records with nearest-UHI context. |
+| `foursquare_texas_poi_lookup.csv` | Current Houston/Dallas Foursquare POI snapshot. |
+| `foursquare_visitor_metrics_cohesive.csv` | Provenance-aware Foursquare + historical visitor-market join. |
+| `STREAM0_TABLE_BUILD_LOGIC.md` | Reproducible logic and provenance rules for the exported tables. |
 
-Recommended backend flow:
+The visitor-cohesive table only assigns a count to an individual POI when the
+brand/market match is unambiguous. Ambiguous totals remain aggregate values.
 
-1. Generate a city grid.
-2. Draw or save a polygon impact region.
-3. Compute impacted grids for the polygon.
-4. Assign or run simulation changes against only those impacted grid IDs.
-5. Interpolate metric values.
-6. Render heatmap/mesh GeoJSON in the frontend.
-7. Assign NWS weather as a regional baseline.
-8. Combine weather + grid metrics for local simulation risk.
-
-In Postman, that usually means:
+## Project structure
 
 ```text
-Grid Geometry / Generate N by N City Grid
-Polygon / Create Polygon And Compute Impact Grids
-Grid Metrics / Assign Metrics To All Grid Cells
-Grid Interpolation / Interpolate City Grid
-Grid Interpolation / Get Interpolated Heatmap GeoJSON
-NWS Weather / Assign Weather To State Grid Cells
+app/
+├── routers/        # FastAPI endpoints and HTTP error handling
+├── services/       # External APIs, geospatial logic, and interpolation
+├── repository/     # SQLAlchemy query helpers
+├── models/         # Database tables
+├── schemas/        # Pydantic request/response contracts
+└── alembic/        # Database migrations
+
+frontend-backend-wired/
+├── src/components/ # Map, POI, traffic, and dashboard UI
+├── src/api/        # Typed backend API clients
+└── src/pages/      # Explore and simulation views
 ```
 
-## API Map
-
-Detailed routes are documented in [app/README.md](app/README.md). High-level route groups:
-
-| Group | Prefix | Purpose |
-|---|---|---|
-| Users | `/users` | User creation, profile, password, deletion. |
-| Login | `/login` | JWT bearer token login. |
-| Datasets | `/dataset` | User-scoped CRUD for Rice dataset tables, all-user reads, CSV imports, and ML-ready dataset exports. |
-| ML Inputs | `/ml` | Click-based grid/POI feature rows for model prediction without previous observed metrics. |
-| Grid Geometry | `/grid` | Generate/read state and city grid cells. |
-| Grid Metrics | `/grid_metrics` | Create/read/update/delete simulation metrics. |
-| Grid Interpolation | `/grid_interpolation` | Interpolate metrics and return GeoJSON. |
-| NWS Weather | `/weather` | Fetch and assign National Weather Service observations. |
-| Polygons | `/polygon` | Store drawn impact regions and compute impacted grid cells. |
-
-## Postman Workflow
-
-Import [`postman_dataset_routes_collection.json`](postman_dataset_routes_collection.json) into Postman.
-
-Important collection variables:
-
-| Variable | Purpose |
-|---|---|
-| `baseUrl` | API URL, usually `http://127.0.0.1:8000`. |
-| `cityName` | City used for city grid/interpolation routes. |
-| `stateName` | State used for grid/metric/weather routes. |
-| `gridSize` | `n` for an `n x n` grid. |
-| `metricTimestamp` | Timestamp for grid metrics. |
-| `interpolationTimestamp` | Timestamp for interpolation; usually match `metricTimestamp`. |
-| `interpolationMetric` | Metric to interpolate, such as `heat_index` or `population`. |
-| `heatmapMetric` | Metric used for heatmap intensity. |
-| `colorMetric` | Metric used for mesh color. |
-| `polygonId` | Saved polygon ID used for impacted-grid reads and recomputation. |
-
-Good first test order:
-
-1. `Users and Auth / Create User`
-2. `Users and Auth / Login`
-3. `Grid Geometry / Generate N by N City Grid`
-4. `Polygon / Create Polygon And Compute Impact Grids`
-5. `Grid Metrics / Assign Metrics To All Grid Cells`
-6. `Grid Interpolation / Interpolate City Grid`
-7. `Grid Interpolation / Get Interpolated Heatmap GeoJSON`
-
-For a full weather refresh, use:
-
-```text
-NWS Weather / Assign Weather To State Grid Cells
-```
-
-That request currently uses:
-
-```text
-/weather/assign_state?state={{stateName}}&max_workers=20&skip_existing=false
-```
-
-Weather assignment deduplicates repeated NWS forecast URLs during each run, so many app grid cells can share one NWS forecast request.
-
-## Checks
-
-Run these before pushing backend changes:
+## Development checks
 
 ```bash
 python3 -m compileall -q app
+npm --prefix frontend-backend-wired run build
 ```
 
-```bash
-python3 -m json.tool postman_dataset_routes_collection.json >/tmp/postman.json
-```
+## Team workflow
 
-Optional import smoke test:
+1. Create a feature branch.
+2. Keep changes small and document new API/data fields.
+3. Run backend and frontend checks.
+4. Open a pull request with a concise summary and screenshots for UI work.
 
-```bash
-DATABASE_URL="sqlite:///./local.db" JWT_KEY="dev-secret-key" python3 -c "import sys; sys.path.insert(0, 'app'); import main"
-```
+---
 
-## Reference Docs
-
-| Resource | Link |
-|---|---|
-| Detailed backend guide | [app/README.md](app/README.md) |
-| Dataset/model docs | [app/markdown_reference_guides/README.md](app/markdown_reference_guides/README.md) |
-
-## Project Rules
-
-- Keep `main` stable for approved final-demo or submission work.
-- Do active development on personal or feature branches.
-- Prefer small, clear commits with descriptive messages.
-- Keep docs and Postman updated when routes change.
-- Ask the group before destructive Git commands or deleting branches that Git says are not merged.
+<p align="center">
+  Made at Rice University for a safer, more resilient match-day experience.
+</p>

@@ -140,9 +140,9 @@ function metricLabel(metricKey: string): string {
     case 'heat_risk':
       return 'Heat Risk';
     case 'crowd_density':
-      return 'Crowd Density';
+      return 'Customer Activity Proxy (2025)';
     case 'population':
-      return 'Population';
+      return 'Population Estimate (ACS 2024)';
     case 'cooling_centers':
       return 'Cooling Centers';
     case 'infrastructure_strain':
@@ -367,6 +367,8 @@ function metricLegendGradient(metric: string): string {
 function formatMetricName(metricKey: string): string {
   if (metricKey === 'heat_risk_score') return 'Heat Risk';
   if (metricKey === 'visitor_activity') return 'Visitor Activity';
+  if (metricKey === 'crowd_density') return 'Customer Activity Proxy (2025)';
+  if (metricKey === 'population') return 'Population Estimate (ACS 2024)';
   return metricKey
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
@@ -2048,6 +2050,12 @@ const Heatmap: React.FC<HeatmapProps> = ({
             <span>Metric</span>
             <span style={{ fontWeight: 600, color: '#94a3b8' }}>{formatMetricName(tooltip.metric)}</span>
           </div>
+
+          {tooltip.point.metric_notes?.[tooltip.metric] && (
+            <div style={{ marginTop: 8, color: '#facc15', fontSize: 12, lineHeight: 1.35 }}>
+              Data note: {tooltip.point.metric_notes[tooltip.metric]}
+            </div>
+          )}
 
           {tooltip.point.individual_metrics && (
             <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(148, 163, 184, 0.35)' }}>

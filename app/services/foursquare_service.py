@@ -50,5 +50,5 @@ def foursquare_lookup_payload(lat: float, lon: float, radius: int, limit: int, r
     return {
         "requested_time": requested_time, "latitude": lat, "longitude": lon,
         "radius_m": radius, "fetched_at": datetime.now(timezone.utc),
-        "historical_visitor_counts_available": False, "places": places,
+        "historical_visitor_counts_available": False, "place_count": len(places),
     }

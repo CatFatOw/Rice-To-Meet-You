@@ -1,5 +1,5 @@
 from database import Base 
-from sqlalchemy import Column, Integer, Float, TIMESTAMP, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, Integer, Float, TIMESTAMP, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import text
@@ -67,6 +67,13 @@ class GridCellMetrics(Base):
     predicted_crowd_density = Column(Float)
     predicted_population = Column(Float)
     predicted_visitor_count = Column(Float)
+
+    # Provenance for the visitor/crowd fields.  A customer-activity proxy must
+    # never be presented as an observed visitor count without this context.
+    visitor_metric_source = Column(Text)
+    visitor_metric_is_placeholder = Column(Boolean, nullable=False, server_default=text("false"))
+    population_metric_source = Column(Text)
+    population_metric_is_placeholder = Column(Boolean, nullable=False, server_default=text("false"))
 
     # Colors for frontend map visualization based on metric costs etc
     heat_index_color = Column(Text, default="#00BFFF")

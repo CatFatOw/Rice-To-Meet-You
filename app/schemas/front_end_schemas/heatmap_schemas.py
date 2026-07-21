@@ -36,6 +36,7 @@ class HeatmapMetricValue(BaseModel):
     location_name: str
     location_coordinates: List[float] = Field(..., min_length=2, max_length=2)
     individual_metrics: dict[str, float | None] | None = None
+    metric_notes: dict[str, str] | None = None
 
 
 class HeatmapMetricPoint(BaseModel):

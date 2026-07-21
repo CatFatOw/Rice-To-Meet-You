@@ -702,12 +702,21 @@ def grid_metrics_to_metric_layers(metrics, metric_keys=None):
                 key: getattr(metric, key, None)
                 for key in metric_keys
             }
+            metric_notes = {}
+            visitor_source = getattr(metric, "visitor_metric_source", None)
+            if visitor_source:
+                metric_notes["crowd_density"] = visitor_source
+                metric_notes["predicted_visitor_count"] = visitor_source
+            population_source = getattr(metric, "population_metric_source", None)
+            if population_source:
+                metric_notes["population"] = population_source
 
             city_layers[metric_key]["points"].append({
                 "value": metric_to_intensity(raw_value, min_value, max_value) * 100,
                 "location_name": grid_cell.cell_id or f"Grid Cell {metric.grid_cell_id}",
                 "location_coordinates": [grid_cell.grid_centroid_lon, grid_cell.grid_centroid_lat],
                 "individual_metrics": individual_metrics,
+                "metric_notes": metric_notes or None,
             })
 
     return {

@@ -404,6 +404,12 @@ def assign_weather_for_cells(cells, db, max_workers: int, skip_existing: bool, l
     if limit is not None:
         cells = cells[:max(0, limit)]
 
+    # A full-state NWS refresh can spend several minutes outside the database.
+    # Keep the already-loaded cell fields available, but release Neon before the
+    # network work so its pooled SSL connection cannot go stale mid-refresh.
+    db.expire_on_commit = False
+    db.commit()
+
     cell_by_id = {cell.id: cell for cell in cells}
     cached_metadata = []
     cells_needing_metadata = []
@@ -436,6 +442,11 @@ def assign_weather_for_cells(cells, db, max_workers: int, skip_existing: bool, l
 
     metadata_rows = cached_metadata + fetched_metadata
     update_cell_nws_metadata(cell_by_id, fetched_metadata)
+
+    # Persist metadata and return the connection to the pool before fetching
+    # forecasts. The next database operation will then check out a fresh,
+    # pre-pinged connection instead of reusing an idle SSL socket.
+    db.commit()
 
     cells_by_forecast_url = {}
     for metadata in metadata_rows:

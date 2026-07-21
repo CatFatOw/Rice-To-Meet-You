@@ -138,6 +138,22 @@
       "value": "4dd2b3561838a7519661b48d"
     },
     {
+      "key": "foursquareLatitude",
+      "value": "33.598"
+    },
+    {
+      "key": "foursquareLongitude",
+      "value": "-83.14"
+    },
+    {
+      "key": "foursquareRadius",
+      "value": "250"
+    },
+    {
+      "key": "foursquareLimit",
+      "value": "5"
+    },
+    {
       "key": "predictionDate",
       "value": "2026-06-20"
     },
@@ -308,6 +324,46 @@
             },
             "method": "DELETE",
             "url": "{{baseUrl}}/users/me"
+          }
+        },
+        {
+          "name": "Upload CSV and Download Foursquare Results",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "/Users/michaelwu/Downloads/grid_cell_metrics (1).csv"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/foursquare/lookup-csv?radius={{foursquareRadius}}&limit={{foursquareLimit}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "foursquare",
+                "lookup-csv"
+              ],
+              "query": [
+                {
+                  "key": "radius",
+                  "value": "{{foursquareRadius}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{foursquareLimit}}"
+                }
+              ]
+            }
           }
         }
       ]
@@ -2664,6 +2720,61 @@
             },
             "method": "DELETE",
             "url": "{{baseUrl}}/weather/delete/{{weatherObservationId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Foursquare Places",
+      "item": [
+        {
+          "name": "Lookup Nearby Places By Grid Coordinate",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('lookup succeeded', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('compact lookup response', function () { pm.expect(json).to.have.property('place_count'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/foursquare/lookup?lat={{foursquareLatitude}}&lon={{foursquareLongitude}}&radius={{foursquareRadius}}&limit={{foursquareLimit}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "foursquare",
+                "lookup"
+              ],
+              "query": [
+                {
+                  "key": "lat",
+                  "value": "{{foursquareLatitude}}"
+                },
+                {
+                  "key": "lon",
+                  "value": "{{foursquareLongitude}}"
+                },
+                {
+                  "key": "radius",
+                  "value": "{{foursquareRadius}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{foursquareLimit}}"
+                }
+              ]
+            }
           }
         }
       ]

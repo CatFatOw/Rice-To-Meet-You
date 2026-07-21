@@ -115,6 +115,7 @@ export interface HeatmapMetricValue {
   location_name: string;
   location_coordinates: [number, number]; // [lon, lat]
   individual_metrics?: Record<string, number | null | undefined>;
+  metric_notes?: Record<string, string>;
   is_interpolated?: boolean;
 }
 
@@ -457,7 +458,7 @@ function interpolate(
  * Builds a full interpolated field for one metric: the measured anchors plus a
  * dense lattice of interpolated points spanning the whole metro bounding box.
  */
-function buildField(
+export function buildField(
   anchors: HeatmapMetricValue[],
   power: number,
   options?: { attachIndividualMetrics?: boolean; rippleAmp?: number },
@@ -561,7 +562,7 @@ function buildMockMetricGrid(
   return { min, max, values };
 }
 
-function buildMockHeatmapMetricsGrid(): HeatmapMetricGridResponse {
+export function buildMockHeatmapMetricsGrid(): HeatmapMetricGridResponse {
   const bounds: [number, number, number, number] = [
     INTERP_CENTER[0] - INTERP_HALF_SPAN_LON,
     INTERP_CENTER[1] - INTERP_HALF_SPAN_LAT,
@@ -585,46 +586,30 @@ function buildMockHeatmapMetricsGrid(): HeatmapMetricGridResponse {
 }
 
 export async function callHeatmapMetricsGrid(): Promise<HeatmapMetricGridResponse> {
-  // Use interpolated raster grids from the backend when available. Empty `{}`
-  // is treated as "not seeded yet" so the map still displays the mock Houston
-  // surface during local demos.
+  // Do not substitute a demo surface for live/sourced data. An empty map is
+  // more honest than presenting generated values as population or activity.
   try {
     const cityGrids = await fetchBackendJson<HeatmapMetricGridResponse>('/heatmap/metrics/grid');
     if (Object.keys(cityGrids).length > 0) return cityGrids;
   } catch (error) {
-    console.warn('Falling back to mock heatmap metric grid', error);
+    console.warn('Unable to load heatmap metric grid', error);
   }
 
-  return buildMockHeatmapMetricsGrid();
+  return {};
 }
 
 export async function callHeatmapMetricsPoints(): Promise<HeatmapMetricsPointResponse> {
   await new Promise((resolve) => setTimeout(resolve, 500));
 
-  // Use interpolated metric rows from the backend when available. Empty `{}` is
-  // treated as "not seeded yet" so the map still displays the dense mock heat
-  // field during local demos.
+  // Do not substitute demo points for sourced backend data.
   try {
     const backendLayers = await fetchBackendJson<HeatmapMetricsPointResponse>('/heatmap/metrics/points');
     if (Object.keys(backendLayers).length > 0) return backendLayers;
   } catch (error) {
-    console.warn('Falling back to mock heatmap metric points', error);
+    console.warn('Unable to load heatmap metric points', error);
   }
 
-  return {
-    Houston: [
-      {
-        metric: 'heat_risk_score',
-        points: buildField(ALL_HEAT_ANCHORS, HEAT_IDW_POWER, {
-          attachIndividualMetrics: true,
-        }),
-      },
-      {
-        metric: 'visitor_activity',
-        points: buildField(HOUSTON_VISITOR_ANCHORS, VISITOR_IDW_POWER),
-      },
-    ],
-  };
+  return {};
 }
 
 export async function importCorePOIFile(file: File): Promise<CorePOIImportResponse> {

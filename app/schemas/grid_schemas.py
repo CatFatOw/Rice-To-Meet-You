@@ -140,6 +140,10 @@ class GridCellMetricsResponse(BaseModel):
     predicted_crowd_density: Optional[float]
     predicted_population: Optional[float]
     predicted_visitor_count: Optional[float]
+    visitor_metric_source: Optional[str]
+    visitor_metric_is_placeholder: Optional[bool]
+    population_metric_source: Optional[str]
+    population_metric_is_placeholder: Optional[bool]
 
     heat_index_color: Optional[str]
     heat_risk_color: Optional[str]
