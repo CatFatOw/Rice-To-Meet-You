@@ -18,6 +18,7 @@ import {
   type CityPOIArea,
   type HeatmapMetricValue,
   type HeatmapMetricGridResponse,
+  type TimelineFilter,
 } from '../api/map';
 import { callMockStatistics } from '../api/statistics';
 import { determineCityView } from '../utils/cityViews';
@@ -65,6 +66,7 @@ const ExplorePage: React.FC = () => {
   const [cityPOIAreas, setCityPOIAreas] = useState<CityPOIArea[]>([]);
   const [metricGridsByCity, setMetricGridsByCity] =
     useState<HeatmapMetricGridResponse>({});
+  const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>({});
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -146,7 +148,7 @@ const ExplorePage: React.FC = () => {
 
     const loadMetricGrids = async () => {
       try {
-        const gridsByCity = await callHeatmapMetricsGrid();
+        const gridsByCity = await callHeatmapMetricsGrid(timelineFilter);
         if (isMounted) {
           setMetricGridsByCity(gridsByCity);
         }
@@ -160,7 +162,7 @@ const ExplorePage: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [timelineFilter.year, timelineFilter.month, timelineFilter.season]);
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -361,7 +363,7 @@ const ExplorePage: React.FC = () => {
 
       <main className="flex-1 overflow-hidden p-4">
         <div className="grid h-full grid-cols-[minmax(0,1fr)_390px] grid-rows-[minmax(0,1fr)_minmax(170px,23vh)] gap-4">
-          <section className="min-h-0 overflow-hidden rounded-lg border border-slate-800 bg-slate-950 shadow-2xl shadow-black/30">
+          <section className="relative min-h-0 overflow-hidden rounded-lg border border-slate-800 bg-slate-950 shadow-2xl shadow-black/30">
             <Heatmap
               viewState={viewState}
               setViewState={setViewState}
@@ -412,6 +414,28 @@ const ExplorePage: React.FC = () => {
           </section>
 
           <section className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain pr-1">
+            <div className="shrink-0 rounded-lg border border-cyan-400/50 bg-cyan-950/30 p-4 shadow-lg shadow-cyan-950/20">
+              <div className="text-xs font-bold uppercase tracking-[0.16em] text-cyan-300">Data timeline</div>
+              <p className="mt-1 text-sm text-slate-200">Choose the time period used to render every map layer.</p>
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                <label className="text-xs font-semibold text-slate-300">Year
+                  <select aria-label="Heatmap year" value={timelineFilter.year ?? ''} onChange={(e) => setTimelineFilter((filter) => ({ ...filter, year: e.target.value ? Number(e.target.value) : undefined }))} className="mt-1 w-full rounded-md border border-slate-600 bg-slate-900 px-2 py-2 text-sm text-white">
+                    <option value="">Latest snapshot</option>{[2020, 2021, 2022, 2023, 2024, 2025, 2026].map((year) => <option key={year} value={year}>{year}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs font-semibold text-slate-300">Month
+                  <select aria-label="Heatmap month" value={timelineFilter.month ?? ''} onChange={(e) => setTimelineFilter((filter) => ({ ...filter, month: e.target.value ? Number(e.target.value) : undefined, season: undefined }))} className="mt-1 w-full rounded-md border border-slate-600 bg-slate-900 px-2 py-2 text-sm text-white">
+                    <option value="">All</option>{['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((name, index) => <option key={name} value={index + 1}>{name}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs font-semibold text-slate-300">Season
+                  <select aria-label="Heatmap season" value={timelineFilter.season ?? ''} onChange={(e) => setTimelineFilter((filter) => ({ ...filter, season: (e.target.value || undefined) as TimelineFilter['season'], month: undefined }))} className="mt-1 w-full rounded-md border border-slate-600 bg-slate-900 px-2 py-2 text-sm text-white">
+                    <option value="">All</option><option value="winter">Winter</option><option value="spring">Spring</option><option value="summer">Summer</option><option value="fall">Fall</option>
+                  </select>
+                </label>
+              </div>
+              <button type="button" onClick={() => setTimelineFilter({})} className="mt-3 rounded-md border border-cyan-400/40 px-3 py-1.5 text-xs font-semibold text-cyan-100 hover:bg-cyan-400/10">Reset to latest snapshot</button>
+            </div>
             <div className="shrink-0 rounded-lg border border-slate-800 bg-[#07111f] p-4 shadow-lg">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div>

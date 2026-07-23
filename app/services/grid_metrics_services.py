@@ -1,4 +1,26 @@
-"""File handles the core route logic for the grid_metric routes"""
+"""Business logic for grid metric endpoints and frontend summaries."""
+
+from fastapi import HTTPException, status
+from sqlalchemy.orm import Session
+
+from repository.grid_metrics_repository import (
+    assign_demo_metrics_to_existing_rows,
+    create_grid_metric,
+    create_metrics_for_grid_cells,
+    delete_metric,
+    delete_metrics_for_cells_at_timestamp,
+    get_all_grid_cells,
+    get_all_metrics,
+    get_grid_cell_by_id,
+    get_latest_metric_by_grid_id,
+    get_latest_metrics_for_grid_ids,
+    get_metric_by_id,
+    get_metrics_by_grid_id,
+    get_metrics_for_grid_ids,
+    latest_metrics_query,
+    update_metric,
+)
+from services.grid_geometry_services import get_state_grid_cells
 
 
 RISK_BUCKETS = [
@@ -238,3 +260,68 @@ def simulation_adjustments_from_objects(placed_objects):
             adjustments[key] += value
 
     return adjustments
+
+
+def _require(value, detail: str):
+    if not value:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+    return value
+
+
+def create_metric(payload, db: Session):
+    _require(get_grid_cell_by_id(payload.grid_cell_id, db), "GRID CELL NOT FOUND")
+    return add_cell_id(create_grid_metric(payload, db))
+
+
+def assign_metrics_to_all(payload, state: str | None, replace_existing: bool, db: Session):
+    cells = get_state_grid_cells(state, db) if state else _require(get_all_grid_cells(db), "NO GRID CELLS FOUND")
+    cell_ids = [cell.id for cell in cells]
+    deleted_count = 0
+    if replace_existing:
+        deleted_count = delete_metrics_for_cells_at_timestamp(cell_ids, payload.timestamp, db)
+    metrics = create_metrics_for_grid_cells(cell_ids, payload.model_dump(), db)
+    first_metric = add_cell_id(metrics[0])
+    return {
+        "message": "Metrics assigned successfully", "state": state, "replace_existing": replace_existing,
+        "metrics_deleted": deleted_count, "metrics_created": len(metrics), "first_metric_id": first_metric.id,
+        "first_grid_cell_id": first_metric.grid_cell_id, "first_grid_cell_cell_id": first_metric.cell_id,
+    }
+
+
+def assign_demo_metrics(state: str | None, db: Session):
+    updated_count = assign_demo_metrics_to_existing_rows(state, db)
+    if not updated_count:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NO EXISTING METRIC ROWS FOUND. Run /grid_metrics/assign_all first.")
+    return {"message": "Demo metrics assigned successfully", "state": state, "metrics_updated": updated_count,
+            "note": "Existing grid_cell_metrics rows were updated in place; no grid cells or metric rows were deleted."}
+
+
+def read_all_metrics(db: Session):
+    return add_cell_ids(_require(get_all_metrics(db), "NOT FOUND"))
+
+
+def read_metrics_for_grid(grid_cell_id: int, db: Session):
+    return add_cell_ids(_require(get_metrics_by_grid_id(grid_cell_id, db), "NOT FOUND"))
+
+
+def read_latest_metric_for_grid(grid_cell_id: int, db: Session):
+    return add_cell_id(_require(get_latest_metric_by_grid_id(grid_cell_id, db), "NOT FOUND"))
+
+
+def read_latest_metrics(db: Session):
+    return add_cell_ids(_require(latest_metrics_query(db).all(), "NOT FOUND"))
+
+
+def read_metrics_for_state(state: str, latest_only: bool, db: Session):
+    cell_ids = [cell.id for cell in get_state_grid_cells(state, db)]
+    metrics = get_latest_metrics_for_grid_ids(cell_ids, db) if latest_only else get_metrics_for_grid_ids(cell_ids, db)
+    return add_cell_ids(_require(metrics, "NOT FOUND"))
+
+
+def replace_metric(metric_id: int, payload, db: Session):
+    metric = _require(get_metric_by_id(metric_id, db), "NOT FOUND")
+    return add_cell_id(update_metric(metric, payload, db))
+
+
+def remove_metric(metric_id: int, db: Session):
+    delete_metric(_require(get_metric_by_id(metric_id, db), "NOT FOUND"), db)

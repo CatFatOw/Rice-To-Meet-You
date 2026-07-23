@@ -14,10 +14,10 @@ import threading
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import geopandas as gpd
 import requests
 from requests.adapters import HTTPAdapter
 from requests.exceptions import RequestException
+import geopandas as gpd
 from shapely.geometry import box 
 from urllib3.util.retry import Retry
 

@@ -12,6 +12,7 @@ from .user_tables import User
 from .grid_cell_tables import GridCellGeometry, GridCellMetrics, InterpolatedPoint
 from .weather_tables import WeatherObservation
 from .polygon_tables import PolygonGeometry, PolygonImpactGrids
+from .open_metro_tables import OpenMeteoForecast
 
 __all__ = [
     "CorePoiGeometry",
@@ -30,4 +31,5 @@ __all__ = [
     "WeatherObservation",
     "PolygonGeometry",
     "PolygonImpactGrids",
+    "OpenMeteoForecast",
 ]

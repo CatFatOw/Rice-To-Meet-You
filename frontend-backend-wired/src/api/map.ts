@@ -585,11 +585,17 @@ export function buildMockHeatmapMetricsGrid(): HeatmapMetricGridResponse {
   };
 }
 
-export async function callHeatmapMetricsGrid(): Promise<HeatmapMetricGridResponse> {
+export interface TimelineFilter { year?: number; month?: number; season?: 'winter' | 'spring' | 'summer' | 'fall'; }
+
+export async function callHeatmapMetricsGrid(filter: TimelineFilter = {}): Promise<HeatmapMetricGridResponse> {
   // Do not substitute a demo surface for live/sourced data. An empty map is
   // more honest than presenting generated values as population or activity.
   try {
-    const cityGrids = await fetchBackendJson<HeatmapMetricGridResponse>('/heatmap/metrics/grid');
+    const query = new URLSearchParams();
+    if (filter.year) query.set('year', String(filter.year));
+    if (filter.month) query.set('month', String(filter.month));
+    if (filter.season) query.set('season', filter.season);
+    const cityGrids = await fetchBackendJson<HeatmapMetricGridResponse>(`/heatmap/metrics/grid${query.size ? `?${query}` : ''}`);
     if (Object.keys(cityGrids).length > 0) return cityGrids;
   } catch (error) {
     console.warn('Unable to load heatmap metric grid', error);

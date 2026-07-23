@@ -58,6 +58,10 @@
       "value": "1"
     },
     {
+      "key": "openMeteoForecastId",
+      "value": "1"
+    },
+    {
       "key": "stateName",
       "value": "Texas"
     },
@@ -2721,6 +2725,60 @@
             "method": "DELETE",
             "url": "{{baseUrl}}/weather/delete/{{weatherObservationId}}"
           }
+        }
+      ]
+    },
+    {
+      "name": "Open-Meteo Forecasts",
+      "description": "Open-Meteo forecasts are stored as raw-response cache records. Run the database migration before using these requests.",
+      "item": [
+        {
+          "name": "Fetch and Store Houston Daily Forecast",
+          "event": [{"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('forecast stored', function () { pm.response.to.have.status(201); });", "if (pm.response.code === 201) pm.collectionVariables.set('openMeteoForecastId', pm.response.json().id);"]}}],
+          "request": {
+            "auth": {"type": "noauth"},
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"latitude\": 29.7604,\n  \"longitude\": -95.3698,\n  \"daily\": [\"temperature_2m_max\", \"temperature_2m_min\", \"apparent_temperature_max\", \"precipitation_probability_max\", \"wind_speed_10m_max\"],\n  \"forecast_days\": 7,\n  \"timezone\": \"America/Chicago\",\n  \"temperature_unit\": \"fahrenheit\",\n  \"wind_speed_unit\": \"mph\"\n}"},
+            "url": "{{baseUrl}}/open_metro/fetch"
+          }
+        },
+        {
+          "name": "List Stored Forecasts",
+          "request": {"auth": {"type": "noauth"}, "method": "GET", "url": "{{baseUrl}}/open_metro/"}
+        },
+        {
+          "name": "Get Stored Forecast By ID",
+          "request": {"auth": {"type": "noauth"}, "method": "GET", "url": "{{baseUrl}}/open_metro/{{openMeteoForecastId}}"}
+        },
+        {
+          "name": "Refresh Forecast By ID",
+          "request": {
+            "auth": {"type": "noauth"}, "method": "PUT", "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"latitude\": 29.7604,\n  \"longitude\": -95.3698,\n  \"current\": [\"temperature_2m\", \"relative_humidity_2m\", \"apparent_temperature\", \"wind_speed_10m\"],\n  \"timezone\": \"America/Chicago\"\n}"},
+            "url": "{{baseUrl}}/open_metro/update/{{openMeteoForecastId}}"
+          }
+        },
+        {
+          "name": "Fetch and Store Forecasts for All Grid Cells",
+          "request": {
+            "auth": {"type": "noauth"}, "method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"latitude\": 29.7604,\n  \"longitude\": -95.3698,\n  \"hourly\": [\"temperature_2m\", \"relative_humidity_2m\", \"apparent_temperature\", \"wind_speed_10m\"],\n  \"forecast_days\": 1\n}"},
+            "url": "{{baseUrl}}/open_metro/all_grid_weather"
+          }
+        },
+        {
+          "name": "Export Hourly Forecasts as CSV (150)",
+          "request": {
+            "auth": {"type": "noauth"},
+            "method": "GET",
+            "header": [{"key": "Accept", "value": "text/csv"}],
+            "url": "{{baseUrl}}/open_metro/export.csv?limit=150&timeline=hourly"
+          }
+        },
+        {
+          "name": "Delete Stored Forecast By ID",
+          "request": {"auth": {"type": "noauth"}, "method": "DELETE", "url": "{{baseUrl}}/open_metro/delete/{{openMeteoForecastId}}"}
         }
       ]
     },

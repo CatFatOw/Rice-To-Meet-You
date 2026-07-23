@@ -1,7 +1,16 @@
 """File contains core querying logic for the grid-geometry routes"""
 from sqlalchemy.orm import Session
 from models import grid_cell_tables, weather_tables
-from services.grid_geometry_services import normalize_state, normalize_city
+
+
+def normalize_state(state: str):
+    """Normalize repository filter input without depending on the service layer."""
+    return state.strip().title()
+
+
+def normalize_city(city: str):
+    """Normalize repository filter input without depending on the service layer."""
+    return city.strip().title()
 
 
 def get_all_cells(db:Session):
@@ -147,4 +156,3 @@ def save_nxn_grid_cells(nxn_grid, state: str, cell_id_prefix: str, db: Session):
         "cells_deleted": deleted_count,
         "cells_created": len(new_cells),
     }
-

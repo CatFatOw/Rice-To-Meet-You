@@ -1,12 +1,34 @@
-"""File handles connecting to a postgres database"""
-import os 
+"""Database engine and session configuration."""
+import os
+from pathlib import Path
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
+
+def load_local_env_files() -> None:
+    """Load local configuration without replacing variables exported by the shell."""
+    app_dir = Path(__file__).resolve().parent
+    for env_path in (app_dir / ".env", app_dir.parent / ".env"):
+        if not env_path.exists():
+            continue
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+load_local_env_files()
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL environment variable is not set")
+    raise RuntimeError(
+        "DATABASE_URL environment variable is not set. "
+        "Export it before starting FastAPI, or add it to app/.env or the repository-root .env."
+    )
 
 # SQLlite option for online hosting/production (only if url for sqllite is specified or fallback)
 is_sqlite = DATABASE_URL.startswith("sqlite")

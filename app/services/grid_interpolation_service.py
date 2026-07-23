@@ -2,6 +2,21 @@
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 from pykrige.ok import OrdinaryKriging
+from fastapi import HTTPException, status
+from sqlalchemy.orm import Session
+
+from repository.grid_interpolation_repository import (
+    create_interpolated_points,
+    delete_interpolated_point,
+    delete_interpolated_points_for_cells,
+    get_all_points,
+    get_interpolated_point_by_id,
+    get_interpolated_points_for_cells,
+    get_interpolated_points_query,
+    get_metrics_for_grid_cells,
+    update_interpolated_point,
+)
+from services.grid_geometry_services import get_city_grid_cells
 
 
 INTERPOLATABLE_METRICS = {
@@ -723,3 +738,78 @@ def grid_metrics_to_metric_layers(metrics, metric_keys=None):
         city_name: [layer for layer in city_layers.values() if layer["points"]]
         for city_name, city_layers in layers_by_city.items()
     }
+
+
+def _validate_metric_key(metric_key: str, field_name: str = "metric_key"):
+    if metric_key not in INTERPOLATABLE_METRICS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field_name} must be one of: {sorted(INTERPOLATABLE_METRICS)}")
+
+
+def _validate_city_state_filter(city: str | None, state: str | None):
+    if (city is None) != (state is None):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="city and state must be provided together.")
+
+
+def city_grid_cells_geojson(city: str, state: str, db: Session):
+    return grid_cells_to_geojson(get_city_grid_cells(city, state, db))
+
+
+def run_interpolation(payload, db: Session):
+    """Interpolate one metric across city grid centroids and save the result."""
+    _validate_metric_key(payload.metric_key)
+    grid_cells = get_city_grid_cells(payload.city, payload.state, db)
+    grid_cell_ids = [cell.id for cell in grid_cells]
+    metrics = get_metrics_for_grid_cells(grid_cell_ids, payload.timestamp, db)
+    grid_metric_points, exact_metrics_by_cell_id = grid_metrics_to_known_points(grid_cells, metrics)
+    known_points = [*grid_metric_points, *payload.known_points]
+    try:
+        results = interpolate_available_metrics(grid_cells, known_points, payload.metric_key)
+        apply_exact_grid_metrics(results, exact_metrics_by_cell_id)
+        add_relative_confidence(results)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    result_grid_cell_ids = [result["grid_cell_id"] for result in results]
+    if payload.replace_existing:
+        delete_interpolated_points_for_cells(result_grid_cell_ids, payload.timestamp, db)
+        db.flush()
+    create_interpolated_points(results, payload.timestamp, len(known_points), INTERPOLATABLE_METRICS, db)
+    return get_interpolated_points_for_cells(result_grid_cell_ids, payload.timestamp, db)
+
+
+def read_all_interpolated_points(db: Session):
+    points = get_all_points(db)
+    if not points:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NOT FOUND")
+    return interpolated_points_to_geojson(points)
+
+
+def read_interpolated_mesh(city, state, timestamp, color_metric, db: Session):
+    _validate_metric_key(color_metric, "color_metric")
+    _validate_city_state_filter(city, state)
+    points = get_interpolated_points_query(db, city, state, timestamp).all()
+    if not points:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NOT FOUND")
+    return interpolated_points_to_polygon_geojson(points, color_metric=color_metric)
+
+
+def read_interpolated_heatmap(city, state, timestamp, metric_key, db: Session):
+    _validate_metric_key(metric_key)
+    _validate_city_state_filter(city, state)
+    points = get_interpolated_points_query(db, city, state, timestamp).all()
+    if not points:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NOT FOUND")
+    return interpolated_points_to_heatmap_geojson(points, metric_key=metric_key)
+
+
+def replace_interpolated_point(interpolated_id: int, payload, db: Session):
+    point = get_interpolated_point_by_id(interpolated_id, db)
+    if not point:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NOT FOUND")
+    return update_interpolated_point(point, payload, db)
+
+
+def remove_interpolated_point(interpolated_id: int, db: Session):
+    point = get_interpolated_point_by_id(interpolated_id, db)
+    if not point:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NOT FOUND")
+    delete_interpolated_point(point, db)

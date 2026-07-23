@@ -9,6 +9,7 @@ import {
   callMockLocationPOIs,
   type CityPOIArea,
   type HeatmapMetricGridResponse,
+  type TimelineFilter,
 } from '../api/map';
 import { callMockStatistics } from '../api/statistics';
 import { determineCityView } from '../utils/cityViews';
@@ -39,8 +40,10 @@ const SimulationPage: React.FC = () => {
   const [cityPOIAreas, setCityPOIAreas] = useState<CityPOIArea[]>([]);
   const [metricGridsByCity, setMetricGridsByCity] =
     useState<HeatmapMetricGridResponse>({});
+  const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>({});
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [is3DMode, setIs3DMode] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
   const [draftPoints, setDraftPoints] = useState<[number, number][]>([]);
   const [draftColorHex, setDraftColorHex] = useState('#22c55e');
@@ -84,7 +87,7 @@ const SimulationPage: React.FC = () => {
 
     const loadMetricGrids = async () => {
       try {
-        const gridsByCity = await callHeatmapMetricsGrid();
+        const gridsByCity = await callHeatmapMetricsGrid(timelineFilter);
         if (isMounted) {
           setMetricGridsByCity(gridsByCity);
         }
@@ -98,7 +101,7 @@ const SimulationPage: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [timelineFilter.year, timelineFilter.month, timelineFilter.season]);
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -113,6 +116,14 @@ const SimulationPage: React.FC = () => {
       bearing: viewState.bearing,
     });
 
+    mapRef.current.on('load', () => {
+      const map = mapRef.current;
+      if (!map) return;
+      try {
+        map.addLayer({ id: 'simulation-3d-buildings', type: 'fill-extrusion', source: 'carto', 'source-layer': 'building', minzoom: 14, paint: { 'fill-extrusion-color': '#334155', 'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 9], 'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0], 'fill-extrusion-opacity': 0.88 }, layout: { visibility: 'none' } });
+      } catch { /* Basemap has no building source; 2D remains available. */ }
+    });
+
     return () => {
       if (mapSyncFrameRef.current !== null) {
         cancelAnimationFrame(mapSyncFrameRef.current);
@@ -124,6 +135,24 @@ const SimulationPage: React.FC = () => {
       }
     };
   }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const nextPitch = is3DMode ? 58 : 0;
+    const nextBearing = is3DMode ? -24 : 0;
+    setViewState((previous) => ({
+      ...previous,
+      pitch: nextPitch,
+      bearing: nextBearing,
+      zoom: is3DMode ? Math.max(previous.zoom, 14.5) : previous.zoom,
+    }));
+    const apply = () => {
+      if (map.getLayer('simulation-3d-buildings')) map.setLayoutProperty('simulation-3d-buildings', 'visibility', is3DMode ? 'visible' : 'none');
+      map.easeTo({ pitch: nextPitch, bearing: nextBearing, zoom: is3DMode ? Math.max(map.getZoom(), 14.5) : map.getZoom(), duration: 450 });
+    };
+    if (map.isStyleLoaded()) apply(); else map.once('load', apply);
+  }, [is3DMode]);
 
   useEffect(() => {
     const cityInView = determineCityView(viewState);
@@ -166,7 +195,18 @@ const SimulationPage: React.FC = () => {
 
       <main className="flex-1 overflow-hidden p-3">
         <div className="grid h-full grid-cols-[minmax(0,1fr)_360px] grid-rows-[minmax(0,1fr)_minmax(180px,24vh)] gap-3">
-          <section className="min-h-0 overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+          <section className="relative min-h-0 overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+            <div className="absolute left-3 top-3 z-30 flex gap-2 rounded-lg border border-slate-700 bg-slate-950/95 p-2 text-xs shadow-lg">
+              <select aria-label="Heatmap year" value={timelineFilter.year ?? ''} onChange={(e) => setTimelineFilter((f) => ({ ...f, year: e.target.value ? Number(e.target.value) : undefined }))} className="rounded bg-slate-800 px-2 py-1">
+                <option value="">Latest snapshot</option>{[2020, 2021, 2022, 2023, 2024, 2025, 2026].map((year) => <option key={year} value={year}>{year}</option>)}
+              </select>
+              <select aria-label="Heatmap month" value={timelineFilter.month ?? ''} onChange={(e) => setTimelineFilter((f) => ({ ...f, month: e.target.value ? Number(e.target.value) : undefined, season: undefined }))} className="rounded bg-slate-800 px-2 py-1">
+                <option value="">All months</option>{['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((name, index) => <option key={name} value={index + 1}>{name}</option>)}
+              </select>
+              <select aria-label="Heatmap season" value={timelineFilter.season ?? ''} onChange={(e) => setTimelineFilter((f) => ({ ...f, season: (e.target.value || undefined) as TimelineFilter['season'], month: undefined }))} className="rounded bg-slate-800 px-2 py-1">
+                <option value="">All seasons</option><option value="winter">Winter</option><option value="spring">Spring</option><option value="summer">Summer</option><option value="fall">Fall</option>
+              </select>
+            </div>
             <Heatmap
               viewState={viewState}
               setViewState={setViewState}
@@ -181,6 +221,8 @@ const SimulationPage: React.FC = () => {
               setTooltip={setTooltip}
               isFullscreen={isFullscreen}
               setIsFullscreen={setIsFullscreen}
+              is3DMode={is3DMode}
+              setIs3DMode={setIs3DMode}
               isDrawing={isDrawing}
               setIsDrawing={setIsDrawing}
               draftPoints={draftPoints}

@@ -26,6 +26,7 @@ import {
   TextLayer,
   IconLayer,
   BitmapLayer,
+  ColumnLayer,
 } from '@deck.gl/layers';
 import {
   applySimulation,
@@ -80,6 +81,8 @@ interface HeatmapProps {
   setTooltip: React.Dispatch<React.SetStateAction<TooltipState | null>>;
   isFullscreen: boolean;
   setIsFullscreen: React.Dispatch<React.SetStateAction<boolean>>;
+  is3DMode?: boolean;
+  setIs3DMode?: React.Dispatch<React.SetStateAction<boolean>>;
   isDrawing: boolean;
   setIsDrawing: React.Dispatch<React.SetStateAction<boolean>>;
   draftPoints: [number, number][];
@@ -347,6 +350,26 @@ function toolboxMarkerDataUrl(type: string, color: string): string {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(toolboxMarkerSvg(type, color))}`;
 }
 
+function toolboxColorRgb(type: string): [number, number, number] {
+  const hex = TOOLBOX_BY_TYPE[type]?.color ?? '#f8fafc';
+  return [
+    Number.parseInt(hex.slice(1, 3), 16),
+    Number.parseInt(hex.slice(3, 5), 16),
+    Number.parseInt(hex.slice(5, 7), 16),
+  ];
+}
+
+function toolboxObjectHeight(type: string): number {
+  return {
+    tree_planting: 18,
+    shade_canopy: 7,
+    cooling_station: 5,
+    water_station: 3.5,
+    misting_fan: 4,
+    first_aid: 3,
+  }[type] ?? 4;
+}
+
 function rgbaCss(rgb: [number, number, number], alpha: number): string {
   return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
 }
@@ -398,6 +421,8 @@ const Heatmap: React.FC<HeatmapProps> = ({
   setTooltip,
   isFullscreen,
   setIsFullscreen,
+  is3DMode = false,
+  setIs3DMode,
   isDrawing,
   setIsDrawing,
   draftPoints,
@@ -437,6 +462,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
   // since they're a self-contained overlay; lift into props if you need them
   // shared with the parent (e.g. for persistence).
   const [placedObjects, setPlacedObjects] = useState<PlacedObject[]>([]);
+  const [placementNotice, setPlacementNotice] = useState<string | null>(null);
   const [hoveredPOIArea, setHoveredPOIArea] = useState<{
     area: CityPOIArea;
     x: number;
@@ -681,6 +707,8 @@ const Heatmap: React.FC<HeatmapProps> = ({
       const y = e.clientY - rect.top;
       const { lng, lat } = map.unproject([x, y]);
 
+      setPlacementNotice(null);
+
       setPlacedObjects((prev) => [
         ...prev,
         {
@@ -865,6 +893,15 @@ const Heatmap: React.FC<HeatmapProps> = ({
     () => metricLegendGradient(activeMetricKey),
     [activeMetricKey],
   );
+  const threeDMinimap = useMemo(() => {
+    const selectedRaster = metricRasters.find(({ cityName }) => cityName === selectedCity) ?? metricRasters[0];
+    if (!selectedRaster) return null;
+    return {
+      cityName: selectedRaster.cityName,
+      imageUrl: selectedRaster.raster.canvas.toDataURL('image/png'),
+      bounds: selectedRaster.raster.bounds,
+    };
+  }, [metricRasters, selectedCity]);
 
   const displayedPOIAreas: CityPOIArea[] = useMemo(() => {
     if (!selectedCity) return [];
@@ -956,7 +993,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
 
   const metricRasterLayers = useMemo(
     () =>
-      metricRasters.map(
+      (is3DMode ? [] : metricRasters).map(
         ({ cityName, raster }) =>
           new BitmapLayer({
             id: `metric-raster-${cityName}`,
@@ -966,7 +1003,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
             pickable: false,
           }),
       ),
-    [metricRasters],
+    [metricRasters, is3DMode],
   );
 
   // Toolbox objects dropped onto the map. Click a pin to remove it.
@@ -996,6 +1033,28 @@ const Heatmap: React.FC<HeatmapProps> = ({
         },
       }),
     [placedObjects, isDrawing, removePlacedObject],
+  );
+
+  // A small extruded structure beneath each pin gives the demo objects a
+  // convincing 3D presence when the map is tilted. It intentionally allows
+  // placement anywhere: this is a visual simulation, not a zoning validator.
+  const placedObjectStructureLayer = useMemo(
+    () =>
+      new ColumnLayer({
+        id: 'placed-object-3d-structure-layer',
+        data: placedObjects,
+        pickable: false,
+        diskResolution: 12,
+        radius: 28,
+        extruded: true,
+        getPosition: (d: PlacedObject) => [d.longitude, d.latitude],
+        getElevation: (d: PlacedObject) => toolboxObjectHeight(d.type),
+        getFillColor: (d: PlacedObject) => [...toolboxColorRgb(d.type), 215],
+        getLineColor: [255, 255, 255, 190],
+        stroked: true,
+        lineWidthMinPixels: 1,
+      }),
+    [placedObjects],
   );
 
   const cameraAnalysisPointLayer = useMemo(
@@ -1189,6 +1248,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
       draftPolygonLayer,
       draftPathLayer,
       draftPointsLayer,
+      placedObjectStructureLayer,
       placedObjectLayer,
       cameraAnalysisPointLayer,
       cityIconLayer,
@@ -1200,6 +1260,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
       draftPolygonLayer,
       draftPathLayer,
       draftPointsLayer,
+      placedObjectStructureLayer,
       placedObjectLayer,
       cameraAnalysisPointLayer,
       cityIconLayer,
@@ -1464,7 +1525,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
     <>
       <div style={{ fontSize: 13, fontWeight: 700 }}>Toolbox</div>
       <div style={{ fontSize: 12, color: '#94a3b8', marginTop: -4 }}>
-        Drag an item onto the map to place it. Click a placed pin to remove it.
+        Drag an item anywhere onto the map to place its 3D demo object. Click a placed pin to remove it.
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -1543,6 +1604,10 @@ const Heatmap: React.FC<HeatmapProps> = ({
         </>
       )}
 
+      {placementNotice && (
+        <div style={{ borderRadius: 8, border: '1px solid #fb923c', background: 'rgba(124,45,18,.45)', color: '#ffedd5', fontSize: 11, lineHeight: 1.35, padding: '8px 9px' }}>{placementNotice}</div>
+      )}
+
       <div
         style={{
           height: 1,
@@ -1564,6 +1629,15 @@ const Heatmap: React.FC<HeatmapProps> = ({
         ref={mapContainerRef}
         style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}
       />
+      {displayToolbox && setIs3DMode && (
+        <button
+          type="button"
+          onClick={() => setIs3DMode((value) => !value)}
+          style={{ position: 'absolute', top: 14, right: 14, zIndex: 20, borderRadius: 8, border: '1px solid rgba(34,211,238,.65)', background: 'rgba(2,6,23,.94)', color: '#cffafe', padding: '9px 12px', fontSize: 12, fontWeight: 700, boxShadow: '0 8px 22px rgba(0,0,0,.35)' }}
+        >
+          {is3DMode ? 'Switch to 2D' : 'Explore in 3D'}
+        </button>
+      )}
       <DeckGL
         viewState={viewState}
         onViewStateChange={handleViewStateChange}
@@ -1574,6 +1648,51 @@ const Heatmap: React.FC<HeatmapProps> = ({
         getCursor={getCursor}
         style={{ position: 'absolute', width: '100%', height: '100%' }}
       />
+
+      {is3DMode && threeDMinimap && (
+        <div
+          style={{
+            position: 'absolute',
+            right: 14,
+            bottom: 14,
+            zIndex: 24,
+            width: 176,
+            borderRadius: 10,
+            overflow: 'hidden',
+            border: '1px solid rgba(103, 232, 249, 0.68)',
+            background: 'rgba(2, 6, 23, 0.94)',
+            boxShadow: '0 10px 26px rgba(0,0,0,.48)',
+            pointerEvents: 'auto',
+          }}
+        >
+          <div style={{ padding: '7px 9px 6px', fontSize: 11, color: '#cffafe', fontWeight: 800 }}>
+            2D heatmap · {threeDMinimap.cityName}
+          </div>
+          <div
+            role="button"
+            tabIndex={0}
+            title="Click the 2D heatmap to move the 3D camera"
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              const x = (event.clientX - rect.left) / rect.width;
+              const y = (event.clientY - rect.top) / rect.height;
+              const [minLon, minLat, maxLon, maxLat] = threeDMinimap.bounds;
+              const longitude = minLon + x * (maxLon - minLon);
+              const latitude = maxLat - y * (maxLat - minLat);
+              setViewState((current) => ({ ...current, longitude, latitude, zoom: Math.max(current.zoom, 14.5) }));
+              mapRef.current?.easeTo({ center: [longitude, latitude], zoom: Math.max(mapRef.current.getZoom(), 14.5), duration: 500 });
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') event.currentTarget.click();
+            }}
+            style={{ position: 'relative', cursor: 'crosshair' }}
+          >
+            <img src={threeDMinimap.imageUrl} alt={`${metricLabelText} 2D heatmap overview`} style={{ display: 'block', width: '100%', aspectRatio: '1.45 / 1' }} />
+            {viewState.longitude >= threeDMinimap.bounds[0] && viewState.longitude <= threeDMinimap.bounds[2] && viewState.latitude >= threeDMinimap.bounds[1] && viewState.latitude <= threeDMinimap.bounds[3] && <span style={{ position: 'absolute', left: `${((viewState.longitude - threeDMinimap.bounds[0]) / (threeDMinimap.bounds[2] - threeDMinimap.bounds[0])) * 100}%`, top: `${(1 - (viewState.latitude - threeDMinimap.bounds[1]) / (threeDMinimap.bounds[3] - threeDMinimap.bounds[1])) * 100}%`, transform: 'translate(-50%, -50%)', width: 11, height: 11, borderRadius: 99, background: '#fff', border: '3px solid #0ea5e9' }} />}
+          </div>
+          <div style={{ padding: '5px 9px 7px', fontSize: 10, color: '#94a3b8' }}>{metricLabelText}</div>
+        </div>
+      )}
 
       {hoveredCameraAnalysisMarker && (
         <div
@@ -1937,6 +2056,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
           position: 'absolute',
           right: 16,
           bottom: 30,
+          display: is3DMode ? 'none' : 'block',
           zIndex: 25,
           width: 186,
           border: '1px solid rgba(148, 163, 184, 0.3)',
