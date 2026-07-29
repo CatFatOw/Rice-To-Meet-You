@@ -1,0 +1,12 @@
+state_fk,market_fk,as_of_date,forecast_date,forecast_daily_visitors,forecast_is_hot_season,forecast_method,n_days_in_window
+CA,Los Angeles / SF Bay Area,2024-12-31,2025-01-01,6685.714285714285,False,trailing_7day_average,7
+FL,Miami,2024-12-31,2025-01-01,5198.714285714285,False,trailing_7day_average,7
+GA,Atlanta,2024-12-31,2025-01-01,2232.0,False,trailing_7day_average,7
+KS,Kansas City,2024-12-31,2025-01-01,326.2857142857143,False,trailing_7day_average,7
+MA,Boston,2024-12-31,2025-01-01,654.1428571428571,False,trailing_7day_average,7
+MO,Kansas City,2024-12-31,2025-01-01,2542.5714285714284,False,trailing_7day_average,7
+NJ,New York/New Jersey,2024-12-31,2025-01-01,2488.285714285714,False,trailing_7day_average,7
+NY,New York/New Jersey,2024-12-31,2025-01-01,2442.4285714285716,False,trailing_7day_average,7
+PA,Philadelphia,2024-12-31,2025-01-01,1497.5714285714287,False,trailing_7day_average,7
+TX,Dallas / Houston,2024-12-31,2025-01-01,7165.714285714285,False,trailing_7day_average,7
+WA,Seattle,2024-12-31,2025-01-01,1672.857142857143,False,trailing_7day_average,7

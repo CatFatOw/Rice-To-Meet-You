@@ -11,5 +11,8 @@ venv/
 *.sqlite3
 
 .DS_Store
+catboost_info/
+.Rhistory
 state_geojson/
 Kansas_Houston_Geo.json
+data/overall_ml_metrics_with_keys.csv
