@@ -1,0 +1,156 @@
+model,time_fk,state_fk,market_fk,predicted_visitor_count,visitor_count
+baseline_trailing_7,2024-12-01,TX,Dallas / Houston,5166.714285714285,2858.0
+baseline_trailing_7,2024-12-02,TX,Dallas / Houston,4814.102040816326,8474.0
+baseline_trailing_7,2024-12-03,TX,Dallas / Houston,5123.68804664723,5122.0
+baseline_trailing_7,2024-12-04,TX,Dallas / Houston,4628.214910453978,3268.0
+baseline_trailing_7,2024-12-05,TX,Dallas / Houston,5107.531326233117,6007.0
+baseline_trailing_7,2024-12-06,TX,Dallas / Houston,5256.035801409277,2412.0
+baseline_trailing_7,2024-12-07,TX,Dallas / Houston,4806.755201610603,13612.0
+baseline_trailing_7,2024-12-08,TX,Dallas / Houston,4986.148801840688,9116.0
+baseline_trailing_7,2024-12-09,TX,Dallas / Houston,4960.353732715889,4133.0
+baseline_trailing_7,2024-12-10,TX,Dallas / Houston,4981.246831558683,5302.0
+baseline_trailing_7,2024-12-11,TX,Dallas / Houston,4960.8980865460335,11989.0
+baseline_trailing_7,2024-12-12,TX,Dallas / Houston,5008.424254559184,15420.0
+baseline_trailing_7,2024-12-13,TX,Dallas / Houston,4994.2661014629075,8666.0
+baseline_trailing_7,2024-12-14,TX,Dallas / Houston,4956.870430041998,10728.0
+baseline_trailing_7,2024-12-15,TX,Dallas / Houston,4978.315462675055,8823.0
+baseline_trailing_7,2024-12-16,TX,Dallas / Houston,4977.196414222822,2772.0
+baseline_trailing_7,2024-12-17,TX,Dallas / Houston,4979.602511580955,8330.0
+baseline_trailing_7,2024-12-18,TX,Dallas / Houston,4979.367608726993,2303.0
+baseline_trailing_7,2024-12-19,TX,Dallas / Houston,4982.006111895702,12225.0
+baseline_trailing_7,2024-12-20,TX,Dallas / Houston,4978.232091515204,4079.0
+baseline_trailing_7,2024-12-21,TX,Dallas / Houston,4975.941518665532,13939.0
+baseline_trailing_7,2024-12-22,TX,Dallas / Houston,4978.665959897467,5984.0
+baseline_trailing_7,2024-12-23,TX,Dallas / Houston,4978.716030929239,7958.0
+baseline_trailing_7,2024-12-24,TX,Dallas / Houston,4978.9331190301555,4324.0
+baseline_trailing_7,2024-12-25,TX,Dallas / Houston,4978.837491522899,0.0
+baseline_trailing_7,2024-12-26,TX,Dallas / Houston,4978.761760493742,11455.0
+baseline_trailing_7,2024-12-27,TX,Dallas / Houston,4978.2982817220345,5792.0
+baseline_trailing_7,2024-12-28,TX,Dallas / Houston,4978.307737465867,11625.0
+baseline_trailing_7,2024-12-29,TX,Dallas / Houston,4978.645768723058,3663.0
+baseline_trailing_7,2024-12-30,TX,Dallas / Houston,4978.6428842695705,7304.0
+baseline_trailing_7,2024-12-31,TX,Dallas / Houston,4978.632434746761,10321.0
+baseline_seasonal_365,2024-12-01,TX,Dallas / Houston,12390.0,2858.0
+baseline_seasonal_365,2024-12-02,TX,Dallas / Houston,6135.0,8474.0
+baseline_seasonal_365,2024-12-03,TX,Dallas / Houston,4629.0,5122.0
+baseline_seasonal_365,2024-12-04,TX,Dallas / Houston,1039.0,3268.0
+baseline_seasonal_365,2024-12-05,TX,Dallas / Houston,11294.0,6007.0
+baseline_seasonal_365,2024-12-06,TX,Dallas / Houston,9918.0,2412.0
+baseline_seasonal_365,2024-12-07,TX,Dallas / Houston,5404.0,13612.0
+baseline_seasonal_365,2024-12-08,TX,Dallas / Houston,4512.0,9116.0
+baseline_seasonal_365,2024-12-09,TX,Dallas / Houston,8165.0,4133.0
+baseline_seasonal_365,2024-12-10,TX,Dallas / Houston,10328.0,5302.0
+baseline_seasonal_365,2024-12-11,TX,Dallas / Houston,5236.0,11989.0
+baseline_seasonal_365,2024-12-12,TX,Dallas / Houston,10172.0,15420.0
+baseline_seasonal_365,2024-12-13,TX,Dallas / Houston,7689.0,8666.0
+baseline_seasonal_365,2024-12-14,TX,Dallas / Houston,8517.0,10728.0
+baseline_seasonal_365,2024-12-15,TX,Dallas / Houston,6412.0,8823.0
+baseline_seasonal_365,2024-12-16,TX,Dallas / Houston,4955.0,2772.0
+baseline_seasonal_365,2024-12-17,TX,Dallas / Houston,13942.0,8330.0
+baseline_seasonal_365,2024-12-18,TX,Dallas / Houston,8946.0,2303.0
+baseline_seasonal_365,2024-12-19,TX,Dallas / Houston,9438.0,12225.0
+baseline_seasonal_365,2024-12-20,TX,Dallas / Houston,12105.0,4079.0
+baseline_seasonal_365,2024-12-21,TX,Dallas / Houston,9625.0,13939.0
+baseline_seasonal_365,2024-12-22,TX,Dallas / Houston,4214.0,5984.0
+baseline_seasonal_365,2024-12-23,TX,Dallas / Houston,1726.0,7958.0
+baseline_seasonal_365,2024-12-24,TX,Dallas / Houston,540.0,4324.0
+baseline_seasonal_365,2024-12-25,TX,Dallas / Houston,16857.0,0.0
+baseline_seasonal_365,2024-12-26,TX,Dallas / Houston,1530.0,11455.0
+baseline_seasonal_365,2024-12-27,TX,Dallas / Houston,19885.0,5792.0
+baseline_seasonal_365,2024-12-28,TX,Dallas / Houston,7184.0,11625.0
+baseline_seasonal_365,2024-12-29,TX,Dallas / Houston,13237.0,3663.0
+baseline_seasonal_365,2024-12-30,TX,Dallas / Houston,7005.0,7304.0
+baseline_seasonal_365,2024-12-31,TX,Dallas / Houston,2787.0,10321.0
+"RandomForest (daily, market grain)",2024-12-01,TX,Dallas / Houston,12152.237475723601,2858.0
+"RandomForest (daily, market grain)",2024-12-02,TX,Dallas / Houston,6447.92198489613,8474.0
+"RandomForest (daily, market grain)",2024-12-03,TX,Dallas / Houston,5269.745749730825,5122.0
+"RandomForest (daily, market grain)",2024-12-04,TX,Dallas / Houston,3027.1016141027353,3268.0
+"RandomForest (daily, market grain)",2024-12-05,TX,Dallas / Houston,5955.9571004300005,6007.0
+"RandomForest (daily, market grain)",2024-12-06,TX,Dallas / Houston,9213.39194920287,2412.0
+"RandomForest (daily, market grain)",2024-12-07,TX,Dallas / Houston,5582.270648578563,13612.0
+"RandomForest (daily, market grain)",2024-12-08,TX,Dallas / Houston,5920.318009863364,9116.0
+"RandomForest (daily, market grain)",2024-12-09,TX,Dallas / Houston,7969.1920421101095,4133.0
+"RandomForest (daily, market grain)",2024-12-10,TX,Dallas / Houston,8148.102222520966,5302.0
+"RandomForest (daily, market grain)",2024-12-11,TX,Dallas / Houston,6542.067286878329,11989.0
+"RandomForest (daily, market grain)",2024-12-12,TX,Dallas / Houston,3841.2081168974983,15420.0
+"RandomForest (daily, market grain)",2024-12-13,TX,Dallas / Houston,5869.3311888589005,8666.0
+"RandomForest (daily, market grain)",2024-12-14,TX,Dallas / Houston,10323.716507864194,10728.0
+"RandomForest (daily, market grain)",2024-12-15,TX,Dallas / Houston,5605.687349326048,8823.0
+"RandomForest (daily, market grain)",2024-12-16,TX,Dallas / Houston,5412.794320936825,2772.0
+"RandomForest (daily, market grain)",2024-12-17,TX,Dallas / Houston,8634.966745375033,8330.0
+"RandomForest (daily, market grain)",2024-12-18,TX,Dallas / Houston,7823.7537877413815,2303.0
+"RandomForest (daily, market grain)",2024-12-19,TX,Dallas / Houston,8720.649202902028,12225.0
+"RandomForest (daily, market grain)",2024-12-20,TX,Dallas / Houston,5777.194930307402,4079.0
+"RandomForest (daily, market grain)",2024-12-21,TX,Dallas / Houston,5673.931012954869,13939.0
+"RandomForest (daily, market grain)",2024-12-22,TX,Dallas / Houston,3013.9179999214107,5984.0
+"RandomForest (daily, market grain)",2024-12-23,TX,Dallas / Houston,2913.164333255753,7958.0
+"RandomForest (daily, market grain)",2024-12-24,TX,Dallas / Houston,4173.951638474404,4324.0
+"RandomForest (daily, market grain)",2024-12-25,TX,Dallas / Houston,7402.427464980254,0.0
+"RandomForest (daily, market grain)",2024-12-26,TX,Dallas / Houston,3347.0424274413326,11455.0
+"RandomForest (daily, market grain)",2024-12-27,TX,Dallas / Houston,15485.205900558041,5792.0
+"RandomForest (daily, market grain)",2024-12-28,TX,Dallas / Houston,2991.097344185831,11625.0
+"RandomForest (daily, market grain)",2024-12-29,TX,Dallas / Houston,12052.219967560151,3663.0
+"RandomForest (daily, market grain)",2024-12-30,TX,Dallas / Houston,9030.650494412128,7304.0
+"RandomForest (daily, market grain)",2024-12-31,TX,Dallas / Houston,6788.815082459299,10321.0
+"HistGradientBoosting (daily, market grain)",2024-12-01,TX,Dallas / Houston,13832.325163748654,2858.0
+"HistGradientBoosting (daily, market grain)",2024-12-02,TX,Dallas / Houston,6445.096638304713,8474.0
+"HistGradientBoosting (daily, market grain)",2024-12-03,TX,Dallas / Houston,4627.227791214784,5122.0
+"HistGradientBoosting (daily, market grain)",2024-12-04,TX,Dallas / Houston,2663.139979878686,3268.0
+"HistGradientBoosting (daily, market grain)",2024-12-05,TX,Dallas / Houston,8256.983697572929,6007.0
+"HistGradientBoosting (daily, market grain)",2024-12-06,TX,Dallas / Houston,8817.80349817251,2412.0
+"HistGradientBoosting (daily, market grain)",2024-12-07,TX,Dallas / Houston,5829.8730597358945,13612.0
+"HistGradientBoosting (daily, market grain)",2024-12-08,TX,Dallas / Houston,4850.30799527462,9116.0
+"HistGradientBoosting (daily, market grain)",2024-12-09,TX,Dallas / Houston,7176.703966921242,4133.0
+"HistGradientBoosting (daily, market grain)",2024-12-10,TX,Dallas / Houston,8416.881845152644,5302.0
+"HistGradientBoosting (daily, market grain)",2024-12-11,TX,Dallas / Houston,7070.391326796054,11989.0
+"HistGradientBoosting (daily, market grain)",2024-12-12,TX,Dallas / Houston,5163.103680965783,15420.0
+"HistGradientBoosting (daily, market grain)",2024-12-13,TX,Dallas / Houston,5850.437242424438,8666.0
+"HistGradientBoosting (daily, market grain)",2024-12-14,TX,Dallas / Houston,9075.51655318686,10728.0
+"HistGradientBoosting (daily, market grain)",2024-12-15,TX,Dallas / Houston,6403.7389815667275,8823.0
+"HistGradientBoosting (daily, market grain)",2024-12-16,TX,Dallas / Houston,6902.146742461664,2772.0
+"HistGradientBoosting (daily, market grain)",2024-12-17,TX,Dallas / Houston,10670.07573480189,8330.0
+"HistGradientBoosting (daily, market grain)",2024-12-18,TX,Dallas / Houston,10891.686846864499,2303.0
+"HistGradientBoosting (daily, market grain)",2024-12-19,TX,Dallas / Houston,9393.960261456847,12225.0
+"HistGradientBoosting (daily, market grain)",2024-12-20,TX,Dallas / Houston,6652.2268636317685,4079.0
+"HistGradientBoosting (daily, market grain)",2024-12-21,TX,Dallas / Houston,6515.983830770421,13939.0
+"HistGradientBoosting (daily, market grain)",2024-12-22,TX,Dallas / Houston,2884.317398878681,5984.0
+"HistGradientBoosting (daily, market grain)",2024-12-23,TX,Dallas / Houston,3867.587400493406,7958.0
+"HistGradientBoosting (daily, market grain)",2024-12-24,TX,Dallas / Houston,5994.115500017471,4324.0
+"HistGradientBoosting (daily, market grain)",2024-12-25,TX,Dallas / Houston,7266.540492217601,0.0
+"HistGradientBoosting (daily, market grain)",2024-12-26,TX,Dallas / Houston,3189.252565841958,11455.0
+"HistGradientBoosting (daily, market grain)",2024-12-27,TX,Dallas / Houston,14543.006562178794,5792.0
+"HistGradientBoosting (daily, market grain)",2024-12-28,TX,Dallas / Houston,4187.990122531019,11625.0
+"HistGradientBoosting (daily, market grain)",2024-12-29,TX,Dallas / Houston,13464.670719928687,3663.0
+"HistGradientBoosting (daily, market grain)",2024-12-30,TX,Dallas / Houston,9632.291391964583,7304.0
+"HistGradientBoosting (daily, market grain)",2024-12-31,TX,Dallas / Houston,8264.201118061563,10321.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-01,TX,Dallas / Houston,12557.128741026752,2858.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-02,TX,Dallas / Houston,6681.893849267349,8474.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-03,TX,Dallas / Houston,5404.718688124621,5122.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-04,TX,Dallas / Houston,3665.6695290402604,3268.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-05,TX,Dallas / Houston,5280.228102497842,6007.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-06,TX,Dallas / Houston,9108.63295679368,2412.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-07,TX,Dallas / Houston,5420.225152146474,13612.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-08,TX,Dallas / Houston,6349.8692689907275,9116.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-09,TX,Dallas / Houston,7689.221605360268,4133.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-10,TX,Dallas / Houston,7914.5380374421875,5302.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-11,TX,Dallas / Houston,6406.8168325408105,11989.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-12,TX,Dallas / Houston,4168.1440411131525,15420.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-13,TX,Dallas / Houston,6320.634097494009,8666.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-14,TX,Dallas / Houston,9776.365940543405,10728.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-15,TX,Dallas / Houston,5705.604024612714,8823.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-16,TX,Dallas / Houston,5479.559256774124,2772.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-17,TX,Dallas / Houston,7912.903778317313,8330.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-18,TX,Dallas / Houston,7689.268920624253,2303.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-19,TX,Dallas / Houston,8997.251487050635,12225.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-20,TX,Dallas / Houston,5550.6460043891275,4079.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-21,TX,Dallas / Houston,5515.139919023769,13939.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-22,TX,Dallas / Houston,3921.3745274433923,5984.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-23,TX,Dallas / Houston,4058.8423086357616,7958.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-24,TX,Dallas / Houston,3863.8664962552652,4324.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-25,TX,Dallas / Houston,7301.410170630279,0.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-26,TX,Dallas / Houston,4508.169409086117,11455.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-27,TX,Dallas / Houston,14458.150825589992,5792.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-28,TX,Dallas / Houston,3680.2098544329965,11625.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-29,TX,Dallas / Houston,11945.191572419808,3663.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-30,TX,Dallas / Houston,9310.734911428824,7304.0
+"GradientBoosting (quantile P50, daily, market grain)",2024-12-31,TX,Dallas / Houston,6958.904280659985,10321.0

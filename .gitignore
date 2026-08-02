@@ -16,3 +16,12 @@ catboost_info/
 state_geojson/
 Kansas_Houston_Geo.json
 data/overall_ml_metrics_with_keys.csv
+
+# Local visitor pipeline data (multi-gigabyte inputs, outputs, and spill files)
+visitor_data/input/archive.zip
+visitor_data/input/StoreVisit/
+visitor_data/output/
+visitor_data/work/
+
+# Scratch space for unrelated work
+tmp/

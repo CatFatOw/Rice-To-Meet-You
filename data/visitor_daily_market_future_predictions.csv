@@ -1,0 +1,8 @@
+state_fk,market_fk,time_fk,predicted_visitor_count
+TX,Dallas / Houston,2025-01-01,5946.127942046044
+TX,Dallas / Houston,2025-01-02,17452.822713947935
+TX,Dallas / Houston,2025-01-03,6781.250581253282
+TX,Dallas / Houston,2025-01-04,5972.065094929861
+TX,Dallas / Houston,2025-01-05,5968.354921205739
+TX,Dallas / Houston,2025-01-06,5994.232336038557
+TX,Dallas / Houston,2025-01-07,6457.568949038728
