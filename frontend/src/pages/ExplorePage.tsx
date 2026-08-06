@@ -15,12 +15,18 @@ import {
 } from '../api/map';
 import { callMockStatistics } from '../api/statistics';
 import { determineCityView } from '../services/cityViews';
-import { interpolateByCity } from '../services/interpolate';
 import type { ViewState } from '../types/viewState';
 import type { GeocodeResult } from '../types/search';
 import type { TooltipState } from '../types/components';
 import type { OverallStatisticsProps, POIStatisticsProps } from '../types/statistics';
 
+function mergeCityDateRecords(records: HeatmapMetricPointByCity[string] | undefined) {
+  if (!records || records.length === 0) return null;
+  return records.reduce<Record<string, HeatmapMetricSnapshot[]>>(
+    (acc, byDate) => ({ ...acc, ...byDate }),
+    {},
+  );
+}
 
 const ExplorePage: React.FC = () => {
 
@@ -136,15 +142,16 @@ const ExplorePage: React.FC = () => {
   }, []);
 
   // --- Update heatmap visualization ---
-  // Interpolate heatmap points based on selected city and date
+  // Raw anchors for the selected city/date — no interpolation (matches SimulationPage)
   useEffect(() => {
     if (!selectedCity || !selectedDate) {
       setHeatmapPointsByCity({});
       return;
     }
 
-    const interpolated = interpolateByCity(heatmapAnchorsByCity, selectedCity, selectedDate);
-    setHeatmapPointsByCity({ [selectedCity]: interpolated });
+    const snapshots =
+      mergeCityDateRecords(heatmapAnchorsByCity[selectedCity])?.[selectedDate] ?? [];
+    setHeatmapPointsByCity({ [selectedCity]: snapshots });
   }, [heatmapAnchorsByCity, selectedCity, selectedDate]);
 
   // --- Initialize and manage map lifecycle ---

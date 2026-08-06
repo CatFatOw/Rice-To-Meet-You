@@ -65,30 +65,17 @@ import {
   CircleDot,
 
 } from 'lucide-react';
-import type { ToolboxItemDef } from '../types/toolbox';
-export type { ToolboxItemDef };
-
-// The four intervention archetypes. These keys are the single source of truth
-// for the "choose archetype" dropdown — it lists Object.keys of the collection.
-export type ArchetypeType =
-  | 'Vegetation'
-  | 'High-albedo surface'
-  | 'Shade structure'
-  | 'Evaporative / water';
-
-// Shape of the whole categorized collection returned by getToolboxItems().
-export type ToolboxItemsByArchetype = Record<ArchetypeType, ToolboxItemDef[]>;
+import type { ToolboxItemsByArchetype } from '../types/toolbox';
 
 // In-memory store standing in for a backend table. getToolboxItems reads from
 // it; addToolboxItems will eventually write to it (no-op for now). Not exported
 // as the public surface — callers should go through the API functions below so
 // swapping in a real fetch later is a one-file change.
-const TOOLBOX_ITEMS: ToolboxItemsByArchetype = {
+export const TOOLBOX_ITEMS: ToolboxItemsByArchetype = {
   Vegetation: [
     {
-      id: 'street_trees',
-      type: 'street_trees',
-      label: 'Street Trees',
+      intervention: 'street_trees',
+      category: 'Vegetation',
       color: '#22c55e',
       kind: 'polygon',
       Icon: TreePine,
@@ -99,9 +86,8 @@ const TOOLBOX_ITEMS: ToolboxItemsByArchetype = {
       },
     },
     {
-      id: 'urban_park',
-      type: 'urban_park',
-      label: 'Urban Park',
+      intervention: 'urban_park',
+      category: 'Vegetation',
       color: '#16a34a',
       kind: 'polygon',
       Icon: Trees,
@@ -112,9 +98,8 @@ const TOOLBOX_ITEMS: ToolboxItemsByArchetype = {
       },
     },
     {
-      id: 'green_roof',
-      type: 'green_roof',
-      label: 'Green Roof',
+      intervention: 'green_roof',
+      category: 'Vegetation',
       color: '#4ade80',
       kind: 'polygon',
       Icon: Sprout,
@@ -125,9 +110,8 @@ const TOOLBOX_ITEMS: ToolboxItemsByArchetype = {
       },
     },
     {
-      id: 'green_wall',
-      type: 'green_wall',
-      label: 'Green Wall',
+      intervention: 'green_wall',
+      category: 'Vegetation',
       color: '#65a30d',
       kind: 'polygon',
       Icon: Leaf,
@@ -138,9 +122,8 @@ const TOOLBOX_ITEMS: ToolboxItemsByArchetype = {
       },
     },
     {
-      id: 'rain_garden',
-      type: 'rain_garden',
-      label: 'Rain Garden',
+      intervention: 'rain_garden',
+      category: 'Vegetation',
       color: '#15803d',
       kind: 'polygon',
       Icon: Flower2,
@@ -151,9 +134,8 @@ const TOOLBOX_ITEMS: ToolboxItemsByArchetype = {
       },
     },
     {
-      id: 'hedgerow',
-      type: 'hedgerow',
-      label: 'Hedgerow',
+      intervention: 'hedgerow',
+      category: 'Vegetation',
       color: '#166534',
       kind: 'polygon',
       Icon: Fence,
@@ -168,135 +150,129 @@ const TOOLBOX_ITEMS: ToolboxItemsByArchetype = {
   // Populated later — declared now so the archetype dropdown lists all four.
 'High-albedo surface': [
     {
-      id: 'cool_roof',
-      type: 'cool_roof',
-      label: 'Cool Roof Coating',
+      intervention: 'cool_roof',
+      category: 'High-albedo surface',
       color: '#f8fafc',
       kind: 'polygon',
       Icon: Home,
       params: {
-        deltaAlbedo: 0.65, // 0–1  albedo increase vs baseline (intensity)
-        coverPct: 0.35, //    0–1  treated fraction of cell (scale)
+        albedo: 0.65,
+        coverage: 0.35,
+        emissivity: 0.9,
       },
     },
     {
-      id: 'cool_pavement',
-      type: 'cool_pavement',
-      label: 'Cool Pavement Coating',
+      intervention: 'cool_pavement',
+      category: 'High-albedo surface',
       color: '#e2e8f0',
       kind: 'polygon',
       Icon: Route,
       params: {
-        deltaAlbedo: 0.25,
-        coverPct: 0.25,
+        albedo: 0.25,
+        coverage: 0.25,
+        emissivity: 0.9,
       },
     },
     {
-      id: 'reflective_parking',
-      type: 'reflective_parking',
-      label: 'Reflective Parking Lot',
+      intervention: 'reflective_parking',
+      category: 'High-albedo surface',
       color: '#cbd5e1',
       kind: 'polygon',
       Icon: SquareParking,
       params: {
-        deltaAlbedo: 0.35,
-        coverPct: 0.15,
+        albedo: 0.35,
+        coverage: 0.15,
+        emissivity: 0.9,
       },
     },
     {
-      id: 'light_sidewalk',
-      type: 'light_sidewalk',
-      label: 'Light Concrete Sidewalk',
+      intervention: 'light_sidewalk',
+      category: 'High-albedo surface',
       color: '#f1f5f9',
       kind: 'polygon',
       Icon: Footprints,
       params: {
-        deltaAlbedo: 0.30,
-        coverPct: 0.10,
+        albedo: 0.30,
+        coverage: 0.10,
+        emissivity: 0.9,
       },
     },
     {
-      id: 'reflective_facade',
-      type: 'reflective_facade',
-      label: 'Reflective Facade Paint',
+      intervention: 'reflective_facade',
+      category: 'High-albedo surface',
       color: '#e0f2fe',
       kind: 'polygon',
       Icon: Building2,
       params: {
-        deltaAlbedo: 0.30,
-        coverPct: 0.20,
+        albedo: 0.30,
+        coverage: 0.20,
+        emissivity: 0.9,
       },
     },
   ],
 
   'Shade structure': [
     {
-      id: 'solar_canopy',
-      type: 'solar_canopy',
-      label: 'Solar PV Canopy',
+      intervention: 'solar_canopy',
+      category: 'Shade structure',
       color: '#6366f1',
       kind: 'polygon',
       Icon: PanelTop,
       params: {
         opacity: 0.95, //  0–1  fraction of direct beam blocked (intensity)
-        coverPct: 0.15, // 0–1  shaded footprint as cell fraction (scale)
+        coverage: 0.15, // 0–1  shaded footprint as cell fraction (scale)
       },
     },
     {
-      id: 'awning',
-      type: 'awning',
-      label: 'Solid Awning / Canopy',
+      intervention: 'awning',
+      category: 'Shade structure',
       color: '#818cf8',
       kind: 'polygon',
       Icon: Tent,
       params: {
         opacity: 0.90,
-        coverPct: 0.05,
+        coverage: 0.05,
       },
     },
     {
-      id: 'shade_sail',
-      type: 'shade_sail',
-      label: 'Shade Sail',
+      intervention: 'shade_sail',
+      category: 'Shade structure',
       color: '#a78bfa',
       kind: 'polygon',
       Icon: Triangle,
       params: {
         opacity: 0.70,
-        coverPct: 0.10,
+        coverage: 0.10,
       },
     },
     {
-      id: 'pergola',
-      type: 'pergola',
-      label: 'Pergola / Trellis',
+      intervention: 'pergola',
+      category: 'Shade structure',
       color: '#8b5cf6',
       kind: 'polygon',
       Icon: Grid2x2,
       params: {
         opacity: 0.40,
-        coverPct: 0.08,
+        coverage: 0.08,
       },
     },
     {
-      id: 'bus_shelter',
-      type: 'bus_shelter',
-      label: 'Bus Shelter Canopy',
+      intervention: 'bus_shelter',
+      category: 'Shade structure',
       color: '#7c3aed',
       kind: 'polygon',
       Icon: BusFront,
       params: {
         opacity: 0.85,
-        coverPct: 0.04,
+        coverage: 0.04,
       },
     },
   ],
 
   'Evaporative / water': [
     {
-      id: 'fountain',
-      type: 'fountain',
-      label: 'Spray / Jet Fountain',
+      intervention: 'fountain',
+      category: 'Evaporative / water',
       color: '#0ea5e9',
       kind: 'polygon',
       Icon: Droplets,
@@ -307,9 +283,8 @@ const TOOLBOX_ITEMS: ToolboxItemsByArchetype = {
       },
     },
     {
-      id: 'splash_pad',
-      type: 'splash_pad',
-      label: 'Splash Pad',
+      intervention: 'splash_pad',
+      category: 'Evaporative / water',
       color: '#06b6d4',
       kind: 'polygon',
       Icon: Waves,
@@ -320,9 +295,8 @@ const TOOLBOX_ITEMS: ToolboxItemsByArchetype = {
       },
     },
     {
-      id: 'misting',
-      type: 'misting',
-      label: 'High-Pressure Misting',
+      intervention: 'misting',
+      category: 'Evaporative / water',
       color: '#22d3ee',
       kind: 'polygon',
       Icon: SprayCan,
@@ -333,9 +307,8 @@ const TOOLBOX_ITEMS: ToolboxItemsByArchetype = {
       },
     },
     {
-      id: 'reflecting_pool',
-      type: 'reflecting_pool',
-      label: 'Reflecting Pool / Pond',
+      intervention: 'reflecting_pool',
+      category: 'Evaporative / water',
       color: '#0284c7',
       kind: 'polygon',
       Icon: Droplet,
@@ -346,9 +319,8 @@ const TOOLBOX_ITEMS: ToolboxItemsByArchetype = {
       },
     },
     {
-      id: 'evaporative_pavement',
-      type: 'evaporative_pavement',
-      label: 'Water-Retentive Pavement',
+      intervention: 'evaporative_pavement',
+      category: 'Evaporative / water',
       color: '#38bdf8',
       kind: 'polygon',
       Icon: Blocks,
@@ -396,61 +368,18 @@ export const ARCHETYPE_PARAMS = {
 
   "High-albedo surface": [
     "albedo",
+    "coverage",
+    "emissivity",
   ],
 
   "Shade structure": [
-    "shadePct",
-    "transmittance",
+    "opacity",
+    "coverage",
   ],
 
   "Evaporative / water": [
-    "waterCoverage",
-    "evaporationRate",
     "flowRate",
+    "radius",
+    "activeFraction",
   ],
 } as const;
-
-// --- Mock API ---------------------------------------------------------------
-
-// Simulated network latency so callers exercise their loading states. Set to 0
-// to make the mock resolve synchronously-ish.
-const MOCK_LATENCY_MS = 150;
-
-const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-// Shallow-clone the collection (record + its arrays) so callers can't mutate
-// the in-memory store by holding onto the returned reference. Item objects
-// themselves are shared — fine for read-only rendering, and a real fetch would
-// hand back fresh objects anyway.
-function snapshot(): ToolboxItemsByArchetype {
-  return (Object.keys(TOOLBOX_ITEMS) as ArchetypeType[]).reduce((acc, key) => {
-    acc[key] = [...TOOLBOX_ITEMS[key]];
-    return acc;
-  }, {} as ToolboxItemsByArchetype);
-}
-
-/**
- * Mock "GET /toolbox-items". Resolves with the categorized collection after a
- * short simulated delay. Swap the body for a real fetch when the endpoint lands
- * — the signature (no args in, Promise<ToolboxItemsByArchetype> out) is the
- * contract callers rely on.
- */
-export async function getToolboxItems(): Promise<ToolboxItemsByArchetype> {
-  await delay(MOCK_LATENCY_MS);
-  return snapshot();
-}
-
-// Payload for adding a new intervention: a full item plus the archetype bucket
-// it belongs in.
-export type AddToolboxItemInput = ToolboxItemDef & { category: ArchetypeType };
-
-/**
- * Mock "POST /toolbox-items". Accepts a new item but intentionally does nothing
- * for now (no persistence, no store mutation) — it just resolves so callers can
- * await it. Wire the body to push into TOOLBOX_ITEMS[input.category] (or a real
- * request) when the feature is ready.
- */
-export async function addToolboxItems(input: AddToolboxItemInput): Promise<void> {
-  await delay(MOCK_LATENCY_MS);
-  void input; // no-op for now
-}

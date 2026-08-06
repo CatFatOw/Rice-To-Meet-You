@@ -80,7 +80,6 @@ export interface ToolboxProps {
     updatePendingPlacedObject?: (patch: Partial<Omit<ToolboxPlacedObject, 'id'>>) => void;
     commitPendingPlacedObject?: () => Promise<void>;
     clearPendingPlacedObject?: () => void;
-    addPlacedObject: (object: ToolboxPlacedObject) => void;
     removePlacedObject: (id: string) => void;
     clearPlacedObjects: () => void;
     patchPlacedObject: (id: string, patch: Partial<ToolboxPlacedObject>) => void;
@@ -198,7 +197,6 @@ export interface HeatmapProps {
     updatePendingPlacedObject?: (patch: Partial<Omit<ToolboxPlacedObject, 'id'>>) => void;
     commitPendingPlacedObject?: () => Promise<void>;
     clearPendingPlacedObject?: () => void;
-    addPlacedObject: (object: ToolboxPlacedObject) => void;
     removePlacedObject: (id: string) => void;
     clearPlacedObjects: () => void;
     patchPlacedObject: (id: string, patch: Partial<ToolboxPlacedObject>) => void;

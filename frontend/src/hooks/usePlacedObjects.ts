@@ -3,6 +3,9 @@ import type React from 'react';
 import type maplibregl from 'maplibre-gl';
 import { TOOLBOX_DRAG_MIME } from '../services/toolbox';
 import type { Geometry } from '../types/simulation';
+import { addPlacedObjects } from '../api/tool';
+import { TOOLBOX_ITEMS } from '../data/toolboxItems';
+import type { ArchetypeType, ToolboxItemDef } from '../types/toolbox';
 
 // Design params carried by a placed object (albedo, flowRate, coverPct, ...).
 // Kept as a numeric record here so the hook stays archetype-agnostic; concrete
@@ -33,7 +36,7 @@ export interface BasePlacedObject {
   // never while the object is still pending/staged.
   id: string;
   // Toolbox-facing type identifier used by the simulation/rendering path.
-  type: string;
+  type?: string;
   // Category is optional so the hook can carry both toolbox objects and mock
   // API objects without forcing every caller to populate it.
   category?: string;
@@ -90,7 +93,7 @@ export interface UsePlacedObjectsReturn<TPlacedObject extends BasePlacedObject> 
   updatePendingPlacedObjectParams: (paramsPatch: Partial<PlacedObjectParams>) => void;
   commitPendingPlacedObject: () => Promise<void>;
   clearPendingPlacedObject: () => void;
-  addPlacedObject: (object: TPlacedObject) => void;
+
   // Remove is targeted by id.
   removePlacedObject: (id: string) => void;
   // Empties the list at once.
@@ -108,11 +111,16 @@ function makePlacedId(): string {
   return `placed-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// Stubbed persistence call. Swap the body for a real fetch when the endpoint
-// exists; the signature (object in, Promise out) is what callers rely on.
-async function savePlacedObject<T extends BasePlacedObject>(_object: Omit<T, 'id'>): Promise<void> {
-  // no-op API — resolves immediately
+function isArchetypeType(value: unknown): value is ArchetypeType {
+  return (
+    value === 'Vegetation' ||
+    value === 'High-albedo surface' ||
+    value === 'Shade structure' ||
+    value === 'Evaporative / water'
+  );
 }
+
+
 
 /**
  * Owns the map toolbox object lifecycle:
@@ -161,9 +169,6 @@ export function usePlacedObjects<TPlacedObject extends BasePlacedObject = BasePl
     setPlacedObjects([]);
   }, []);
 
-  const addPlacedObject = useCallback((object: TPlacedObject) => {
-    setPlacedObjects((prev) => [...prev, object]);
-  }, []);
 
   // Shallow field patch on a COMMITTED object located by id.
   const patchPlacedObject = useCallback((id: string, patch: Partial<TPlacedObject>) => {
@@ -213,24 +218,40 @@ export function usePlacedObjects<TPlacedObject extends BasePlacedObject = BasePl
   // functional setter so it doesn't need pending in its deps. This is the ONLY
   // way a committed object enters placedObjects.
   const commitPendingPlacedObject = useCallback(async () => {
-    // Capture the current pending object without a stale closure.
-    let toCommit: PendingPlacedObject<TPlacedObject> | null = null;
-    setPendingPlacedObject((pending) => {
-      toCommit = pending;
-      return pending;
-    });
-
+    const toCommit = pendingPlacedObject;
     if (!toCommit) return;
 
-    const committed = Object.assign({}, toCommit, { id: makePlacedId() }) as TPlacedObject;
 
-    // Persist only the pending object.
-    await savePlacedObject(toCommit);
+    const committed = { ...toCommit, id: makePlacedId() } as TPlacedObject;
+
+    const pendingMeta = toCommit as {
+      intervention?: string;
+      type?: string;
+      category?: string;
+      color?: string;
+      geometry?: Geometry;
+    };
+    const interventionKey = pendingMeta.intervention ?? pendingMeta.type;
+
+    // Keep the addPlacedObjects call, but build a valid ToolboxItemDef.
+    if (interventionKey && isArchetypeType(pendingMeta.category)) {
+      const baseItem = TOOLBOX_ITEMS[pendingMeta.category].find(
+        (item) => item.intervention === interventionKey,
+      );
+      if (baseItem) {
+        const payload: ToolboxItemDef = {
+          ...baseItem,
+          color: pendingMeta.color ?? baseItem.color,
+          kind: pendingMeta.geometry?.kind === 'point' ? 'point' : 'polygon',
+        };
+        await addPlacedObjects(payload);
+      }
+    }
 
     // Drop it into the flat list as-is.
     setPlacedObjects((prev) => [...prev, committed]);
     setPendingPlacedObject(null);
-  }, []);
+  }, [pendingPlacedObject]);
 
   // Discard the staged object without persisting. Cancel counterpart to commit.
   const clearPendingPlacedObject = useCallback(() => {
@@ -305,7 +326,6 @@ export function usePlacedObjects<TPlacedObject extends BasePlacedObject = BasePl
     updatePendingPlacedObjectParams,
     commitPendingPlacedObject,
     clearPendingPlacedObject,
-    addPlacedObject,
     removePlacedObject,
     clearPlacedObjects,
     patchPlacedObject,

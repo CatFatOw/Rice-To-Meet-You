@@ -7,27 +7,45 @@ export interface HighAlbedoParams   { albedo: number; coverage: number; emissivi
 export interface ShadeParams        { opacity: number; coverage: number }
 export interface EvaporativeParams  { flowRate: number; radius: number; activeFraction: number }
 
+export type ArchetypeType =
+  | 'Vegetation'
+  | 'High-albedo surface'
+  | 'Shade structure'
+  | 'Evaporative / water';
+
 type ToolboxItemBase = {
-  id: string;
-  type: string;
-  label: string;
+  intervention: string;
   color: string;
-  kind: 'polygon' | 'point';
   Icon: React.ComponentType<{ size?: number | string; color?: string }>;
+  category: ArchetypeType;
+  kind: 'polygon' | 'point';
 };
 
 export type ToolboxItemDef =
-  | (ToolboxItemBase & { type: string; params: VegetationParams })
-  | (ToolboxItemBase & { type: string; params: HighAlbedoParams })
-  | (ToolboxItemBase & { type: string; params: ShadeParams })
-  | (ToolboxItemBase & { type: string; params: EvaporativeParams });
+  | (ToolboxItemBase & { params: VegetationParams })
+  | (ToolboxItemBase & { params: HighAlbedoParams })
+  | (ToolboxItemBase & { params: ShadeParams })
+  | (ToolboxItemBase & { params: EvaporativeParams });
+
+
+
+// Distributes Omit across each union member so the discriminant/params pairing survives.
+type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never;
+
+// Same as ToolboxItemDef but without `category` — the archetype is already the record key.
+export type ToolboxItemDefWithoutCategory = DistributiveOmit<ToolboxItemDef, 'category'>;
+
+export type ToolboxItemsByArchetype = Record<ArchetypeType, ToolboxItemDef[]>;
+
+export type AddToolboxItemInput = ToolboxItemDef;
 
 // A placed instance of a toolbox item, positioned in map (lng/lat) space.
 export interface PlacedObject {
   id: string;
-  type: string;
-  category?: string;
   name?: string;
+  type?: string;
+  intervention?: string;
+  category?: string;
   color?: string;
   geometry: Geometry;
   params?: Record<string, number>;

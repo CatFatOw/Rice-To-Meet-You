@@ -413,11 +413,13 @@ const hoverablePolygons = useMemo(() => {
   // into placedObjectsControls. Re-runs on city/date change; clears when either
   // is missing. The ignore flag drops a stale response if the selection changes
   // mid-fetch.
+  const setPlacedObjects = placedObjectsControls?.setPlacedObjects;
+
   useEffect(() => {
-    if (!placedObjectsControls?.setPlacedObjects) return;
+    if (!setPlacedObjects) return;
 
     if (!selectedCity || !selectedDate) {
-      placedObjectsControls.setPlacedObjects([]);
+      setPlacedObjects([]);
       return;
     }
 
@@ -427,18 +429,18 @@ const hoverablePolygons = useMemo(() => {
       .then((byDateCity) => {
         if (ignore) return;
         const tools = byDateCity[selectedDate]?.[selectedCity] ?? [];
-        placedObjectsControls.setPlacedObjects(tools);
+        setPlacedObjects(tools);
       })
       .catch((error) => {
         if (ignore) return;
         console.error('Failed to load placed objects', error);
-        placedObjectsControls.setPlacedObjects([]);
+        setPlacedObjects([]);
       });
 
     return () => {
       ignore = true;
     };
-  }, [selectedCity, selectedDate, placedObjectsControls]);
+  }, [selectedCity, selectedDate, setPlacedObjects]);
 
 
   // Mirror the in-progress polygon draft into a pending placed object so it

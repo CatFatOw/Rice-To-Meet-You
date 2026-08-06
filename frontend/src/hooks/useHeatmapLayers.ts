@@ -350,15 +350,16 @@ const visibleMetricLayers = useMemo(
         pickable: false,
         getPosition: (d: PlacedObject) => geometryAnchor(d.geometry),
         getIcon: (d: PlacedObject) => {
-          const def = TOOLBOX_BY_TYPE[d.type];
+          const toolKey = d.type ?? d.intervention ?? 'unknown';
+          const def = TOOLBOX_BY_TYPE[toolKey];
           const color = d.color ?? def?.color ?? '#f8fafc';
           return {
-            url: toolboxMarkerDataUrl(d.type, color),
+            url: toolboxMarkerDataUrl(toolKey, color),
             width: 48,
             height: 60,
             anchorX: 24,
             anchorY: 58,
-            id: d.type,
+            id: toolKey,
           };
         },
         getSize: 46,
@@ -385,11 +386,13 @@ const visibleMetricLayers = useMemo(
         getPolygon: (d: PlacedObject) =>
           d.geometry.kind === 'polygon' ? d.geometry.ring : [],
         getFillColor: (d: PlacedObject) => {
-          const color = d.color ?? TOOLBOX_BY_TYPE[d.type]?.color ?? '#f8fafc';
+          const toolKey = d.type ?? d.intervention ?? 'unknown';
+          const color = d.color ?? TOOLBOX_BY_TYPE[toolKey]?.color ?? '#f8fafc';
           return [...hexToRgb(color), 140];
         },
         getLineColor: (d: PlacedObject) => {
-          const color = d.color ?? TOOLBOX_BY_TYPE[d.type]?.color ?? '#f8fafc';
+          const toolKey = d.type ?? d.intervention ?? 'unknown';
+          const color = d.color ?? TOOLBOX_BY_TYPE[toolKey]?.color ?? '#f8fafc';
           return [...hexToRgb(color), 255];
         },
         getLineWidth: 2,
@@ -415,15 +418,16 @@ const visibleMetricLayers = useMemo(
         getPosition: (d: PlacedObject) =>
           d.geometry.kind === 'polygon' ? polygonCenter(d.geometry.ring) : [0, 0],
         getIcon: (d: PlacedObject) => {
-          const def = TOOLBOX_BY_TYPE[d.type];
+          const toolKey = d.type ?? d.intervention ?? 'unknown';
+          const def = TOOLBOX_BY_TYPE[toolKey];
           const color = d.color ?? def?.color ?? '#f8fafc';
           return {
-            url: toolboxMarkerDataUrl(d.type, color),
+            url: toolboxMarkerDataUrl(toolKey, color),
             width: 48,
             height: 60,
             anchorX: 24,
             anchorY: 58,
-            id: d.type,
+            id: toolKey,
           };
         },
         getSize: 46,

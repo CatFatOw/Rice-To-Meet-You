@@ -11,6 +11,7 @@ export interface MetricEffectModel {
   intensity: number;
   floor: number;
   spatial: SpatialKernel;
+  temporal?: (elapsedHours: number, activeHours: number) => number;
   response: ResponseKernel;
   suitability?: SuitabilityKernel;
   environmental?: EnvironmentalKernel;

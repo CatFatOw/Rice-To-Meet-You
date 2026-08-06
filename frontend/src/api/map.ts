@@ -17,6 +17,8 @@ import type {
   HeatmapMetricPOIByCity,
 } from '../types/heatmap';
 
+import type { HeatmapPointsByDate } from '../types/heatmap';
+
 export type {
   CityPOIArea,
   CityPOIAreaMap,
@@ -520,4 +522,40 @@ const BACKEND_POI_ANCHOR: HeatmapMetricPOIByCity = {
 export async function callHeatmapPOIAnchors(): Promise<HeatmapMetricPOIByCity> {
   await new Promise((resolve) => setTimeout(resolve, 500));
   return BACKEND_POI_ANCHOR;
+}
+
+
+// ============================================================================
+// Heatmap points-by-date API — Houston, a single metric layer flattened to
+// date -> points. This is the shape the intervention simulation consumes
+// (getSimulatedPointsByDate(metric, pointsByDate, placedObjects)).
+// ============================================================================
+
+/**
+ * Houston's anchors for one metric, keyed by date.
+ *
+ * Points are structured-cloned per date: daySnapshots() hands every date the
+ * same TEMPERATURE_ANCHORS / CHANGE_IN_TEMPERATURE_ANCHORS array reference, so
+ * without the clone a single in-place mutation on 2026-07-05 would silently
+ * show up on all four days.
+ *
+ * @param metric which layer to flatten. Defaults to "change_in_temperature",
+ *               the layer the simulation writes its signed ΔT into.
+ */
+export async function callHeatmapPointByDateHouston(
+  metric: string = "change_in_temperature",
+): Promise<HeatmapPointsByDate> {
+  // Simulate network latency
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
+  const byDate = BACKEND_ANCHOR.Houston[0] ?? {};
+
+  return Object.fromEntries(
+    Object.entries(byDate).map(([date, snapshots]) => [
+      date,
+      (snapshots.find((s) => s.metric === metric)?.points ?? []).map((p) =>
+        structuredClone(p),
+      ),
+    ]),
+  );
 }

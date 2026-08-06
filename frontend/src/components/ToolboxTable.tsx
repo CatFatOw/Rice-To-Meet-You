@@ -1,6 +1,7 @@
 import { Trash2 } from 'lucide-react';
 import SelectDate from './SelectDate';
 import type { PlacedObject } from '../types/toolbox';
+import { polygonCenter } from '../services/toolbox';
 
 export interface ToolboxTableProps {
   placedObjects?: PlacedObject[];
@@ -64,10 +65,47 @@ function describeGeometry(geometry: unknown): string {
   return 'custom';
 }
 
+/** Format a lng/lat pair (from polygonCenter or a point) as a readable string. */
+function formatLngLat(value: unknown): string {
+  if (Array.isArray(value) && value.length >= 2) {
+    const [lng, lat] = value as [number, number];
+    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  }
+  if (value && typeof value === 'object') {
+    const v = value as Record<string, unknown>;
+    if (typeof v.latitude === 'number' && typeof v.longitude === 'number') {
+      return `${v.latitude.toFixed(4)}, ${v.longitude.toFixed(4)}`;
+    }
+    if (typeof v.lat === 'number' && typeof v.lng === 'number') {
+      return `${v.lat.toFixed(4)}, ${v.lng.toFixed(4)}`;
+    }
+  }
+  return String(value ?? '—');
+}
+
+/**
+ * Destination is the point the intervention acts on:
+ * the centroid for a polygon, or the coordinates for a point.
+ */
+function describeDestination(geometry: unknown): string {
+  if (!geometry || typeof geometry !== 'object') return '—';
+  const g = geometry as Record<string, unknown>;
+
+  if (g.kind === 'polygon' && Array.isArray(g.ring)) {
+    return formatLngLat(polygonCenter(g.ring as [number, number][]));
+  }
+
+  if (g.kind === 'point' && typeof g.longitude === 'number' && typeof g.latitude === 'number') {
+    return `${(g.latitude as number).toFixed(4)}, ${(g.longitude as number).toFixed(4)}`;
+  }
+
+  return '—';
+}
+
 /** Params differ per intervention type, so edit them generically by key. */
-function paramEntries(param: unknown): [string, unknown][] {
-  if (!param || typeof param !== 'object') return [];
-  return Object.entries(param as Record<string, unknown>);
+function paramEntries(params: unknown): [string, unknown][] {
+  if (!params || typeof params !== 'object') return [];
+  return Object.entries(params as Record<string, unknown>);
 }
 
 function humanizeKey(key: string): string {
@@ -79,8 +117,8 @@ function humanizeKey(key: string): string {
 
 /**
  * Lists every intervention currently on the map and lets the planner retune it:
- * label, params, and the window it's active for. Geometry is read-only here —
- * that gets edited on the map itself.
+ * name, params, and the window it's active for. Geometry and destination are
+ * read-only here — geometry gets edited on the map itself.
  */
 export default function ToolboxTable({
   placedObjects = [],
@@ -100,14 +138,10 @@ export default function ToolboxTable({
     onPlacedObjectsChange?.(
       placedObjects.map((obj) =>
         obj.id === id
-          ? { ...obj, param: { ...(obj.param as object), [key]: value } }
+          ? { ...obj, params: { ...(obj.params as object), [key]: value } }
           : obj,
       ) as PlacedObject[],
     );
-  };
-
-  const removeObject = (id: string) => {
-    onPlacedObjectsChange?.(placedObjects.filter((obj) => obj.id !== id));
   };
 
   return (
@@ -130,7 +164,10 @@ export default function ToolboxTable({
           <table className="w-full border-collapse text-left">
             <thead>
               <tr className="border-b border-slate-800 text-sm text-slate-400">
-                <th className="px-5 py-3 font-semibold">Tool</th>
+                <th className="px-5 py-3 font-semibold">Id</th>
+                <th className="px-5 py-3 font-semibold">Name</th>
+                <th className="px-5 py-3 font-semibold">Type</th>
+                <th className="px-5 py-3 font-semibold">Destination</th>
                 <th className="px-5 py-3 font-semibold">Geometry</th>
                 <th className="px-5 py-3 font-semibold">Params</th>
                 <th className="px-5 py-3 font-semibold">Active from</th>
@@ -145,20 +182,32 @@ export default function ToolboxTable({
                   key={obj.id}
                   className="border-b border-slate-800 align-top last:border-b-0"
                 >
-                  {/* Tool: type is fixed, label is the planner's own name for it */}
+                  {/* Id: stable identifier, read-only */}
+                  <td className="px-5 py-4 text-sm font-mono text-slate-400">
+                    {obj.id}
+                  </td>
+
+                  {/* Name: the planner's own name for it */}
                   <td className="px-5 py-4">
                     <input
-                      value={obj.label ?? ''}
+                      value={obj.name ?? ''}
                       placeholder={obj.type}
                       disabled={readOnly}
                       onChange={(e) =>
-                        patchObject(obj.id, { label: e.target.value })
+                        patchObject(obj.id, { name: e.target.value })
                       }
                       className="w-40 rounded border border-slate-700 bg-slate-900/70 px-2 py-1 text-sm font-medium text-slate-200 outline-none focus:border-blue-500 disabled:opacity-60"
                     />
-                    <p className="mt-1 text-xs uppercase tracking-wide text-slate-500">
-                      {obj.type}
-                    </p>
+                  </td>
+
+                  {/* Type: fixed intervention type */}
+                  <td className="px-5 py-4 text-sm uppercase tracking-wide text-slate-500">
+                    {obj.type}
+                  </td>
+
+                  {/* Destination: centroid for polygons, coords for points */}
+                  <td className="px-5 py-4 text-sm text-slate-400">
+                    {describeDestination(obj.geometry)}
                   </td>
 
                   {/* Geometry: edited on the map, shown here for orientation */}
@@ -166,13 +215,13 @@ export default function ToolboxTable({
                     {describeGeometry(obj.geometry)}
                   </td>
 
-                  {/* Params: shape varies by type, so render one input per key */}
+                  {/* Params: shape varies by type, so render one labelled input per key */}
                   <td className="px-5 py-4">
-                    {paramEntries(obj.param).length === 0 ? (
+                    {paramEntries(obj.params).length === 0 ? (
                       <span className="text-sm text-slate-500">—</span>
                     ) : (
                       <div className="flex flex-col gap-1.5">
-                        {paramEntries(obj.param).map(([key, value]) => (
+                        {paramEntries(obj.params).map(([key, value]) => (
                           <label
                             key={key}
                             className="flex items-center gap-2 text-xs text-slate-400"
@@ -230,9 +279,9 @@ export default function ToolboxTable({
                   <td className="px-5 py-4">
                     <SelectDate
                       label="Active until"
-                      value={obj.activeUntil ?? null}
+                      value={obj.activeTo ?? null}
                       onChange={(isoDate) =>
-                        patchObject(obj.id, { activeUntil: isoDate })
+                        patchObject(obj.id, { activeTo: isoDate })
                       }
                       availableDates={availableDates}
                       variant="bare"
@@ -240,12 +289,15 @@ export default function ToolboxTable({
                     />
                   </td>
 
+                  {/* Actions: delete icon — no-op for now */}
                   <td className="px-5 py-4">
                     <button
                       type="button"
                       disabled={readOnly}
-                      onClick={() => removeObject(obj.id)}
-                      aria-label={`Remove ${obj.label ?? obj.type}`}
+                      onClick={() => {
+                        /* TODO: wire up delete */
+                      }}
+                      aria-label={`Remove ${obj.name ?? obj.type}`}
                       className="text-slate-400 transition hover:text-red-400 disabled:opacity-40"
                     >
                       <Trash2 size={18} />
