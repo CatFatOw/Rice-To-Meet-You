@@ -11,3 +11,4 @@ pykrige
 passlib
 python-jose
 python-multipart
+redis

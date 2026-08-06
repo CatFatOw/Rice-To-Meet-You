@@ -143,7 +143,10 @@ Set environment variables:
 ```bash
 export DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
 export JWT_KEY="dev-secret-key"
+export REDIS_URL="redis://localhost:6379/0"
 ```
+
+If you do not already have Redis running locally, start it before using features that depend on it (for example, on macOS: `brew install redis && brew services start redis`).
 
 Run migrations:
 
