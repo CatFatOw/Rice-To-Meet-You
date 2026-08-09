@@ -1,6 +1,12 @@
 // api/placedObjects.ts
 import type { Geometry } from '../types/simulation';
 import type { BasePlacedObject } from '../hooks/usePlacedObjects';
+import { TOOLBOX_ITEMS } from '../data/toolboxItems';
+import type {
+  AddToolboxItemInput,
+  ToolboxItemDef,
+  ToolboxItemsByArchetype,
+} from '../types/toolbox';
 
 // date (ISO day) -> city name -> the tools placed for that city on that day.
 export type PlacedObjectsByDateCity = Record<string, Record<string, BasePlacedObject[]>>;
@@ -113,6 +119,13 @@ const MOCK_PLACED_OBJECTS: PlacedObjectsByDateCity = Object.fromEntries(
 // Simulate network latency so callers exercise their loading states.
 const LATENCY_MS = 300;
 
+// Simulated network latency for toolbox-item APIs.
+const TOOLBOX_LATENCY_MS = 150;
+
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+
+
 /** Full map: every date -> every city -> tools. */
 export async function fetchPlacedObjects(): Promise<PlacedObjectsByDateCity> {
   await new Promise((resolve) => setTimeout(resolve, LATENCY_MS));
@@ -134,4 +147,29 @@ export async function fetchPlacedObjectsForCity(
 ): Promise<BasePlacedObject[]> {
   await new Promise((resolve) => setTimeout(resolve, LATENCY_MS));
   return clone(MOCK_PLACED_OBJECTS[date]?.[city] ?? []);
+}
+
+
+/** Mock "POST /toolbox-items". */
+export async function addPlacedObjects(input: AddToolboxItemInput): Promise<void> {
+  await delay(TOOLBOX_LATENCY_MS);
+  TOOLBOX_ITEMS[input.category] = [...TOOLBOX_ITEMS[input.category], input];
+}
+
+/** Mock "POST /urban-interventions". Empty stub — no-op besides latency. */
+export async function createNewUrbanIntervention(input: ToolboxItemDef): Promise<void> {
+  await delay(TOOLBOX_LATENCY_MS);
+  // TODO: wire to real endpoint. Currently a no-op mock.
+  void input;
+}
+
+/** Mock "GET /custom-urban-interventions". Empty stub — no items yet. */
+export async function fetchCustomUrbanInterventions(): Promise<ToolboxItemsByArchetype> {
+  await delay(TOOLBOX_LATENCY_MS);
+  return {
+    Vegetation: [],
+    'High-albedo surface': [],
+    'Shade structure': [],
+    'Evaporative / water': [],
+  };
 }

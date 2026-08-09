@@ -1,3 +1,32 @@
+/**
+ * =============================================================================
+ * Urban heat intervention simulation
+ * =============================================================================
+ *
+ * Estimates how planner-placed cooling interventions change pedestrian-level
+ * temperature (and, where relevant, relative humidity) across a heatmap of
+ * point readings grouped by date.
+ *
+ * Four intervention archetypes are modelled, each with its own physics:
+ *   1. Vegetation        — latent (transpiration) + shade cooling over a polygon
+ *   2. High-albedo surface — reflects more solar over a polygon
+ *   3. Shade structure   — blocks the direct solar beam over a polygon
+ *   4. Evaporative/water — misting/fountain plume from a point source
+ *
+ * Shared shape of every model:
+ *   - A weather-derived ceiling ΔT_max (the most cooling physically available
+ *     under the current conditions).
+ *   - A dimensionless intensity in [0, 1] derived from the planner's inputs.
+ *   - deltaT = ΔT_max × intensity, applied to the initial temperature.
+ *
+ * Sign convention (IMPORTANT): every model returns `finalTemp` plus a SIGNED
+ * `deltaT`, where negative means cooling. The internal `deltaT` variable used
+ * before the return is the positive magnitude; the returned field negates it.
+ *
+ * The public entry point is `getSimulatedPointsByDate`, which applies every
+ * placed object to a cloned copy of the readings and returns the result.
+ */
+
 import type { HeatmapPointsByDate, HeatmapMetricValue } from '../types/heatmap';
 import type { BasePlacedObjectCategorized } from '../hooks/usePlacedObjects';
 import type { Polygon } from '../types/heatmap';
@@ -37,31 +66,49 @@ const LAI_EXTINCTION = 0.5;         // Beer–Lambert extinction coefficient in 
 const DELTA_T_MAX_ANCHOR = 5;       // °C: cooling asymptote under hot-dry-sunny-calm conditions
 const VPD_REF = 4.5;                // kPa: peak-case VPD used to normalize f_VPD (38 °C / 28% RH ≈ 4.8)
 
-/** Saturation vapor pressure (kPa) from air temperature (°C) — Tetens. */
+/**
+ * Saturation vapor pressure (kPa) from air temperature (°C) — Tetens equation.
+ * The maximum water vapor the air can hold at the given temperature; rises
+ * steeply with heat, which is why hot air has more evaporative "room".
+ */
 export function saturationVaporPressure(temperatureC: number): number {
   return 0.6108 * Math.exp((17.27 * temperatureC) / (temperatureC + 237.3));
 }
 
-/** Vapor pressure deficit (kPa) from temperature (°C) and RH (0–100). */
+/**
+ * Vapor pressure deficit (kPa) — the gap between how much moisture the air
+ * could hold and how much it currently holds. Larger VPD = drier air = more
+ * evaporative cooling potential.
+ *
+ * @param temperatureC     air temperature (°C)
+ * @param relativeHumidity relative humidity (0–100)
+ */
 export function vaporPressureDeficit(temperatureC: number, relativeHumidity: number): number {
   return saturationVaporPressure(temperatureC) * (1 - relativeHumidity / 100);
 }
 
 /**
- * Weather-dependent cooling ceiling:
+ * Weather-dependent cooling ceiling for vegetation:
  *   ΔT_max = 5 °C × f_VPD × f_solar × f_wind
+ *
+ * f_VPD scales the anchor by how dry the air is (capped at 1 at the reference
+ * VPD); f_solar and f_wind default to 1 unless real data is supplied.
  */
 export function deltaTMaxFromWeather(weather: WeatherParams): number {
   const { temperatureC, relativeHumidity, fSolar = 1, fWind = 1 } = weather;
 
   const vpd = vaporPressureDeficit(temperatureC, relativeHumidity);
-  const fVPD = Math.min(vpd / VPD_REF, 1.0);
+  const fVPD = Math.min(vpd / VPD_REF, 1.0); // normalize to [0, 1] against the peak-case VPD
 
   return DELTA_T_MAX_ANCHOR * fVPD * fSolar * fWind;
 }
 
 /**
  * Compute vegetation cooling for one cell.
+ *
+ * @param initialTemp starting temperature at the cell (°C)
+ * @param params      planner-chosen vegetation inputs
+ * @param deltaTMax   either a fixed ceiling (°C) or WeatherParams to derive one
  * @returns { finalTemp, deltaT } — deltaT is the SIGNED change (negative = cooling).
  */
 export function vegetationCooling(
@@ -71,28 +118,33 @@ export function vegetationCooling(
 ): { finalTemp: number; deltaT: number } {
   const { vegetatedCoverage, canopyFraction, lai, waterFactor } = params;
 
+  // Accept a precomputed ceiling, or derive it from weather.
   const deltaTMaxC =
     typeof deltaTMax === 'number' ? deltaTMax : deltaTMaxFromWeather(deltaTMax);
 
   // Step 1 — saturating LAI transform (Beer–Lambert), not linear.
+  // Extra leaf area gives diminishing returns as the canopy closes.
   const fLAI = 1 - Math.exp(-LAI_EXTINCTION * lai);
 
   // Step 2 — the two cooling channels.
+  // Latent: transpiration, gated fully by water availability.
   const latent = vegetatedCoverage * fLAI * waterFactor;
+  // Shade: canopy blocking sun; partly survives drought (leaves still cast shade
+  // even when transpiration stops), controlled by SHADE_DROUGHT_SURVIVAL.
   const shade =
     vegetatedCoverage *
     canopyFraction *
     fLAI *
     (SHADE_DROUGHT_SURVIVAL + (1 - SHADE_DROUGHT_SURVIVAL) * waterFactor);
 
-  // Step 3 — combine into normalized intensity (0–1).
+  // Step 3 — combine into normalized intensity (0–1) via the channel weights.
   const intensity = WEIGHT_LATENT * latent + WEIGHT_SHADE * shade;
 
   // Step 4 — scale to a temperature drop, then apply to the initial temp.
-  const deltaT = deltaTMaxC * intensity;
+  const deltaT = deltaTMaxC * intensity; // positive magnitude
   const finalTemp = initialTemp - deltaT;
 
-  return { finalTemp, deltaT: -deltaT };
+  return { finalTemp, deltaT: -deltaT }; // negate so callers see cooling as < 0
 }
 
 // Simulated network latency so callers can exercise their loading states.
@@ -122,7 +174,12 @@ const SOLAR_PROXY_T_LOW = 20;         // °C at/below which thermal loading ≈ 
 const SOLAR_PROXY_T_HIGH = 38;        // °C at/above which thermal loading ≈ peak
 
 /**
- * Weather ceiling: ΔT_max = 4 °C × f_thermal × f_solar.
+ * Weather ceiling for high-albedo surfaces:
+ *   ΔT_max = 4 °C × f_thermal × f_solar
+ *
+ * There is no VPD term (reflectance doesn't depend on humidity); instead a
+ * temperature-based f_thermal ramps linearly from 0 at SOLAR_PROXY_T_LOW to 1
+ * at SOLAR_PROXY_T_HIGH, standing in for solar loading.
  */
 export function deltaTMaxFromWeatherAlbedo(weather: AlbedoWeatherParams): number {
   const { temperatureC, fSolar = 1 } = weather;
@@ -131,13 +188,17 @@ export function deltaTMaxFromWeatherAlbedo(weather: AlbedoWeatherParams): number
   const fThermal = Math.min(
     Math.max((temperatureC - SOLAR_PROXY_T_LOW) / span, 0),
     1,
-  );
+  ); // clamp the linear ramp to [0, 1]
 
   return DELTA_T_MAX_ANCHOR_ALBEDO * fThermal * fSolar;
 }
 
 /**
  * Compute high-albedo surface cooling for one cell.
+ *
+ * @param initialTemp starting temperature at the cell (°C)
+ * @param params      planner-chosen albedo inputs
+ * @param deltaTMax   either a fixed ceiling (°C) or AlbedoWeatherParams
  * @returns { finalTemp, deltaT } — deltaT is the SIGNED change (negative = cooling).
  */
 export function albedoCooling(
@@ -167,11 +228,13 @@ export function albedoCooling(
 // --- Shade structure cooling model ------------------------------------------
 // Blocks the direct solar beam over a footprint (no evaporation).
 
+/** Planner-chosen inputs for a shade structure. All fractions are 0–1. */
 export interface ShadeCoolingParams {
   opacity: number;         // 0–1  fraction of the direct beam blocked
   shadedFootprint: number; // 0–1  shaded ground as a fraction of the cell (linear)
 }
 
+/** Environmental inputs — shade cooling scales with SOLAR loading (temp proxy). */
 export interface ShadeWeatherParams {
   temperatureC: number;    // °C   air temperature (solar-loading proxy)
   fSolar?: number;         // 0–1  insolation multiplier (default 1)
@@ -179,11 +242,16 @@ export interface ShadeWeatherParams {
 
 const DELTA_T_MAX_ANCHOR_SHADE = 5;  // °C: pedestrian-air cooling asymptote
 const DIRECT_BEAM_FRACTION = 0.85;   // max blockable share of global irradiance
-const SHADE_SOLAR_T_LOW = 20;
-const SHADE_SOLAR_T_HIGH = 38;
+const SHADE_SOLAR_T_LOW = 20;        // °C floor of the solar-proxy ramp
+const SHADE_SOLAR_T_HIGH = 38;       // °C ceiling of the solar-proxy ramp
 
 /**
- * Weather ceiling: ΔT_max = 5 °C × f_thermal × f_solar × f_direct.
+ * Weather ceiling for shade structures:
+ *   ΔT_max = 5 °C × f_thermal × f_solar × f_direct
+ *
+ * Like albedo, uses a temperature-based solar proxy (f_thermal). The extra
+ * DIRECT_BEAM_FRACTION caps the effect at the blockable (direct-beam) share of
+ * irradiance — diffuse sky radiation still reaches the ground under shade.
  */
 export function deltaTMaxFromWeatherShade(weather: ShadeWeatherParams): number {
   const { temperatureC, fSolar = 1 } = weather;
@@ -194,6 +262,11 @@ export function deltaTMaxFromWeatherShade(weather: ShadeWeatherParams): number {
 
 /**
  * Compute shade-structure cooling for one cell.
+ *
+ * @param initialTemp starting temperature at the cell (°C)
+ * @param params      planner-chosen shade inputs
+ * @param deltaTMax   either a fixed ceiling (°C) or ShadeWeatherParams. The
+ *                    numeric default already folds in DIRECT_BEAM_FRACTION.
  * @returns { finalTemp, deltaT } — deltaT is the SIGNED change (negative = cooling).
  */
 export function shadeCooling(
@@ -220,12 +293,14 @@ export function shadeCooling(
 // Misting + fountains: latent heat from evaporating free water. VPD-gated, and a
 // point-source plume that falls off with distance.
 
+/** Planner-chosen inputs for an evaporative source (misting/fountain). */
 export interface EvaporativeCoolingParams {
   evapRateLpm: number;      // L/min  effective evaporation
   coverageRadiusM: number;  // m      plume reach — distance-falloff scale
   activeFraction: number;   // 0–1    duty cycle
 }
 
+/** Environmental inputs — evaporation is VPD-gated and wind-dispersed. */
 export interface EvaporativeWeatherParams {
   temperatureC: number;      // °C
   relativeHumidity: number;  // 0–100  drives VPD, like ET
@@ -239,7 +314,11 @@ const DELTA_T_MAX_ANCHOR_EVAP = 8;       // °C: peak-source cooling under hot, 
 const VPD_REF_EVAP = 4.5;                // kPa: peak-case VPD normalizer
 
 /**
- * Weather ceiling: ΔT_max = 8 °C × f_VPD × f_wind.
+ * Weather ceiling for evaporative sources:
+ *   ΔT_max = 8 °C × f_VPD × f_wind
+ *
+ * VPD-gated like vegetation's latent channel; wind lowers the ceiling by
+ * dispersing the plume before it can cool the air.
  */
 export function deltaTMaxFromWeatherEvap(weather: EvaporativeWeatherParams): number {
   const { temperatureC, relativeHumidity, fWind = 1 } = weather;
@@ -250,6 +329,15 @@ export function deltaTMaxFromWeatherEvap(weather: EvaporativeWeatherParams): num
 
 /**
  * Evaporative cooling at a point `distanceM` from the source.
+ *
+ * Combines a source-strength term (how much latent power the emitter provides,
+ * saturating at EVAP_POWER_REF_W) with a linear distance falloff and a duty
+ * cycle. Points beyond the coverage radius receive nothing.
+ *
+ * @param initialTemp starting temperature at the point (°C)
+ * @param params      planner-chosen evaporative inputs
+ * @param distanceM   distance from the source to this point (m)
+ * @param deltaTMax   either a fixed ceiling (°C) or EvaporativeWeatherParams
  * @returns { finalTemp, deltaT } — deltaT is the SIGNED change (negative = cooling).
  */
 export function evaporativeCooling(
@@ -266,13 +354,13 @@ export function evaporativeCooling(
   // Latent cooling power: P = ṁ · L_v  (kg/s × J/kg = W).
   const massRateKgS = (Math.max(evapRateLpm, 0) * WATER_DENSITY_KG_PER_L) / 60;
   const powerW = massRateKgS * LATENT_HEAT_VAPORIZATION;
-  const iSource = Math.min(powerW / EVAP_POWER_REF_W, 1);
+  const iSource = Math.min(powerW / EVAP_POWER_REF_W, 1); // normalize to [0, 1]
 
   // Linear plume falloff: full at the source, 0 at/beyond the coverage radius.
   const r = Math.max(distanceM, 0);
   const falloff = coverageRadiusM > 0 ? Math.max(1 - r / coverageRadiusM, 0) : 0;
 
-  const duty = Math.min(Math.max(activeFraction, 0), 1);
+  const duty = Math.min(Math.max(activeFraction, 0), 1); // fraction of time active
 
   const deltaT = deltaTMaxC * iSource * duty * falloff;
   const finalTemp = initialTemp - deltaT;
@@ -280,7 +368,9 @@ export function evaporativeCooling(
 }
 
 // --- Polygon spatial filtering ----------------------------------------------
+// Helpers to decide which readings fall inside a drawn intervention footprint.
 
+/** Axis-aligned lon/lat extent of a polygon — a cheap pre-filter. */
 type BoundingBox = {
   minLon: number;
   minLat: number;
@@ -288,6 +378,7 @@ type BoundingBox = {
   maxLat: number;
 };
 
+/** Compute the bounding box (min/max lon & lat) enclosing a polygon's vertices. */
 function getBoundingBox(polygon: Polygon): BoundingBox {
   let minLon = Infinity;
   let minLat = Infinity;
@@ -304,6 +395,7 @@ function getBoundingBox(polygon: Polygon): BoundingBox {
   return { minLon, minLat, maxLon, maxLat };
 }
 
+/** Fast rejection test: is (lon, lat) within the polygon's bounding box? */
 function isInsideBoundingBox(
   lon: number,
   lat: number,
@@ -317,6 +409,10 @@ function isInsideBoundingBox(
   );
 }
 
+/**
+ * Ray-casting point-in-polygon test. Counts how many polygon edges a horizontal
+ * ray from the point crosses; an odd count means the point is inside.
+ */
 function pointInPolygon(
   lon: number,
   lat: number,
@@ -324,6 +420,7 @@ function pointInPolygon(
 ): boolean {
   let inside = false;
 
+  // Walk each edge (i, j) where j trails i by one, wrapping at the end.
   for (
     let i = 0, j = polygon.length - 1;
     i < polygon.length;
@@ -332,19 +429,23 @@ function pointInPolygon(
     const [xi, yi] = polygon[i];
     const [xj, yj] = polygon[j];
 
+    // Edge straddles the ray's latitude AND the crossing is to the point's right.
     const crossesRay =
       yi > lat !== yj > lat &&
       lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi;
 
     if (crossesRay) {
-      inside = !inside;
+      inside = !inside; // toggle on each crossing
     }
   }
 
   return inside;
 }
 
-/** True if a single reading's coordinates fall inside the polygon. */
+/**
+ * True if a single reading's coordinates fall inside the polygon. Applies the
+ * cheap bounding-box check first, then the exact ray-cast test.
+ */
 function isPointInsidePolygon(
   point: HeatmapMetricValue,
   polygon: Polygon,
@@ -352,30 +453,33 @@ function isPointInsidePolygon(
 ): boolean {
   const [lon, lat] = point.location_coordinates;
   if (!isInsideBoundingBox(lon, lat, bbox)) {
-    return false;
+    return false; // outside the box → cannot be inside the polygon
   }
   return pointInPolygon(lon, lat, polygon);
 }
 
-/** Approx great-circle distance in meters (equirectangular; fine at city scale). */
+/**
+ * Approx great-circle distance in meters (equirectangular; fine at city scale).
+ * Projects lon/lat to local meters using the mean latitude, then Pythagoras.
+ */
 function distanceMeters(a: [number, number], b: [number, number]): number {
   const [lon1, lat1] = a;
   const [lon2, lat2] = b;
   const midLat = ((lat1 + lat2) / 2) * (Math.PI / 180);
-  const dx = (lon2 - lon1) * Math.cos(midLat) * 111320;
-  const dy = (lat2 - lat1) * 110540;
+  const dx = (lon2 - lon1) * Math.cos(midLat) * 111320; // meters per degree lon at this lat
+  const dy = (lat2 - lat1) * 110540;                    // meters per degree lat
   return Math.hypot(dx, dy);
 }
 
 /**
  * Filter a by-date reading set down to the points that fall inside `polygon`,
- * preserving the by-date grouping.
+ * preserving the by-date grouping. Dates with no interior points are dropped.
  */
 function pointsInsidePolygonByDate(
   pointsByDate: HeatmapPointsByDate,
   polygon: Polygon,
 ): HeatmapPointsByDate {
-  const bbox = getBoundingBox(polygon);
+  const bbox = getBoundingBox(polygon); // compute once, reuse across all points
   const result: HeatmapPointsByDate = {};
 
   for (const [date, points] of Object.entries(pointsByDate)) {
@@ -391,8 +495,10 @@ function pointsInsidePolygonByDate(
   return result;
 }
 
-/** Source anchor for radius-based archetypes: a point's coords, or the centroid
- *  of a line/polygon. */
+/**
+ * Source anchor for radius-based archetypes: a point's coords, or the centroid
+ * of a line/polygon. Used to locate the emitter for evaporative sources.
+ */
 function geometryAnchor(geometry: {
   kind?: string;
   longitude?: number;
@@ -400,9 +506,11 @@ function geometryAnchor(geometry: {
   coordinates?: [number, number][];
   ring?: Polygon;
 }): [number, number] {
+  // A point geometry is its own anchor.
   if (geometry.kind === 'point' && geometry.longitude != null && geometry.latitude != null) {
     return [geometry.longitude, geometry.latitude];
   }
+  // Otherwise average the vertices (line coordinates or polygon ring).
   const pts = geometry.kind === 'line' ? geometry.coordinates : geometry.ring;
   if (!pts || pts.length === 0) return [0, 0];
   const total = pts.reduce(
@@ -414,6 +522,8 @@ function geometryAnchor(geometry: {
 
 
 // --- Assumptions about the placed-object + reading shapes -------------------
+// Category keys and param mappings that bridge the toolbox's placed objects to
+// the physics models above. Adjust the *_CATEGORY strings to match your toolbox.
 
 /** Archetype key whose objects cool via ET/shade. */
 const VEGETATION_CATEGORY = 'Vegetation';
@@ -451,7 +561,10 @@ function getObjectPolygon(object: { kind?: string; ring?: Polygon }): Polygon | 
   return object.kind === 'polygon' && object.ring ? object.ring : null;
 }
 
-/** Map a placed object's toolbox params onto the vegetation model's inputs. */
+/**
+ * Map a placed object's toolbox params onto the vegetation model's inputs.
+ * Returns null if any required field is missing, so callers can skip the object.
+ */
 function getCoolingParams(
   object: { params?: PlacedVegetationParams },
 ): VegetationCoolingParams | null {
@@ -467,6 +580,10 @@ function getCoolingParams(
   };
 }
 
+/**
+ * Map a placed object's params onto the albedo model's inputs.
+ * Returns null if required fields are missing.
+ */
 function getAlbedoParams(
   object: { params?: { deltaAlbedo?: number; coverPct?: number } },
 ): AlbedoCoolingParams | null {
@@ -475,7 +592,10 @@ function getAlbedoParams(
   return { deltaAlbedo: p.deltaAlbedo, areaCoverage: p.coverPct };
 }
 
-/** Map a placed shade object's params onto the shade model's inputs. */
+/**
+ * Map a placed shade object's params onto the shade model's inputs.
+ * Returns null if required fields are missing.
+ */
 function getShadeParams(
   object: { params?: { opacity?: number; footprintFraction?: number } },
 ): ShadeCoolingParams | null {
@@ -484,6 +604,10 @@ function getShadeParams(
   return { opacity: p.opacity, shadedFootprint: p.footprintFraction };
 }
 
+/**
+ * Map a placed object's params onto the evaporative model's inputs.
+ * Returns null if required fields are missing.
+ */
 function getEvaporativeParams(
   object: {
     params?: { evapRateLpm?: number; coverageRadiusM?: number; activeFraction?: number };
@@ -505,6 +629,11 @@ function metricIsTemperature(metric: string): boolean {
   return /temp/i.test(metric);
 }
 
+/**
+ * Keep only the dates that fall within an intervention's [activeFrom, activeTo]
+ * window (either bound optional → open-ended on that side). The point arrays are
+ * kept by reference so downstream mutations propagate back to `simulated`.
+ */
 function filterByActiveWindow(
   pointsByDate: HeatmapPointsByDate,
   activeFrom?: string,
@@ -525,19 +654,31 @@ function filterByActiveWindow(
 
 /**
  * Run the intervention simulation for one metric.
- * Works on a clone so the caller's baseline pointsByDate is never mutated.
- */
-/**
- * Run the intervention simulation for one metric.
- * Works on a clone so the caller's baseline pointsByDate is never mutated.
+ *
+ * Deep-clones the input readings, then for every placed object whose category
+ * moves temperature, applies the matching model to the readings inside its
+ * footprint (polygon archetypes) or plume (evaporative) and within its active
+ * date window. Mutates only the clone, so the caller's baseline `pointsByDate`
+ * is never touched.
+ *
+ * Two output modes per point:
+ *   - `change_in_temperature` metric → point.value is set to the signed ΔT.
+ *   - any other temperature metric → point.value becomes the new temperature,
+ *     and (for vegetation/evaporative only) relative_humidity is bumped up.
+ *
+ * @param metric        the heatmap metric being simulated
+ * @param pointsByDate  baseline readings grouped by date (not mutated)
+ * @param placedObjects planner's interventions, grouped by archetype category
+ * @returns a new by-date reading set with the interventions applied
  */
 export async function getSimulatedPointsByDate(
   metric: string,
   pointsByDate: HeatmapPointsByDate,
   placedObjects: BasePlacedObjectCategorized,
 ): Promise<HeatmapPointsByDate> {
-  await delay(MOCK_LATENCY_MS);
+  await delay(MOCK_LATENCY_MS); // simulate network latency for loading states
 
+  // Deep clone so we never mutate the caller's baseline readings.
   const simulated: HeatmapPointsByDate = Object.fromEntries(
     Object.entries(pointsByDate).map(([date, points]) => [
       date,
@@ -548,6 +689,7 @@ export async function getSimulatedPointsByDate(
   const isChangeInTemp = metric === 'change_in_temperature';
 
   for (const [category, objects] of Object.entries(placedObjects)) {
+    // Route each category to its model.
     const isVegetation = category === VEGETATION_CATEGORY;
     const isHighAlbedo = category === HIGH_ALBEDO_CATEGORY;
     const isShade = category === SHADE_CATEGORY;
@@ -566,7 +708,7 @@ export async function getSimulatedPointsByDate(
       //     the coverage radius of the source and apply a distance falloff. ---
       if (isEvaporative) {
         const evapParams = getEvaporativeParams(object);
-        if (!evapParams) continue;
+        if (!evapParams) continue; // missing params → nothing to apply
 
         const source = geometryAnchor(object.geometry);
         const activeByDate = filterByActiveWindow(
@@ -596,6 +738,7 @@ export async function getSimulatedPointsByDate(
               ? (Number.isFinite(metricTempC) ? metricTempC : CHANGE_IN_TEMP_ASSUMED_C)
               : beforeC;
 
+            // Use the weather-aware overload when humidity is available.
             const { finalTemp: afterC, deltaT } = hasRh
               ? evaporativeCooling(beforeC, evapParams, dist, {
                   temperatureC: weatherTempC,
@@ -604,11 +747,12 @@ export async function getSimulatedPointsByDate(
               : evaporativeCooling(beforeC, evapParams, dist);
 
             if (isChangeInTemp) {
-              point.value = deltaT;
+              point.value = deltaT; // ΔT layer: store the signed change directly
               continue;
             }
 
             // Evaporation adds vapor → RH rises (same coupling as vegetation).
+            // Conserve vapor pressure: RH scales by the saturation-pressure ratio.
             const rhAfter = hasRh
               ? Math.min(
                   100,
@@ -633,7 +777,7 @@ export async function getSimulatedPointsByDate(
 
       // --- Footprint archetypes (vegetation / albedo / shade): polygon path ---
       const polygon = getObjectPolygon(object.geometry);
-      if (!polygon) continue;
+      if (!polygon) continue; // these archetypes only act over a drawn polygon
 
       const activeByDate = filterByActiveWindow(
         simulated,
@@ -646,7 +790,7 @@ export async function getSimulatedPointsByDate(
       const vegParams = isVegetation ? getCoolingParams(object) : null;
       const albedoParams = isHighAlbedo ? getAlbedoParams(object) : null;
       const shadeParams = isShade ? getShadeParams(object) : null;
-      if (!vegParams && !albedoParams && !shadeParams) continue;
+      if (!vegParams && !albedoParams && !shadeParams) continue; // no usable params
 
       for (const points of Object.values(covered)) {
         for (const point of points) {
@@ -669,6 +813,7 @@ export async function getSimulatedPointsByDate(
           let afterC: number;
           let deltaT: number;
 
+          // Dispatch to the model matching this object's category.
           if (vegParams) {
             ({ finalTemp: afterC, deltaT } = hasRh
               ? vegetationCooling(beforeC, vegParams, {
@@ -688,7 +833,7 @@ export async function getSimulatedPointsByDate(
           }
 
           if (isChangeInTemp) {
-            point.value = deltaT;
+            point.value = deltaT; // ΔT layer: store the signed change directly
             continue;
           }
 

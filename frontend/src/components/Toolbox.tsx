@@ -2,16 +2,18 @@ import React from 'react';
 import { Pencil, Check, Undo2, X, Trash2, Crosshair, MapPin, type LucideIcon } from 'lucide-react';
 import { TOOLBOX_DRAG_MIME } from '../services/toolbox';
 import {
-  getToolboxItems,
-  type ArchetypeType,
-  type ToolboxItemsByArchetype,
-  type ToolboxItemDef,
   TOOLBOX_ICONS,
   ARCHETYPE_PARAMS,
 } from '../data/toolboxItems';
+import type {
+  ArchetypeType,
+  ToolboxItemDef,
+  ToolboxItemsByArchetype,
+} from '../types/toolbox';
 import type { ToolboxProps } from '../types/components';
 import SelectDate from './SelectDate';
-import { addToolboxItems } from '../data/toolboxItems';
+import { createNewUrbanIntervention, fetchCustomUrbanInterventions } from '../api/tool';
+import { TOOLBOX_ITEMS } from '../data/toolboxItems';
 import { createPOIArea } from '../api/statistics';
 
 const toolbarButtonStyle: React.CSSProperties = {
@@ -72,6 +74,32 @@ const ARCHETYPE_KEYS: ArchetypeKey[] = [
 const CUSTOM_CATEGORY_KEYS = Object.keys(ARCHETYPE_PARAMS) as CustomCategoryKey[];
 const ICON_ENTRIES = Object.entries(TOOLBOX_ICONS) as [string, LucideIcon][];
 
+function formatInterventionLabel(intervention: string): string {
+  return intervention
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+
+async function getToolboxItems(): Promise<ToolboxItemsByArchetype> {
+
+
+  // Copy the base items so we don't mutate TOOLBOX_ITEMS.
+  const merged = (Object.keys(TOOLBOX_ITEMS) as ArchetypeType[]).reduce((acc, key) => {
+    acc[key] = [...TOOLBOX_ITEMS[key]];
+    return acc;
+  }, {} as ToolboxItemsByArchetype);
+
+  // Append custom interventions into their matching archetype list.
+  const custom = await fetchCustomUrbanInterventions();
+  (Object.keys(custom) as ArchetypeType[]).forEach((key) => {
+    merged[key] = [...merged[key], ...custom[key]];
+  });
+
+  return merged;
+}
+
 const Toolbox: React.FC<ToolboxProps> = ({
   displayToolbox,
   selectedDate,
@@ -94,7 +122,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
   draftPointCount,
   draftIsSimple,
   onStartDrawing,
-  onFinishArea,
+  onFinishArea: _onFinishArea,
   onUndoLastPoint,
   onCancelDrawing,
   onClearMyAreas,
@@ -117,7 +145,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
   // it is active. The pending object no longer carries a tool `type`, so these
   // live here as local UI state.
   const [selectedArchetype, setSelectedArchetype] = React.useState<ArchetypeKey | ''>('');
-  const [selectedInterventionId, setSelectedInterventionId] = React.useState<string | null>(null);
+  const [selectedIntervention, setSelectedIntervention] = React.useState<string | null>(null);
   const [toolboxItems, setToolboxItems] = React.useState<ToolboxItemsByArchetype>({
     Vegetation: [],
     'High-albedo surface': [],
@@ -149,6 +177,9 @@ const Toolbox: React.FC<ToolboxProps> = ({
       ignore = true;
     };
   }, []);
+
+
+
 
   // --- Resizable panel state ------------------------------------------------
   // `height: null` means "size to content" (keeps the original auto-height +
@@ -219,8 +250,8 @@ const Toolbox: React.FC<ToolboxProps> = ({
   // Interventions in the chosen archetype, and the one currently selected.
   const interventions: ToolboxItemDef[] = selectedArchetype ? toolboxItems[selectedArchetype] : [];
   const selectedTool = React.useMemo(
-    () => interventions.find((item) => item.id === selectedInterventionId) ?? null,
-    [interventions, selectedInterventionId],
+    () => interventions.find((item) => item.intervention === selectedIntervention) ?? null,
+    [interventions, selectedIntervention],
   );
 
   // Polygon tools are the only ones whose ring can self-intersect; point tools
@@ -232,37 +263,54 @@ const Toolbox: React.FC<ToolboxProps> = ({
     if (isPolygonTool && toolColor) onSetDraftColor(toolColor);
   }, [isPolygonTool, toolColor, onSetDraftColor]);
 
+  React.useEffect(() => {
+    if (!isDrawing || !isPolygonTool) return;
+    updatePendingPlacedObject?.({
+      geometry: { kind: 'polygon', ring: draftPoints },
+    });
+  }, [isDrawing, isPolygonTool, draftPoints, updatePendingPlacedObject]);
+
   // Stage a fresh pending object for the clicked intervention. Dates already
   // entered are carried across so switching interventions doesn't wipe them.
   const handleSelectIntervention = React.useCallback(
     (item: ToolboxItemDef) => {
       if (!citySelected || !selectedArchetype) return;
-      setSelectedInterventionId(item.id);
+      setSelectedIntervention(item.intervention);
       setPendingPlacedObject?.({
-        type: item.type,
+        intervention: item.intervention,
         category: selectedArchetype,
-        name: item.label,
+        name: formatInterventionLabel(item.intervention),
         color: item.color,
         params: { ...item.params },
-        activeFrom: pendingPlacedObject?.activeFrom,
-        activeTo: pendingPlacedObject?.activeTo,
+        activeFrom: pendingPlacedObject?.activeFrom ?? '',
+        activeTo: pendingPlacedObject?.activeTo ?? '',
         geometry:
           item.kind === 'polygon'
             ? { kind: 'polygon', ring: [] }
             : { kind: 'point', longitude: 0, latitude: 0 },
       });
-      if (item.kind === 'polygon') {
-        onStartDrawing();
-        onSetDraftColor(item.color);
-      }
+
     },
     [citySelected, selectedArchetype, setPendingPlacedObject, pendingPlacedObject, onStartDrawing, onSetDraftColor],
   );
 
+const handleDrawIntervention = React.useCallback(
+  (item: ToolboxItemDef) => {
+    if (item.kind !== 'polygon') return;
+
+    onStartDrawing();               // enter draw mode on the map
+    onSetDraftColor(item.color);    // match the draft outline to the tool color
+    updatePendingPlacedObject?.({   // reset this tool's ring so it starts empty
+      geometry: { kind: 'polygon', ring: [] },
+    });
+  },
+  [onStartDrawing, onSetDraftColor, updatePendingPlacedObject],
+);
+
   const handleClearObject = React.useCallback(() => {
     placedObjectsControls?.clearPendingPlacedObject?.();
     onCancelDrawing();
-    setSelectedInterventionId(null);
+    setSelectedIntervention(null);
   }, [placedObjectsControls, onCancelDrawing]);
 
 
@@ -279,6 +327,13 @@ const Toolbox: React.FC<ToolboxProps> = ({
       console.error('Failed to create POI area', error);
     }
   }, [draftName, draftColorHex, draftPoints, setDraftName, setDraftColorHex, onCancelDrawing]);
+
+
+  React.useEffect(() => {
+    placedObjectsControls?.clearPendingPlacedObject?.();
+    onCancelDrawing();
+
+  }, [selectedArchetype, selectedIntervention])
 
   // Save gate for the selected intervention: a city, an intervention, both
   // dates, and — for polygons only — a color plus a valid (simple, 3+ point)
@@ -303,18 +358,64 @@ const Toolbox: React.FC<ToolboxProps> = ({
     customParamKeys.length > 0 &&
     allCustomParamsFilled;
 
+
+
   const handleAddCustom = React.useCallback(async () => {
     if (!canAddCustom || !customCategory) return;
-    const payload = {
-      id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      label: customName.trim(),
-      iconName: customIconName,
+    const base = {
+      intervention: customName.trim().toLowerCase().replace(/\s+/g, '_'),
       Icon: TOOLBOX_ICONS[customIconName as keyof typeof TOOLBOX_ICONS],
       color: customColor,
       category: customCategory,
-      params: { ...customParams },
+      kind: 'polygon' as const,
     };
-    await addToolboxItems(payload);
+
+    let payload: ToolboxItemDef;
+    switch (customCategory) {
+      case 'Vegetation':
+        payload = {
+          ...base,
+          params: {
+            coverPct: customParams.coverPct ?? 0,
+            lai: customParams.lai ?? 0,
+            irrigation: customParams.irrigation ?? 0,
+          },
+        };
+        break;
+      case 'High-albedo surface':
+        payload = {
+          ...base,
+          params: {
+            albedo: customParams.albedo ?? 0,
+            coverage: customParams.coverage ?? 0,
+            emissivity: customParams.emissivity ?? 0,
+          },
+        };
+        break;
+      case 'Shade structure':
+        payload = {
+          ...base,
+          params: {
+            opacity: customParams.opacity ?? 0,
+            coverage: customParams.coverage ?? 0,
+          },
+        };
+        break;
+      case 'Evaporative / water':
+        payload = {
+          ...base,
+          params: {
+            flowRate: customParams.flowRate ?? 0,
+            radius: customParams.radius ?? 0,
+            activeFraction: customParams.activeFraction ?? 0,
+          },
+        };
+        break;
+      default:
+        return;
+    }
+
+    await createNewUrbanIntervention(payload);
 
     setCustomIconName('');
     setCustomName('');
@@ -421,8 +522,8 @@ const Toolbox: React.FC<ToolboxProps> = ({
                 value={selectedArchetype}
                 disabled={!citySelected}
                 onChange={(e) => {
-                            setSelectedArchetype((e.target.value || '') as ArchetypeKey | '');
-                  setSelectedInterventionId(null);
+                  setSelectedArchetype((e.target.value || '') as ArchetypeKey | '');
+                  setSelectedIntervention(null);
                   placedObjectsControls?.clearPendingPlacedObject?.();
                 }}
                 style={{
@@ -453,14 +554,14 @@ const Toolbox: React.FC<ToolboxProps> = ({
                     {interventions.map((item) => {
                       const Icon = item.Icon;
                       const isPoint = item.kind === 'point';
-                      const isSelected = selectedInterventionId === item.id;
+                      const isSelected = selectedIntervention === item.intervention;
                       return (
                         <div
-                          key={item.id}
+                          key={item.intervention}
                           draggable={isPoint && citySelected}
                           onDragStart={(e) => {
                             if (!isPoint || !citySelected) return;
-                            e.dataTransfer.setData(TOOLBOX_DRAG_MIME, item.id);
+                            e.dataTransfer.setData(TOOLBOX_DRAG_MIME, item.intervention);
                             e.dataTransfer.setData(
                               'application/x-toolbox-params',
                               JSON.stringify(item.params),
@@ -469,7 +570,11 @@ const Toolbox: React.FC<ToolboxProps> = ({
                             handleSelectIntervention(item);
                           }}
                           onClick={() => handleSelectIntervention(item)}
-                          title={isPoint ? `Place ${item.label}` : `Draw ${item.label}`}
+                          title={
+                            isPoint
+                              ? `Place ${formatInterventionLabel(item.intervention)}`
+                              : `Draw ${formatInterventionLabel(item.intervention)}`
+                          }
                           style={{
                             display: 'flex',
                             flexDirection: 'column',
@@ -504,7 +609,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
                             <Icon size={17} color={item.color} />
                           </span>
                           <span style={{ fontSize: 11, lineHeight: 1.2, color: '#e2e8f0' }}>
-                            {item.label}
+                            {formatInterventionLabel(item.intervention)}
                           </span>
                         </div>
                       );
@@ -602,7 +707,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
                 {isPolygonTool ? (
                   <button
                     type="button"
-                    onClick={onStartDrawing}
+                    onClick={() => handleDrawIntervention(selectedTool)}
                     disabled={!citySelected}
                     style={{
                       ...toolbarButtonStyle,
