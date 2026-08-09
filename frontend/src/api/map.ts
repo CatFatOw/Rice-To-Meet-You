@@ -517,7 +517,7 @@ const BACKEND_POI_ANCHOR: HeatmapMetricPOIByCity = {
 };
 
 // The API call: per-POI aggregated metric values (no interpolation).
-export async function callHeatmapPOIAnchors(): Promise<HeatmapMetricPOIByCity> {
+export async function callHeatmapPOIAnchors(city: string, date: string, metric: string): Promise<HeatmapMetricPOIByCity> {
   await new Promise((resolve) => setTimeout(resolve, 500));
   return BACKEND_POI_ANCHOR;
 }
