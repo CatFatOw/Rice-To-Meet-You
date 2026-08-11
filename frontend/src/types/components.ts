@@ -210,6 +210,8 @@ export interface HeatmapProps {
    * only the metric toggle and Create POI Area are shown.
    */
   displayToolbox?: boolean;
+  /** Keep caller-supplied fixtures visible instead of replacing them with the mock toolbox response. */
+  preservePlacedObjects?: boolean;
   drawControls: PolygonDraw;
 }
 

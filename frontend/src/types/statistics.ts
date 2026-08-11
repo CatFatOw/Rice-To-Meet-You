@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { PlacedObject } from './toolbox';
+import type { SimulationMode } from '../api/diminishingSimulation';
 
 export type IconKey = 'sun' | 'users' | 'wind';
 
@@ -65,6 +66,10 @@ export interface POIStatisticsProps {
   onStopSimulation?: () => void;
   isRunning?: boolean;
   onSimulate?: () => void;
+  simulationFeedback?: string | null;
+  simulationMode?: SimulationMode;
+  onSimulationModeChange?: (mode: SimulationMode) => void;
+  onLoadDemoScenario?: () => void;
 }
 
 export interface CityStatisticsResponse {

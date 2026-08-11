@@ -273,7 +273,7 @@ export function useHeatmapLayers({
   [coolingPoints],
 );
 
-const warmingHeatmapLayer = useMemo(
+  const warmingHeatmapLayer = useMemo(
   () =>
     new HeatmapLayer<HeatmapMetricValue>({
       id: 'warming-heatmap-layer',
@@ -300,6 +300,121 @@ const warmingHeatmapLayer = useMemo(
     }),
   [warmingPoints],
 );
+
+  // These rings make the simulation's spatial set operation explicit: cyan is
+  // the union of all affected sample points and magenta is the subset where two
+  // or more intervention footprints overlap.
+  const affectedSimulationPoints = useMemo(
+    () => displayedHeatmapPoints.filter((point) =>
+      Number.parseFloat(point.individual_metrics?.simulation_cooling_c ?? '0') > 0,
+    ),
+    [displayedHeatmapPoints],
+  );
+  const overlapSimulationPoints = useMemo(
+    () => affectedSimulationPoints.filter((point) =>
+      Number.parseInt(point.individual_metrics?.simulation_overlap_count ?? '0', 10) > 1,
+    ),
+    [affectedSimulationPoints],
+  );
+  const affectedSimulationLayer = useMemo(
+    () => new ScatterplotLayer<HeatmapMetricValue>({
+      id: 'simulation-union-layer',
+      data: affectedSimulationPoints,
+      pickable: false,
+      stroked: true,
+      filled: false,
+      getPosition: (point) => point.location_coordinates,
+      getLineColor: [34, 211, 238, 230],
+      getRadius: 15,
+      radiusUnits: 'pixels',
+      lineWidthUnits: 'pixels',
+      getLineWidth: 2,
+    }),
+    [affectedSimulationPoints],
+  );
+  const overlapSimulationLayer = useMemo(
+    () => new ScatterplotLayer<HeatmapMetricValue>({
+      id: 'simulation-overlap-layer',
+      data: overlapSimulationPoints,
+      pickable: false,
+      stroked: true,
+      filled: true,
+      getPosition: (point) => point.location_coordinates,
+      getFillColor: [217, 70, 239, 90],
+      getLineColor: [244, 114, 182, 255],
+      getRadius: 24,
+      radiusUnits: 'pixels',
+      lineWidthUnits: 'pixels',
+      getLineWidth: 3,
+    }),
+    [overlapSimulationPoints],
+  );
+  const simulationCoolingLabelLayer = useMemo(
+    () => new TextLayer<HeatmapMetricValue>({
+      id: 'simulation-cooling-label-layer',
+      data: affectedSimulationPoints,
+      pickable: false,
+      characterSet: 'auto',
+      getPosition: (point) => point.location_coordinates,
+      getText: (point) => `−${Number.parseFloat(point.individual_metrics?.simulation_cooling_c ?? '0').toFixed(1)}°C`,
+      getSize: 13,
+      sizeUnits: 'pixels',
+      getPixelOffset: [0, -28],
+      getTextAnchor: 'middle',
+      getAlignmentBaseline: 'bottom',
+      getColor: [207, 250, 254, 255],
+      background: true,
+      getBackgroundColor: [8, 47, 73, 225],
+      backgroundPadding: [5, 3, 5, 3],
+      outlineWidth: 1,
+      outlineColor: [8, 47, 73, 255],
+    }),
+    [affectedSimulationPoints],
+  );
+  const contextualSimulationPoints = useMemo(
+    () => affectedSimulationPoints.filter((point) => Boolean(point.individual_metrics?.simulation_interaction)),
+    [affectedSimulationPoints],
+  );
+  const contextualSimulationLayer = useMemo(
+    () => new ScatterplotLayer<HeatmapMetricValue>({
+      id: 'simulation-context-layer',
+      data: contextualSimulationPoints,
+      pickable: false,
+      stroked: true,
+      filled: false,
+      getPosition: (point) => point.location_coordinates,
+      getLineColor: (point) => point.individual_metrics?.simulation_interaction?.includes('synergy')
+        ? [74, 222, 128, 255]
+        : [251, 191, 36, 255],
+      getRadius: 31,
+      radiusUnits: 'pixels',
+      lineWidthUnits: 'pixels',
+      getLineWidth: 4,
+    }),
+    [contextualSimulationPoints],
+  );
+  const contextualSimulationLabelLayer = useMemo(
+    () => new TextLayer<HeatmapMetricValue>({
+      id: 'simulation-context-label-layer',
+      data: contextualSimulationPoints,
+      pickable: false,
+      characterSet: 'auto',
+      getPosition: (point) => point.location_coordinates,
+      getText: (point) => point.individual_metrics?.simulation_interaction ?? '',
+      getSize: 12,
+      sizeUnits: 'pixels',
+      getPixelOffset: [0, 36],
+      getTextAnchor: 'middle',
+      getAlignmentBaseline: 'top',
+      getColor: (point) => point.individual_metrics?.simulation_interaction?.includes('synergy')
+        ? [187, 247, 208, 255]
+        : [254, 243, 199, 255],
+      background: true,
+      getBackgroundColor: [15, 23, 42, 230],
+      backgroundPadding: [5, 3, 5, 3],
+    }),
+    [contextualSimulationPoints],
+  );
 
 const visibleMetricLayers = useMemo(
   () =>
@@ -580,6 +695,11 @@ const visibleMetricLayers = useMemo(
     () => [
       ...visibleMetricLayers,
       pointPickLayer,
+      affectedSimulationLayer,
+      overlapSimulationLayer,
+      simulationCoolingLabelLayer,
+      contextualSimulationLayer,
+      contextualSimulationLabelLayer,
       poiAreaLayer,
       placedObjectPolygonLayer,
       placedObjectPolygonIconLayer,
@@ -593,6 +713,11 @@ const visibleMetricLayers = useMemo(
     [
       visibleMetricLayers,
       pointPickLayer,
+      affectedSimulationLayer,
+      overlapSimulationLayer,
+      simulationCoolingLabelLayer,
+      contextualSimulationLayer,
+      contextualSimulationLabelLayer,
       poiAreaLayer,
       placedObjectPolygonLayer,
       placedObjectPolygonIconLayer,

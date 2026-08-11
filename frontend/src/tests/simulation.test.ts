@@ -43,8 +43,7 @@ const streetTrees = {
   id: 'street_trees',
   type: 'street_trees',
   label: 'Street Trees',
-  kind: 'polygon',
-  polygon: streetTreesPolygon,
+  geometry: { kind: 'polygon' as const, ring: streetTreesPolygon },
   params: { coverPct: 0.4, lai: 4, irrigation: 0.6 },
 };
 

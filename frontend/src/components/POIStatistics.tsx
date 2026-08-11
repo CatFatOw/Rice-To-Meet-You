@@ -110,7 +110,11 @@ export default function POIStatistics({
   onStartSimulation,
   onSimulate,
   onStopSimulation,
-  isRunning
+  isRunning,
+  simulationFeedback,
+  simulationMode,
+  onSimulationModeChange,
+  onLoadDemoScenario,
 }: POIStatisticsProps) {
   const panelRef = useRef<HTMLElement>(null);
   const { isFullscreen, toggleFullscreen } = useFullscreen(panelRef);
@@ -151,7 +155,16 @@ export default function POIStatistics({
               onStartSimulation={handleStartSimulation}
               onStopSimulation={onStopSimulation}
               isRunning={isRunning}
+              simulationMode={simulationMode}
+              onSimulationModeChange={onSimulationModeChange}
+              onLoadDemoScenario={onLoadDemoScenario}
             />
+
+            {simulationFeedback && (
+              <div className="whitespace-pre-line rounded-md border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-xs leading-5 text-cyan-100">
+                {simulationFeedback}
+              </div>
+            )}
 
             <ToolboxTable
               placedObjects={placedObjects}

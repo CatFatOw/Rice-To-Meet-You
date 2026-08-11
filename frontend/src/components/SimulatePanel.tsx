@@ -1,5 +1,6 @@
 import SelectDate from './SelectDate';
 import SimulateButton from './SimulateButton';
+import type { SimulationMode } from '../api/diminishingSimulation';
 
 export interface SimulatePanelProps {
   fromDate?: string | null;
@@ -12,6 +13,9 @@ export interface SimulatePanelProps {
   onStopSimulation?: () => void;
   isRunning?: boolean;
   title?: string;
+  simulationMode?: SimulationMode;
+  onSimulationModeChange?: (mode: SimulationMode) => void;
+  onLoadDemoScenario?: () => void;
 }
 
 /**
@@ -31,6 +35,9 @@ export default function SimulatePanel({
   onStopSimulation,
   isRunning,
   title = 'Simulate',
+  simulationMode = 'standard',
+  onSimulationModeChange,
+  onLoadDemoScenario,
 }: SimulatePanelProps) {
   const handleStart = onStartSimulation ?? onSimulate;
 
@@ -41,6 +48,20 @@ export default function SimulatePanel({
       </h3>
 
       <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-52 flex-1">
+          <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-400" htmlFor="simulation-mode">
+            Interaction model
+          </label>
+          <select
+            id="simulation-mode"
+            value={simulationMode}
+            onChange={(event) => onSimulationModeChange?.(event.target.value as SimulationMode)}
+            className="h-10 w-full rounded-md border border-slate-700 bg-slate-900 px-3 text-sm text-slate-100"
+          >
+            <option value="standard">Standard diminishing returns</option>
+            <option value="contextual">Context-aware combinations</option>
+          </select>
+        </div>
         <div className="min-w-52 flex-1">
           <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
             From
@@ -79,6 +100,16 @@ export default function SimulatePanel({
           </button>
         ) : (
           <SimulateButton onClick={handleStart} className="h-10 min-w-28" />
+        )}
+
+        {onLoadDemoScenario && (
+          <button
+            type="button"
+            onClick={onLoadDemoScenario}
+            className="h-10 rounded-md border border-cyan-500/70 bg-cyan-500/10 px-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/20"
+          >
+            Load & run live demo
+          </button>
         )}
       </div>
     </div>

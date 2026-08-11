@@ -228,6 +228,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
   setIsAreaDragging,
   placedObjectsControls,
   displayToolbox = false,
+  preservePlacedObjects = false,
   drawControls
 }) => {
   // Fallback fullscreen target when the parent doesn't supply one: the root
@@ -426,6 +427,10 @@ const hoverablePolygons = useMemo(() => {
     fetchPlacedObjects()
       .then((byDateCity) => {
         if (ignore) return;
+    // The simulation demo passes fixed frontend fixtures. Do not let the
+    // asynchronous mock-tool fetch overwrite those objects after they render.
+    if (preservePlacedObjects) return;
+
         const tools = byDateCity[selectedDate]?.[selectedCity] ?? [];
         placedObjectsControls.setPlacedObjects(tools);
       })
@@ -438,7 +443,7 @@ const hoverablePolygons = useMemo(() => {
     return () => {
       ignore = true;
     };
-  }, [selectedCity, selectedDate, placedObjectsControls]);
+  }, [preservePlacedObjects, selectedCity, selectedDate, placedObjectsControls]);
 
 
   // Mirror the in-progress polygon draft into a pending placed object so it
@@ -981,6 +986,42 @@ const hoverablePolygons = useMemo(() => {
                   key={key}
                   style={{
                     display: 'flex',
+          {tooltip.point.individual_metrics?.simulation_cooling_c && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: '8px',
+                border: '1px solid rgba(34, 211, 238, 0.45)',
+                borderRadius: '6px',
+                backgroundColor: 'rgba(8, 47, 73, 0.55)',
+                color: '#cffafe',
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: 5 }}>Simulation change</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+                <span>Temperature</span>
+                <span style={{ fontWeight: 700 }}>
+                  {tooltip.point.individual_metrics.simulation_baseline_temperature_c ?? 'Baseline'}
+                  {' ? '}
+                  {tooltip.point.individual_metrics.simulation_result_temperature_c ?? `${tooltip.point.value.toFixed(2)}?C`}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginTop: 3 }}>
+                <span>Cooling applied</span>
+                <span style={{ fontWeight: 700, color: '#67e8f9' }}>?{tooltip.point.individual_metrics.simulation_cooling_c}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginTop: 3 }}>
+                <span>Interventions here</span>
+                <span style={{ fontWeight: 700 }}>{tooltip.point.individual_metrics.simulation_overlap_count ?? '1'}</span>
+              </div>
+              {tooltip.point.individual_metrics.simulation_interaction && (
+                <div style={{ marginTop: 5, whiteSpace: 'pre-line', color: '#fde68a', fontWeight: 600 }}>
+                  {tooltip.point.individual_metrics.simulation_interaction}
+                </div>
+              )}
+            </div>
+          )}
+
                     justifyContent: 'space-between',
                     gap: 16,
                     color: '#cbd5e1',
