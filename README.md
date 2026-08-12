@@ -231,6 +231,18 @@ Detailed routes are documented in [app/README.md](app/README.md). High-level rou
 | NWS Weather | `/weather` | Fetch and assign National Weather Service observations. |
 | Polygons | `/polygon` | Store drawn impact regions and compute impacted grid cells. |
 
+### Additional Routes
+
+- GET
+  - `/get-urban-interventions-by-city-date`
+  - `/get-heatmap-points-by-city-date-metric`
+  - `/get-simulated-points-by-city-date`
+  - `/get-pois-by-city`
+  - `/get-statistics`
+- POST
+  - `/create-poi-by-city`
+  - `/create-urban-interventions-by-city`
+
 ## Postman Workflow
 
 Import [`postman_dataset_routes_collection.json`](postman_dataset_routes_collection.json) into Postman.
