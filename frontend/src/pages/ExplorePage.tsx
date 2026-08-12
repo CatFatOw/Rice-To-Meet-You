@@ -6,12 +6,10 @@ import NavigationBar from '../components/NavigationBar';
 import OverallStatistics from '../components/OverallStatistics';
 import POIStatistics from '../components/POIStatistics';
 import {
-  callHeatmapAnchors,
   callMockAllCityPOIs,
   type CityPOIArea,
   type CityPOIAreaMap,
-  type HeatmapMetricPointByCity,
-  type HeatmapMetricSnapshot,
+  type HeatmapMetricValue,
 } from '../api/map';
 import { callMockStatistics } from '../api/statistics';
 import { determineCityView } from '../services/cityViews';
@@ -19,14 +17,7 @@ import type { ViewState } from '../types/viewState';
 import type { GeocodeResult } from '../types/search';
 import type { TooltipState } from '../types/components';
 import type { OverallStatisticsProps, POIStatisticsProps } from '../types/statistics';
-
-function mergeCityDateRecords(records: HeatmapMetricPointByCity[string] | undefined) {
-  if (!records || records.length === 0) return null;
-  return records.reduce<Record<string, HeatmapMetricSnapshot[]>>(
-    (acc, byDate) => ({ ...acc, ...byDate }),
-    {},
-  );
-}
+import { getHeatmapPointsByCityDateMetric } from '../api/map';
 
 const ExplorePage: React.FC = () => {
 
@@ -57,15 +48,12 @@ const ExplorePage: React.FC = () => {
   // Stores the selected city and loaded environmental data.
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [cityPOIAreas, setCityPOIAreas] = useState<CityPOIAreaMap>({});
-  const [heatmapPointsByCity, setHeatmapPointsByCity] =
-    useState<Record<string, HeatmapMetricSnapshot[]>>({});
-  const [heatmapAnchorsByCity, setHeatmapAnchorsByCity] =
-    useState<HeatmapMetricPointByCity>({});
+  const [displayedHeatmapPoints, setDisplayedHeatmapPoints] =
+    useState<HeatmapMetricValue[]>([]);
 
   // --- Date and timeline state ---
   // Controls the active date and simulation period.
-  const [selectedDate, setSelectedDate] = useState<string | null>('2026-07-07');
-  const availableDates = ['2026-07-05', '2026-07-06', '2026-07-07', '2026-07-08'];
+  const [selectedDate, setSelectedDate] = useState<string | null>('2020-01-01');
 
   // --- POI area drawing state ---
   // Controls the creation and management of user-drawn POI areas.
@@ -119,40 +107,37 @@ const ExplorePage: React.FC = () => {
     };
   }, []);
 
-  // Fetch heatmap anchor points from API on component mount
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadHeatmapAnchors = async () => {
-      try {
-        const anchorsByCity = await callHeatmapAnchors();
-        if (isMounted) {
-          setHeatmapAnchorsByCity(anchorsByCity);
-        }
-      } catch (error) {
-        console.error('Failed to load heatmap anchors', error);
-      }
-    };
-
-    loadHeatmapAnchors();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
   // --- Update heatmap visualization ---
-  // Raw anchors for the selected city/date — no interpolation (matches SimulationPage)
+  // Load exactly the active metric slice from the backend.
   useEffect(() => {
-    if (!selectedCity || !selectedDate) {
-      setHeatmapPointsByCity({});
+    if (!selectedCity || !selectedDate || !selectedMetric) {
+      setDisplayedHeatmapPoints([]);
       return;
     }
 
-    const snapshots =
-      mergeCityDateRecords(heatmapAnchorsByCity[selectedCity])?.[selectedDate] ?? [];
-    setHeatmapPointsByCity({ [selectedCity]: snapshots });
-  }, [heatmapAnchorsByCity, selectedCity, selectedDate]);
+    const controller = new AbortController();
+    let ignore = false;
+
+    getHeatmapPointsByCityDateMetric(selectedCity, selectedDate, selectedMetric, {
+      additionalMetrics: [],
+      signal: controller.signal,
+    })
+      .then(({ points }) => {
+        if (!ignore) {
+          setDisplayedHeatmapPoints(points);
+        }
+      })
+      .catch((error) => {
+        if (ignore || controller.signal.aborted) return;
+        console.error('Failed to load heatmap points', error);
+        setDisplayedHeatmapPoints([]);
+      });
+
+    return () => {
+      ignore = true;
+      controller.abort();
+    };
+  }, [selectedCity, selectedDate, selectedMetric]);
 
   // --- Initialize and manage map lifecycle ---
   // Create MapLibre GL map instance on mount and clean up on unmount
@@ -240,9 +225,7 @@ const ExplorePage: React.FC = () => {
               selectedCity={selectedCity}
               setSelectedCity={setSelectedCity}
               cityPOIAreas={cityPOIAreas}
-              heatmapPointsByCity={heatmapPointsByCity}
-              heatmapAnchorsByCity={heatmapAnchorsByCity}
-              availableDates={availableDates}
+              displayedHeatmapPoints={displayedHeatmapPoints}
               selectedDate={selectedDate}
               setSelectedDate={setSelectedDate}
               mapContainerRef={mapContainerRef}

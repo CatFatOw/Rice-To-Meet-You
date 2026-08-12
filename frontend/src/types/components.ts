@@ -1,6 +1,6 @@
 import type React from 'react';
 import type { ViewState } from './viewState';
-import type { HeatmapMetricValue, HeatmapMetricSnapshot, CityPOIArea, CityPOIAreaMap, HeatmapMetricPointByCity } from './heatmap';
+import type { HeatmapMetricValue, CityPOIArea, CityPOIAreaMap } from './heatmap';
 import type { PlacedObject as ToolboxPlacedObject, ToolboxItemDef } from './toolbox';
 import type { SurfaceType } from './map';
 import type { GeocodeResult } from './search';
@@ -154,9 +154,7 @@ export interface HeatmapProps {
   selectedCity: string | null;
   setSelectedCity: React.Dispatch<React.SetStateAction<string | null>>;
   cityPOIAreas: CityPOIAreaMap;
-  heatmapPointsByCity: Record<string, HeatmapMetricSnapshot[]>;
-  heatmapAnchorsByCity: HeatmapMetricPointByCity;
-  availableDates: string[];
+  displayedHeatmapPoints: HeatmapMetricValue[];
   selectedDate: string | null;
   setSelectedDate: React.Dispatch<React.SetStateAction<string | null>>;
   mapContainerRef: React.RefObject<HTMLDivElement | null>;

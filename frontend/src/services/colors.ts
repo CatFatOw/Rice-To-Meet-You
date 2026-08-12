@@ -1,7 +1,7 @@
 type Metric = 'temperature' | string;
 
 export function getColor(v: number, metric: Metric): [number, number, number] {
-  if (metric === 'temperature') {
+  if (metric === 'average_temperature_c') {
 
   // Temperature ramp (°C): blue → green → yellow → orange → red
 

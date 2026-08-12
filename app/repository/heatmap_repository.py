@@ -159,7 +159,145 @@ class HeatmapRepository:
 
         return results
 
+    def getDataPointsForCityDateMetric(
+        self,
+        weather_date: DateLike,
+        metric: str,
+        market_code: Optional[Union[str, Iterable[str]]] = None,
+        additional_metrics: Optional[Iterable[str]] = None,
+    ) -> HeatmapPointsByDate:
+        """Return heatmap points weighted by a single metric, keyed by date string.
+
+        Matches the TS `HeatmapPointsByDate` / `HeatmapMetricValue` contract:
+        `value` carries the chosen metric as a number, and `individual_metrics`
+        carries the accompanying metrics as formatted strings.
+
+        Args:
+            weather_date: the day to pull, as a `date`/`datetime` or ISO string.
+            metric: column name to weight by, on either table.
+            market_code: a single market code or an iterable of them. Defaults to
+                all supported markets.
+            additional_metrics: column names to include in `individual_metrics`.
+                `None` (the default) includes every other metric column; an empty
+                list includes none. `metric` itself is always excluded, since it
+                is reported as `value`.
+
+        Raises:
+            ValueError: if `metric` is not a readable column on either table.
+        """
+        target_date = self._coerce_date(weather_date)
+        markets = self._resolve_markets(market_code)
+        if not markets:
+            return {}
+
+        weather = self._get_table(self.WEATHER_TABLE)
+        heat_index = self._get_table(self.HEAT_INDEX_TABLE)
+
+        lon_col = self._resolve_column(heat_index, self.LONGITUDE_CANDIDATES)
+        lat_col = self._resolve_column(heat_index, self.LATITUDE_CANDIDATES)
+        metric_column, metric_prefix = self._resolve_metric_column(
+            metric, weather, heat_index
+        )
+        metric_key = metric_column.name
+        metric_label = metric_prefix + metric_key
+
+        allowed: Optional[set] = None
+        if additional_metrics is not None:
+            allowed = {str(m).strip() for m in additional_metrics}
+            allowed.discard(metric_key)  # it's reported as `value`
+
+        selected = [c.label("w__" + c.name) for c in weather.columns]
+        selected += [c.label("h__" + c.name) for c in heat_index.columns]
+
+        stmt = (
+            select(*selected)
+            .select_from(
+                weather.join(
+                    heat_index,
+                    weather.c.market_code == heat_index.c.market_code,
+                )
+            )
+            .where(weather.c.weather_date == target_date)
+            .where(weather.c.market_code.in_(markets))
+        )
+
+        results: HeatmapPointsByDate = {}
+        for row in self.session.execute(stmt).mappings():
+            longitude = self._to_float(row.get("h__" + lon_col))
+            latitude = self._to_float(row.get("h__" + lat_col))
+            if longitude is None or latitude is None:
+                continue  # a point without coordinates can't be placed on the map
+
+            value = self._to_weight(row.get(metric_label))
+            if value is None:
+                continue  # nothing to weight this point by
+
+            metrics = self._build_metrics(row, allowed=allowed)
+            metrics.pop(metric_key, None)  # the chosen metric lives in `value`
+
+            date_key = self._to_date_key(row.get("w__weather_date"), target_date)
+            point: HeatmapMetricValue = {
+                "value": value,
+                "location_coordinates": [longitude, latitude],
+                "individual_metrics": metrics,
+            }
+            results.setdefault(date_key, []).append(point)
+
+        return results
+
     # -- schema helpers -----------------------------------------------------
+    def _build_metrics(
+        self, row: Any, allowed: Optional[set] = None
+    ) -> Dict[str, str]:
+        """Everything that isn't a join key or a coordinate, stringified with units.
+
+        `allowed`, when given, restricts the output to that set of column names.
+        """
+        metrics: Dict[str, str] = {}
+        for prefixed_key, value in row.items():
+            column = prefixed_key.split("__", 1)[1]
+            if column in self.EXCLUDED_METRIC_COLUMNS or value is None:
+                continue
+            if allowed is not None and column not in allowed:
+                continue
+            metrics[column] = self._format_value(column, value)
+        return metrics
+
+    @staticmethod
+    def _to_weight(value: Any) -> Optional[float]:
+        """Coerce a metric to a number for heatmap weighting. Bools -> 1.0/0.0."""
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return 1.0 if value else 0.0
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None  # e.g. a text band like "favorable"
+
+    def _resolve_metric_column(
+        self, metric: str, weather: Table, heat_index: Table
+    ) -> Tuple[Any, str]:
+        """Find `metric` on either table. Returns (column, label_prefix)."""
+        name = str(metric).strip()
+        if name in self.EXCLUDED_METRIC_COLUMNS:
+            raise ValueError(
+                "'%s' is a structural column and is not available as a metric."
+                % name
+            )
+        # Weather wins a name collision, matching _build_metrics' iteration order.
+        for table, prefix in ((weather, "w__"), (heat_index, "h__")):
+            if name in table.columns:
+                return table.columns[name], prefix
+        available = sorted(
+            c.name
+            for t in (weather, heat_index)
+            for c in t.columns
+            if c.name not in self.EXCLUDED_METRIC_COLUMNS
+        )
+        raise ValueError(
+            "Unknown metric '%s'. Available metrics: %s" % (name, available)
+        )
 
     def _get_table(self, name: str) -> Table:
         cached = (
@@ -198,18 +336,6 @@ class HeatmapRepository:
             for m in (str(c).strip().lower() for c in requested)
             if m in self.SUPPORTED_MARKET_CODES
         ]
-
-    # -- value shaping ------------------------------------------------------
-
-    def _build_metrics(self, row: Any) -> Dict[str, str]:
-        """Everything that isn't a join key or a coordinate, stringified with units."""
-        metrics: Dict[str, str] = {}
-        for prefixed_key, value in row.items():
-            column = prefixed_key.split("__", 1)[1]
-            if column in self.EXCLUDED_METRIC_COLUMNS or value is None:
-                continue
-            metrics[column] = self._format_value(column, value)
-        return metrics
 
     def _format_value(self, column: str, value: Any) -> str:
         if isinstance(value, bool):

@@ -15,9 +15,10 @@ import type {
   HeatmapMetricPOISnapshot,
   HeatmapMetricPOIPoint,
   HeatmapMetricPOIByCity,
+  HeatmapPointsByDate,
 } from '../types/heatmap';
 
-import type { HeatmapPointsByDate } from '../types/heatmap';
+
 
 export type {
   CityPOIArea,
@@ -194,15 +195,12 @@ const coordsOf = (r: LocationReading): [number, number] => [
   r.longitude,
   r.latitude,
 ];
-const labelOf = (r: LocationReading): string =>
-  r.name ?? `${r.latitude.toFixed(4)}, ${r.longitude.toFixed(4)}`;
 
 function temperatureAnchor(r: LocationReading): HeatmapMetricValue {
   const tempC = r.avg_temperature_c ?? 0;
 
   return {
     value: tempC, // temperature layer is now in °C (avg_temperature_c)
-    location_name: labelOf(r),
     location_coordinates: coordsOf(r),
     individual_metrics: {
       avg_temperature_c: `${tempC.toFixed(1)}°C`,
@@ -220,7 +218,6 @@ function visitorDensityAnchor(r: LocationReading): HeatmapMetricValue {
   const count = r.visitor_density ?? 0;
   return {
     value: count, // now a raw visitor_count, not the old 0–100 density
-    location_name: labelOf(r),
     location_coordinates: coordsOf(r),
     individual_metrics: {
       visitor_count: count.toLocaleString("en-US"),
@@ -236,7 +233,6 @@ function changeInTemperatureAnchor(r: LocationReading): HeatmapMetricValue {
 
   return {
     value: 0, // baseline: no change until a simulation runs
-    location_name: labelOf(r),
     location_coordinates: coordsOf(r),
     // Share the temperature layer's weather fields so the simulation can read
     // the true local temp + humidity (the `value` is 0 and can't drive the
@@ -519,7 +515,7 @@ const BACKEND_POI_ANCHOR: HeatmapMetricPOIByCity = {
 };
 
 // The API call: per-POI aggregated metric values (no interpolation).
-export async function callHeatmapPOIAnchors(city: string, date: string, metric: string): Promise<HeatmapMetricPOIByCity> {
+export async function callHeatmapPOIAnchors(_city: string, _date: string, _metric: string): Promise<HeatmapMetricPOIByCity> {
   await new Promise((resolve) => setTimeout(resolve, 500));
   return BACKEND_POI_ANCHOR;
 }
@@ -559,3 +555,80 @@ export async function callHeatmapPointByDateHouston(
     ]),
   );
 }
+
+const BASE_URL = "http://127.0.0.1:8000";
+
+export interface HeatmapMetricOptions {
+  /** Column names to include in `individual_metrics`. Omit for all of them;
+   *  pass [] for none. The chosen `metric` is always excluded. */
+  additionalMetrics?: string[];
+  signal?: AbortSignal;
+}
+
+function toMarketCode(city: string): string {
+  const normalized = city.trim().toLowerCase();
+  const aliases: Record<string, string> = {
+    'kansas city': 'kansas_city',
+    'los angeles': 'los_angeles',
+    'san francisco bay area': 'san_francisco',
+    'san francisco': 'san_francisco',
+    'new york': 'new_york_nj',
+    'new jersey': 'new_york_nj',
+    'new york/new jersey': 'new_york_nj',
+  };
+  return aliases[normalized] ?? normalized.replace(/\s+/g, '_');
+}
+
+export async function getHeatmapPointsByCityDateMetric(
+  city: string,
+  date: string, // "YYYY-MM-DD"
+  metric: string,
+  options: HeatmapMetricOptions = {}
+): Promise<{ points: HeatmapMetricValue[]; raw: HeatmapPointsByDate }> {
+  const { additionalMetrics, signal } = options;
+
+  const params = new URLSearchParams({ city: toMarketCode(city), date, metric });
+  // Repeat the key per value — that's how FastAPI reads List[str].
+  additionalMetrics?.forEach((name) =>
+    params.append("additional_metrics", name)
+  );
+
+  const url = `${BASE_URL}/heatmap/get-heatmap-points-by-city-date-metric?${params}`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    signal,
+  });
+
+  // The endpoint 404s when nothing matches — that's an empty result, not a failure.
+  if (res.status === 404) {
+    return { points: [], raw: {} };
+  }
+
+  if (!res.ok) {
+    throw new Error(
+      `Heatmap request failed: ${res.status} ${res.statusText}`
+    );
+  }
+
+  const raw = (await res.json()) as HeatmapPointsByDate;
+  return { points: raw[date] ?? [], raw };
+}
+
+export const availableMetrics = ["average_temperature_c", "uhi"];
+
+const generateAvailableDates = (): string[] => {
+  const dates: string[] = [];
+  const currentDate = new Date("2020-01-01T00:00:00Z");
+  const endDate = new Date("2025-12-31T00:00:00Z");
+
+  while (currentDate <= endDate) {
+    dates.push(currentDate.toISOString().split("T")[0]);
+    currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+  }
+
+  return dates;
+};
+
+export const availableDates = generateAvailableDates();

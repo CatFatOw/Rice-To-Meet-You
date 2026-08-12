@@ -17,7 +17,6 @@ export type CityPOIAreaMap = Record<string, CityPOIArea[]>;
 // A single measured / interpolated reading at one coordinate.
 export interface HeatmapMetricValue {
   value: number; // 0–100 weight used for heatmap coloring
-  location_name: string;
   location_coordinates: [number, number]; // [lon, lat]
   // Open bag of human-readable sub-metrics. Any key is allowed; every value is
   // a string so it can carry its own unit (e.g. "97°F", "62%", "88 / 100").
@@ -101,3 +100,47 @@ export interface LocationReading {
 export interface HeatmapPointsByDate {
   [date: string]: HeatmapMetricValue[];
 }
+
+
+/** [longitude, latitude] — GeoJSON order, note it's lng first */
+export type Coordinates = [number, number];
+
+/** All values arrive pre-formatted as display strings, e.g. "91.5%", "12.2 mph" */
+export interface IndividualMetrics {
+  average_dew_point_f: string;
+  average_relative_humidity_pct: string;
+  average_sea_level_pressure_mbar: string;
+  average_temperature_c: string;
+  average_visibility_km: string;
+  average_wind_speed_knots: string;
+  cooling_degree_days_c: string;
+  heating_degree_days_c: string;
+  maximum_temperature_c: string;
+  minimum_temperature_c: string;
+  raw_precipitation_hundredths_mm: string;
+  station_count: string;
+  temperature_range_c: string;
+  dew_point_depression_c: string;
+  wet_bulb_temperature_c: string;
+  heat_stress_flag: string;
+  cold_stress_flag: string;
+  wind_speed_mps: string;
+  high_wind_flag: string;
+  precipitation_mm_clean: string;
+  precipitation_3d_sum_mm: string;
+  market_relative_heavy_rain_flag: string;
+  low_visibility_flag: string;
+  planning_weather_completeness_pct: string;
+  major_event_weather_readiness_score: string;
+  major_event_weather_readiness_band: string;
+  uhi: string;
+  [key: string]: string; // tolerate new metrics without a type change
+}
+
+export interface HeatmapPoint {
+  location_coordinates: Coordinates;
+  individual_metrics: IndividualMetrics;
+}
+
+/** Keyed by date, e.g. { "2020-01-01": [...] } */
+export type HeatmapResponse = Record<string, HeatmapPoint[]>;

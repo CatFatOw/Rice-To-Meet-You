@@ -119,7 +119,6 @@ function buildField(
 
       points.push({
         value,
-        location_name: 'Interpolated field',
         location_coordinates: [roundedLon, roundedLat],
       });
     }
@@ -199,7 +198,6 @@ export function sampleHeatmapMetricByCity(
 
   const sampledPoint: HeatmapMetricValue = {
     value,
-    location_name: 'Hovered location',
     location_coordinates: [roundValue(lon, 6), roundValue(lat, 6)],
   };
 

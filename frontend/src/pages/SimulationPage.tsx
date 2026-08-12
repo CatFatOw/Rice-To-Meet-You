@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { usePolygonDraw, type Ring } from '../hooks/usePolygonDraw';
 import maplibregl from 'maplibre-gl';
 import Heatmap from '../components/Heatmap';
@@ -6,12 +6,12 @@ import NavigationBar from '../components/NavigationBar';
 import OverallStatistics from '../components/OverallStatistics';
 import POIStatistics from '../components/POIStatistics';
 import {
-  callHeatmapAnchors,
+  availableDates,
+  availableMetrics,
   callMockAllCityPOIs,
   type CityPOIArea,
   type CityPOIAreaMap,
-  type HeatmapMetricPointByCity,
-  type HeatmapMetricSnapshot,
+  type HeatmapMetricValue,
 } from '../api/map';
 import { callMockStatistics } from '../api/statistics';
 import { determineCityView } from '../services/cityViews';
@@ -22,7 +22,6 @@ import type { TooltipState } from '../types/components';
 import type { OverallStatisticsProps, POIStatisticsProps } from '../types/statistics';
 import useSimulationRunner from '../hooks/useSimulationRunner';
 import { getSimulatedPointsByDate } from '../api/simulation';
-import type { HeatmapPointsByDate } from '../types/heatmap';
 
 import usePlacedObjects, {
   PLACED_OBJECT_CATEGORIES,
@@ -31,31 +30,7 @@ import usePlacedObjects, {
   type PlacedObjectCategory,
 } from '../hooks/usePlacedObjects';
 
-function mergeCityDateRecords(records: HeatmapMetricPointByCity[string] | undefined) {
-  if (!records || records.length === 0) return null;
-  return records.reduce<Record<string, HeatmapMetricSnapshot[]>>(
-    (acc, byDate) => ({ ...acc, ...byDate }),
-    {},
-  );
-}
-
-// Flatten merged snapshots down to one metric's points per date — the shape
-// getSimulatedPointsByDate consumes.
-function toHeatmapPointsByDate(
-  records: Record<string, HeatmapMetricSnapshot[]> | null,
-  metric: string | null,
-): HeatmapPointsByDate {
-  if (!records || !metric) return {};
-
-  const result: HeatmapPointsByDate = {};
-  for (const [date, snapshots] of Object.entries(records)) {
-    const snapshot = snapshots.find((s) => s.metric === metric);
-    if (snapshot) {
-      result[date] = snapshot.points;
-    }
-  }
-  return result;
-}
+import { getHeatmapPointsByCityDateMetric } from '../api/map';
 
 function isPlacedObjectCategory(value: string): value is PlacedObjectCategory {
   return (PLACED_OBJECT_CATEGORIES as readonly string[]).includes(value);
@@ -107,25 +82,22 @@ const SimulationPage: React.FC = () => {
   // Stores the selected city and loaded environmental data.
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [cityPOIAreas, setCityPOIAreas] = useState<CityPOIAreaMap>({});
-  const [heatmapPointsByCity, setHeatmapPointsByCity] =
-    useState<Record<string, HeatmapMetricSnapshot[]>>({});
-  const [heatmapAnchorsByCity, setHeatmapAnchorsByCity] =
-    useState<HeatmapMetricPointByCity>({});
-  const [baselineHeatmapAnchorsByCity, setBaselineHeatmapAnchorsByCity] =
-    useState<HeatmapMetricPointByCity>({});
+  const [displayedHeatmapPoints, setDisplayedHeatmapPoints] =
+    useState<HeatmapMetricValue[]>([]);
+  const [baselineHeatmapPoints, setBaselineHeatmapPoints] =
+    useState<HeatmapMetricValue[]>([]);
 
   // --- Date and timeline state ---
   // Controls the active date and simulation period.
-  const [selectedDate, setSelectedDate] = useState<string | null>('2026-07-07');
-  const [baselineSelectedDate] = useState<string | null>('2026-07-07');
-  const [fromDate, setFromDate] = useState<string | null>('2026-07-05');
-  const [toDate, setToDate] = useState<string | null>('2026-07-08');
-  const availableDates = ['2026-07-05', '2026-07-06', '2026-07-07', '2026-07-08'];
+  const [selectedDate, setSelectedDate] = useState<string | null>('2020-01-01');
+  const [baselineSelectedDate] = useState<string | null>('2020-01-01');
+  const [fromDate, setFromDate] = useState<string | null>('2020-01-01');
+  const [toDate, setToDate] = useState<string | null>('2020-01-01');
 
   // --- Simulation state ---
   // Controls simulation data and playback.
   const [, setSimulationByDate] =
-    useState<Record<string, HeatmapMetricSnapshot[]> | null>(null);
+    useState<Record<string, HeatmapMetricValue[]> | null>(null);
   const [containSimulation] = useState(true);
   const simulationTimerRef = useRef<number | null>(null);
 
@@ -174,64 +146,37 @@ const SimulationPage: React.FC = () => {
 
   const { runTimeline, stop, isRunning } = useSimulationRunner();
 
-
-  const heatmapPointsByDate = useMemo<HeatmapPointsByDate>(() => {
-    if (!selectedCity) return {};
-    const records = mergeCityDateRecords(baselineHeatmapAnchorsByCity[selectedCity]);
-    return toHeatmapPointsByDate(records, selectedMetric ?? 'temperature');
-  }, [baselineHeatmapAnchorsByCity, selectedCity, selectedMetric]);
-
-  
-
-  
-  useEffect(() => {
-    console.log(heatmapPointsByDate)
-
-  }, [heatmapPointsByDate]) 
-
   const onStopSimulation = () => {
     stop();
-    setHeatmapAnchorsByCity(baselineHeatmapAnchorsByCity);
     setSelectedDate(baselineSelectedDate);
+    setDisplayedHeatmapPoints(baselineHeatmapPoints);
   };
 
   const onStartSimulation = async () => {
     if (!selectedCity || !fromDate || !toDate) return;
 
-    const metric = selectedMetric ?? 'temperature';
+    const metric = selectedMetric ?? availableMetrics[0];
+    const date = selectedDate ?? baselineSelectedDate;
+    if (!date) return;
 
     // 1. Simulate over the baseline points-by-date, then re-wrap each date's
-    //    points into the { metric, points } snapshot shape used as a frame.
-    let framesByDate: Record<string, HeatmapMetricSnapshot[]>;
-    // console.log(`Metric: ${metric}`)
-    // console.log(`placedObjets initial: ${JSON.stringify(placedObjectsControls.placedObjects)}`)
-    // console.log(`placedObjets: ${JSON.stringify(toCategorizedPlacedObjects(placedObjectsControls.placedObjects))}`)
+    //    points into one frame per date for the timeline runner.
+    let framesByDate: Record<string, HeatmapMetricValue[]>;
     try {
       const simulatedPointsByDate = await getSimulatedPointsByDate(
         metric,
-        heatmapPointsByDate,
+        { [date]: baselineHeatmapPoints },
         toCategorizedPlacedObjects(placedObjectsControls.placedObjects),
       );
-      console.log(simulatedPointsByDate)
-
-      
-
-      framesByDate = Object.fromEntries(
-        Object.entries(simulatedPointsByDate).map(([date, points]) => [
-          date,
-          [{ metric, points }] as HeatmapMetricSnapshot[],
-        ]),
-      );
+      framesByDate = simulatedPointsByDate;
     } catch (error) {
       console.error('Failed to simulate points by date', error);
       return;
     }
-
-
     // 2. Play the timeline. runTimeline calls stop() first (resets timer +
-    //    isRunning), stores the result via onStart, then updates
-    //    heatmapAnchorsByCity per frame off the previous value.
-    runTimeline<HeatmapMetricSnapshot[]>({
+    //    isRunning), stores the result via onStart, then updates the page-owned
+    //    displayed point set each frame.
+    runTimeline<HeatmapMetricValue[]>({
       fromDate,
       toDate,
       framesByDate,
@@ -239,14 +184,11 @@ const SimulationPage: React.FC = () => {
       onStart: (frames) => setSimulationByDate(frames),
       onFrame: (date, frame) => {
         setSelectedDate(date);
-        setHeatmapAnchorsByCity((prev) => ({
-          ...prev,
-          [selectedCity]: [{ [date]: frame }],
-        }));
+        setDisplayedHeatmapPoints(frame);
       },
       onComplete: () => {
-        setHeatmapAnchorsByCity(baselineHeatmapAnchorsByCity);
         setSelectedDate(baselineSelectedDate);
+        setDisplayedHeatmapPoints(baselineHeatmapPoints);
       }
     });
 
@@ -282,29 +224,6 @@ const SimulationPage: React.FC = () => {
     };
   }, []);
 
-  // Fetch heatmap anchor points and set baseline data on component mount
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadHeatmapAnchors = async () => {
-      try {
-        const anchorsByCity = await callHeatmapAnchors();
-        if (isMounted) {
-          setHeatmapAnchorsByCity(anchorsByCity);
-          setBaselineHeatmapAnchorsByCity(anchorsByCity);
-        }
-      } catch (error) {
-        console.error('Failed to load heatmap anchors', error);
-      }
-    };
-
-    loadHeatmapAnchors();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
   // --- Cleanup simulation state on unmount ---
   // Ensure any running simulation timer is cleared when component unmounts
   useEffect(() => {
@@ -317,18 +236,54 @@ const SimulationPage: React.FC = () => {
   }, []);
 
   // --- Update heatmap visualization ---
-  // Interpolate heatmap points based on selected city and date
+  // Load the current city/date/metric slice from the backend.
   useEffect(() => {
-    if (!selectedCity || !selectedDate) {
-      setHeatmapPointsByCity({});
+    if (!selectedCity || !selectedMetric || !selectedDate) {
+      setBaselineHeatmapPoints([]);
+      setDisplayedHeatmapPoints([]);
       return;
     }
 
-    // Raw anchors for the selected city/date — no interpolation.
-    const snapshots =
-      mergeCityDateRecords(heatmapAnchorsByCity[selectedCity])?.[selectedDate] ?? [];
-    setHeatmapPointsByCity({ [selectedCity]: snapshots });
-  }, [heatmapAnchorsByCity, selectedCity, selectedDate]);
+    const controller = new AbortController();
+    let ignore = false;
+
+    getHeatmapPointsByCityDateMetric(
+      selectedCity,
+      selectedDate,
+      selectedMetric,
+      {
+        additionalMetrics: [],
+        signal: controller.signal,
+      },
+    )
+      .then(({ points }) => {
+        if (ignore) return;
+        setBaselineHeatmapPoints(points);
+      })
+      .catch((error) => {
+        if (ignore || controller.signal.aborted) return;
+        console.error('Failed to load baseline heatmap point', error);
+        setBaselineHeatmapPoints([]);
+        setDisplayedHeatmapPoints([]);
+      });
+
+    return () => {
+      ignore = true;
+      controller.abort();
+    };
+  }, [selectedCity, selectedDate, selectedMetric]);
+
+  useEffect(() => {
+    console.log(displayedHeatmapPoints)
+
+  }, [displayedHeatmapPoints])
+
+ 
+
+  useEffect(() => {
+    if (isRunning) return;
+    setDisplayedHeatmapPoints(baselineHeatmapPoints);
+  }, [baselineHeatmapPoints, isRunning]);
 
   // --- Initialize and manage map lifecycle ---
   // Create MapLibre GL map instance on mount and clean up on unmount
@@ -416,9 +371,7 @@ const SimulationPage: React.FC = () => {
               selectedCity={selectedCity}
               setSelectedCity={setSelectedCity}
               cityPOIAreas={cityPOIAreas}
-              heatmapPointsByCity={heatmapPointsByCity}
-              heatmapAnchorsByCity={heatmapAnchorsByCity}
-              availableDates={availableDates}
+              displayedHeatmapPoints={displayedHeatmapPoints}
               selectedDate={selectedDate}
               setSelectedDate={setSelectedDate}
               mapContainerRef={mapContainerRef}

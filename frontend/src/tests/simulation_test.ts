@@ -261,7 +261,7 @@ export function printChanged(
       deltas.push(delta);
 
       return {
-        location: after.location_name,
+        location: `${after.location_coordinates[1].toFixed(4)}, ${after.location_coordinates[0].toFixed(4)}`,
         lon: after.location_coordinates[0],
         lat: after.location_coordinates[1],
         before: Number(beforeValue.toFixed(2)),

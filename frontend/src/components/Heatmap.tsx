@@ -3,7 +3,6 @@ import { Expand, Shrink } from 'lucide-react';
 import DeckGL from '@deck.gl/react';
 import {
   type CityPOIArea,
-  type HeatmapMetricSnapshot,
   type HeatmapMetricValue,
 } from '../api/map';
 import { type City } from '../data/hostCities';
@@ -21,6 +20,8 @@ import type { ViewState } from '../types/viewState';
 import { fetchPlacedObjects } from '../api/tool';
 import type { Geometry } from '../types/simulation';
 import { isPolygonSimple } from '../services/polygon';
+import { availableMetrics, availableDates } from '../api/map';
+
 
 
 
@@ -107,7 +108,7 @@ function rgbaCss(rgb: [number, number, number], alpha: number): string {
 
 function metricColorDomain(metric: string): [number, number] {
   const colorMetric = colorMetricKey(metric);
-  if (colorMetric === 'temperature') return [10, 50];
+  if (colorMetric === 'average_temperature_c') return [0, 50];
   if (colorMetric === 'change_in_temperature') return [0, 10]; // shifted from [-5, 5]
   return [0, 100];
 }
@@ -191,9 +192,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
   selectedCity,
   setSelectedCity,
   cityPOIAreas,
-  heatmapPointsByCity,
-  heatmapAnchorsByCity,
-  availableDates,
+  displayedHeatmapPoints,
   selectedDate,
   setSelectedDate,
   mapContainerRef,
@@ -240,14 +239,14 @@ const Heatmap: React.FC<HeatmapProps> = ({
 
   // placedObjectsControls is optional (ExplorePage renders without a toolbox),
   // so default to an empty list rather than guarding at every use site.
-const currentPlacedObjects = placedObjectsControls?.placedObjects ?? [];
-const pendingPlacedObjects = useMemo(
-  () =>
-    placedObjectsControls?.pendingPlacedObject
-      ? [placedObjectsControls.pendingPlacedObject]
-      : [],
-  [placedObjectsControls?.pendingPlacedObject],
-);
+  const currentPlacedObjects = placedObjectsControls?.placedObjects ?? [];
+  const pendingPlacedObjects = useMemo(
+    () =>
+      placedObjectsControls?.pendingPlacedObject
+        ? [placedObjectsControls.pendingPlacedObject]
+        : [],
+    [placedObjectsControls?.pendingPlacedObject],
+  );
 
 
 
@@ -354,10 +353,7 @@ const hoverablePolygons = useMemo(() => {
   // ======================================================
 
   /** Metric layers available for the selected city on the selected date. */
-  const availableMetricLayers: HeatmapMetricSnapshot[] = useMemo(
-    () => (selectedCity ? (heatmapPointsByCity[selectedCity] ?? []) : []),
-    [selectedCity, heatmapPointsByCity],
-  );
+  const availableMetricLayers = availableMetrics;
 
   // Keep selectedMetric valid as the available layers change (city switch, date
   // change, simulation run): preserve the current metric if it still exists,
@@ -369,28 +365,14 @@ const hoverablePolygons = useMemo(() => {
     }
 
     setSelectedMetric((prev) => {
-      if (prev && availableMetricLayers.some((m) => m.metric === prev)) return prev;
-      return availableMetricLayers[0].metric;
+      if (prev && availableMetricLayers.includes(prev)) return prev;
+      return availableMetricLayers[0];
     });
   }, [availableMetricLayers, setSelectedMetric]);
 
-  /** The metric layer actually being rendered; falls back to the first layer. */
-  const activeMetricLayer = useMemo(
-    () =>
-      availableMetricLayers.find((m) => m.metric === selectedMetric) ??
-      availableMetricLayers[0],
-    [availableMetricLayers, selectedMetric],
-  );
-
-  /** Point set fed to the deck.gl heatmap layer. */
-  const displayedHeatmapPoints: HeatmapMetricValue[] = useMemo(
-    () => activeMetricLayer?.points ?? [],
-    [activeMetricLayer],
-  );
-
   // Presentation derived from the active metric: key, display name, layer
   // colour ramp and matching legend gradient.
-  const activeMetricKey = activeMetricLayer?.metric ?? 'heat_risk_score';
+  const activeMetricKey = selectedMetric ?? availableMetricLayers[0] ?? 'heat_risk_score';
   const activeMetricWeightOffset = useMemo(
     () => metricWeightOffset(activeMetricKey),
     [activeMetricKey],
@@ -474,10 +456,10 @@ const hoverablePolygons = useMemo(() => {
   // Wraps around at the end of the list; no-op when there's nothing to cycle to.
   const cycleMetric = useCallback(() => {
     if (availableMetricLayers.length <= 1) return;
-    const idx = availableMetricLayers.findIndex((m) => m.metric === selectedMetric);
+    const idx = availableMetricLayers.findIndex((metric) => metric === selectedMetric);
     const next =
       availableMetricLayers[(idx + 1 + availableMetricLayers.length) % availableMetricLayers.length];
-    setSelectedMetric(next.metric);
+    setSelectedMetric(next);
   }, [availableMetricLayers, selectedMetric, setSelectedMetric]);
 
   /** Server-provided POI areas for the city, plus any the user drew themselves. */
@@ -637,7 +619,6 @@ const hoverablePolygons = useMemo(() => {
       [
         activeMetricKey,
         displayedHeatmapPoints.length,
-        heatmapAnchorsByCity,
         isDrawing,
         mapRef,
         hoverablePolygons,
@@ -902,7 +883,7 @@ const hoverablePolygons = useMemo(() => {
           }}
         >
           <div style={{ fontWeight: 700, marginBottom: 6, fontSize: '14px', color: '#f1f5f9' }}>
-            {tooltip.point.location_name}
+            Point at {tooltip.coordinates.latitude.toFixed(4)}, {tooltip.coordinates.longitude.toFixed(4)}
           </div>
 
           {/* Primary metric value, colour-coded by severity band:
