@@ -1,15 +1,79 @@
 import type { BasePlacedObject, BasePlacedObjectCategorized } from '../hooks/usePlacedObjects';
 import type { HeatmapMetricValue, HeatmapPointsByDate, Polygon } from '../types/heatmap';
-import {
-  albedoCooling,
-  deltaTMaxFromWeather,
-  deltaTMaxFromWeatherAlbedo,
-  deltaTMaxFromWeatherEvap,
-  deltaTMaxFromWeatherShade,
-  evaporativeCooling,
-  vegetationCooling,
-  shadeCooling,
-} from './simulation';
+
+/** Inputs for the vegetation cooling calculation. Fractions are in the 0–1 range. */
+export interface VegetationCoolingParams {
+  vegetatedCoverage: number;
+  canopyFraction: number;
+  lai: number;
+  waterFactor: number;
+}
+/** Weather inputs used to determine vegetation's evaporative cooling capacity. */
+export interface WeatherParams {
+  temperatureC: number;
+  relativeHumidity: number;
+  fSolar?: number;
+  fWind?: number;
+}
+/** Inputs for reflective pavement or roofing. Fractions are in the 0–1 range. */
+export interface AlbedoCoolingParams {
+  deltaAlbedo: number;
+  areaCoverage: number;
+}
+/** Weather inputs used to determine solar-driven reflective-surface cooling. */
+export interface AlbedoWeatherParams {
+  temperatureC: number;
+  fSolar?: number;
+}
+/** Inputs for an artificial shade structure. Fractions are in the 0–1 range. */
+export interface ShadeCoolingParams {
+  opacity: number;
+  shadedFootprint: number;
+}
+/** Weather inputs used to determine solar-driven shade cooling. */
+export interface ShadeWeatherParams {
+  temperatureC: number;
+  fSolar?: number;
+}
+/** Inputs for a fountain, mister, or other free-water cooling source. */
+export interface EvaporativeCoolingParams {
+  evapRateLpm: number;
+  coverageRadiusM: number;
+  activeFraction: number;
+}
+/** Weather inputs used to determine evaporative cooling capacity. */
+export interface EvaporativeWeatherParams {
+  temperatureC: number;
+  relativeHumidity: number;
+  fWind?: number;
+}
+
+const VEGETATION_DELTA_T_MAX = 5;
+const VPD_REFERENCE_KPA = 4.5;
+const ALBEDO_DELTA_T_MAX = 4;
+const SHADE_DELTA_T_MAX = 5;
+const EVAPORATIVE_DELTA_T_MAX = 8;
+
+/** Returns saturation vapor pressure in kPa using the Tetens approximation. */
+export function saturationVaporPressure(temperatureC: number): number { return 0.6108 * Math.exp((17.27 * temperatureC) / (temperatureC + 237.3)); }
+/** Returns vapor-pressure deficit (kPa), the atmospheric demand for evaporation. */
+export function vaporPressureDeficit(temperatureC: number, relativeHumidity: number): number { return saturationVaporPressure(temperatureC) * (1 - relativeHumidity / 100); }
+/** Calculates the weather-limited maximum cooling available to vegetation. */
+export function deltaTMaxFromWeather({ temperatureC, relativeHumidity, fSolar = 1, fWind = 1 }: WeatherParams): number { return VEGETATION_DELTA_T_MAX * Math.min(vaporPressureDeficit(temperatureC, relativeHumidity) / VPD_REFERENCE_KPA, 1) * fSolar * fWind; }
+/** Calculates a saturating vegetation cooling effect; `deltaT` is negative when cooling occurs. */
+export function vegetationCooling(initialTemp: number, params: VegetationCoolingParams, ceiling: number | WeatherParams = VEGETATION_DELTA_T_MAX): { finalTemp: number; deltaT: number } { const maxCooling = typeof ceiling === 'number' ? ceiling : deltaTMaxFromWeather(ceiling); const leafEffect = 1 - Math.exp(-0.5 * params.lai); const latent = params.vegetatedCoverage * leafEffect * params.waterFactor; const shade = params.vegetatedCoverage * params.canopyFraction * leafEffect * (0.8 + 0.2 * params.waterFactor); const cooling = maxCooling * (0.4 * latent + 0.6 * shade); return { finalTemp: initialTemp - cooling, deltaT: -cooling }; }
+/** Calculates the weather-limited maximum cooling available to a reflective surface. */
+export function deltaTMaxFromWeatherAlbedo({ temperatureC, fSolar = 1 }: AlbedoWeatherParams): number { return ALBEDO_DELTA_T_MAX * clamp((temperatureC - 20) / 18, 0, 1) * fSolar; }
+/** Calculates reflective-surface cooling; `deltaT` is negative when cooling occurs. */
+export function albedoCooling(initialTemp: number, params: AlbedoCoolingParams, ceiling: number | AlbedoWeatherParams = ALBEDO_DELTA_T_MAX): { finalTemp: number; deltaT: number } { const maxCooling = typeof ceiling === 'number' ? ceiling : deltaTMaxFromWeatherAlbedo(ceiling); const cooling = maxCooling * clamp(params.deltaAlbedo / 0.7, 0, 1) * clamp(params.areaCoverage, 0, 1); return { finalTemp: initialTemp - cooling, deltaT: -cooling }; }
+/** Calculates the weather-limited maximum cooling available to shade. */
+export function deltaTMaxFromWeatherShade({ temperatureC, fSolar = 1 }: ShadeWeatherParams): number { return SHADE_DELTA_T_MAX * clamp((temperatureC - 20) / 18, 0, 1) * fSolar * 0.85; }
+/** Calculates shade cooling; `deltaT` is negative when cooling occurs. */
+export function shadeCooling(initialTemp: number, params: ShadeCoolingParams, ceiling: number | ShadeWeatherParams = SHADE_DELTA_T_MAX * 0.85): { finalTemp: number; deltaT: number } { const maxCooling = typeof ceiling === 'number' ? ceiling : deltaTMaxFromWeatherShade(ceiling); const cooling = maxCooling * clamp(params.opacity, 0, 1) * clamp(params.shadedFootprint, 0, 1); return { finalTemp: initialTemp - cooling, deltaT: -cooling }; }
+/** Calculates the weather-limited maximum cooling available to an evaporative source. */
+export function deltaTMaxFromWeatherEvap({ temperatureC, relativeHumidity, fWind = 1 }: EvaporativeWeatherParams): number { return EVAPORATIVE_DELTA_T_MAX * Math.min(vaporPressureDeficit(temperatureC, relativeHumidity) / VPD_REFERENCE_KPA, 1) * fWind; }
+/** Calculates distance-faded evaporative cooling; `deltaT` is negative when cooling occurs. */
+export function evaporativeCooling(initialTemp: number, params: EvaporativeCoolingParams, distanceM: number, ceiling: number | EvaporativeWeatherParams = EVAPORATIVE_DELTA_T_MAX): { finalTemp: number; deltaT: number } { const maxCooling = typeof ceiling === 'number' ? ceiling : deltaTMaxFromWeatherEvap(ceiling); const powerW = (Math.max(params.evapRateLpm, 0) / 60) * 2.45e6; const sourceStrength = Math.min(powerW / 50000, 1); const falloff = params.coverageRadiusM > 0 ? Math.max(1 - Math.max(distanceM, 0) / params.coverageRadiusM, 0) : 0; const cooling = maxCooling * sourceStrength * clamp(params.activeFraction, 0, 1) * falloff; return { finalTemp: initialTemp - cooling, deltaT: -cooling }; }
 
 const VEGETATION = 'Vegetation';
 const ALBEDO = 'High-albedo surface';
@@ -75,10 +139,12 @@ export interface DiminishingSimulationResult {
   feedback: SimulationFeedback;
 }
 
+/** Limits a value to an inclusive range before it is used by a physical model. */
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+/** Tests whether a heatmap sample coordinate is inside a polygon intervention. */
 function pointInPolygon([lon, lat]: [number, number], polygon: Polygon): boolean {
   let inside = false;
   for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index++) {
@@ -92,6 +158,7 @@ function pointInPolygon([lon, lat]: [number, number], polygon: Polygon): boolean
   return inside;
 }
 
+/** Approximates a short city-scale longitude/latitude distance in metres. */
 function distanceMeters(a: [number, number], b: [number, number]): number {
   const midLatitude = ((a[1] + b[1]) / 2) * (Math.PI / 180);
   return Math.hypot(
@@ -100,6 +167,7 @@ function distanceMeters(a: [number, number], b: [number, number]): number {
   );
 }
 
+/** Returns a point intervention's location or the centroid of a line/polygon. */
 function geometryAnchor(object: BasePlacedObject): [number, number] {
   if (object.geometry.kind === 'point') return [object.geometry.longitude, object.geometry.latitude];
   const points = object.geometry.kind === 'line' ? object.geometry.coordinates : object.geometry.ring;
@@ -107,12 +175,14 @@ function geometryAnchor(object: BasePlacedObject): [number, number] {
   return [total[0] / points.length, total[1] / points.length];
 }
 
+/** Returns whether an intervention is active on the supplied ISO date. */
 function activeOnDate(object: BasePlacedObject, date: string): boolean {
   const time = new Date(date).getTime();
   return time >= (object.activeFrom ? new Date(object.activeFrom).getTime() : -Infinity)
     && time <= (object.activeTo ? new Date(object.activeTo).getTime() : Infinity);
 }
 
+/** Extracts weather from a point, with a hot-day fallback for change-only layers. */
 function baselineWeather(point: HeatmapMetricValue, isChangeMetric: boolean) {
   const sourceTemperature = parseFloat(point.individual_metrics?.avg_temperature_c ?? '');
   const humidity = parseFloat(point.individual_metrics?.relative_humidity ?? '');
@@ -141,6 +211,7 @@ function coolingCeiling(temperatureC: number, relativeHumidity?: number): number
   );
 }
 
+/** Computes a single intervention's positive cooling contribution at one point. */
 function objectCooling(
   category: string,
   object: BasePlacedObject,
