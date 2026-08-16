@@ -170,138 +170,6 @@ export async function callAllCityPOIs(): Promise<CityPOIAreaMap> {
   }, {});
 }
 
-// ============================================================================
-// Heatmap API — returns raw measured anchors, keyed city -> [date -> metrics].
-// Interpolation is NOT done here; the client interpolates on demand (see utils).
-// ============================================================================
-
-// ---------------------------------------------------------------------------
-// Source of truth: one physical reading per location, shaped as a
-// GridCellMetricResponse. The published metrics (temperature, visitor density)
-// read straight off these fields, so the layers stay consistent.
-// ---------------------------------------------------------------------------
-
-// Heat-warning cutoff on air temperature (°C) ≈ 95 °F.
-const HEAT_THRESHOLD_C = 35;
-
-const DEFAULT_READING_DATE = "2026-07-05";
-const DEFAULT_MARKET = "Houston";
-
-// Monotonic id so each mock reading looks like a distinct DB row.
-let nextReadingId = 1;
-
-function visitorCategory(density: number): string {
-  if (density >= 90) return "Match venue / fan zone";
-  if (density >= 75) return "Major attraction";
-  if (density >= 55) return "Busy district";
-  if (density >= 35) return "Residential";
-  return "Low activity";
-}
-
-// ---------------------------------------------------------------------------
-// Convenience factory: keeps the mock's human-friendly inputs (°F, a 0–100
-// visitor density, and land-cover %) and maps them onto the
-// GridCellMetricResponse schema. The heat_weather_point fields (humidity, UHI,
-// wind) are derived from land cover so that data isn't lost in the migration.
-// reading(name, lon, lat, temperatureF, visitorDensity, treeCanopy%, impervious%)
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Literal factory: takes exactly the fields the temperature + visitor_density
-// anchors read off a reading, and maps them straight onto the
-// GridCellMetricResponse schema. No derivation.
-// ---------------------------------------------------------------------------
-function reading(
-  name: string,
-  lon: number,
-  lat: number,
-  avgTemperatureC: number,
-  relativeHumidity: number,
-  uhi: number,
-  windSpeedKnots: number,
-  source: "measured" | "interpolated",
-  visitorCount: number,
-  category: string,
-  market: string,
-  visitorCountSource: string,
-): LocationReading {
-  return {
-    id: nextReadingId++,
-    date: DEFAULT_READING_DATE,
-    latitude: lat,
-    longitude: lon,
-    name,
-
-    // --- heat_weather_point fields (read by temperatureAnchor) ---
-    avg_temperature_c: avgTemperatureC,
-    relative_humidity: relativeHumidity,
-    uhi,
-    wind_speed_knots: windSpeedKnots,
-    source,
-
-    // --- visitor_poi fields (read by visitorDensityAnchor) ---
-    visitor_count: visitorCount,
-    category,
-    market,
-    visitor_count_source: visitorCountSource,
-  };
-}
-
-// ---- Builders: one reading -> one anchor per metric ------------------------
-// Fields now come off the GridCellMetricResponse directly (no derivation).
-
-const coordsOf = (r: LocationReading): [number, number] => [
-  r.longitude,
-  r.latitude,
-];
-
-function temperatureAnchor(r: LocationReading): HeatmapMetricValue {
-  const tempC = r.avg_temperature_c ?? 0;
-
-  return {
-    value: tempC, // temperature layer is now in °C (avg_temperature_c)
-    location_coordinates: coordsOf(r),
-    individual_metrics: {
-      avg_temperature_c: `${tempC.toFixed(1)}°C`,
-      relative_humidity:
-        r.relative_humidity != null ? `${Math.round(r.relative_humidity)}%` : "—",
-      uhi: r.uhi != null ? `${r.uhi.toFixed(1)}°C` : "—",
-      wind_speed_knots:
-        r.wind_speed_knots != null ? `${r.wind_speed_knots.toFixed(1)} kn` : "—",
-      source: r.source ?? "—",
-    },
-  };
-}
-
-function visitorDensityAnchor(r: LocationReading): HeatmapMetricValue {
-  const count = r.visitor_density ?? 0;
-  return {
-    value: count, // now a raw visitor_count, not the old 0–100 density
-    location_coordinates: coordsOf(r),
-    individual_metrics: {
-      visitor_count: count.toLocaleString("en-US"),
-      category: r.category ?? "—",
-      market: r.market ?? "—",
-      visitor_count_source: r.visitor_count_source ?? "—",
-    },
-  };
-}
-
-function changeInTemperatureAnchor(r: LocationReading): HeatmapMetricValue {
-  const tempC = r.avg_temperature_c ?? 0;
-
-  return {
-    value: 0, // baseline: no change until a simulation runs
-    location_coordinates: coordsOf(r),
-    // Share the temperature layer's weather fields so the simulation can read
-    // the true local temp + humidity (the `value` is 0 and can't drive the
-    // weather ceiling on its own).
-    individual_metrics: {
-      avg_temperature_c: `${tempC.toFixed(1)}°C`,
-      relative_humidity:
-        r.relative_humidity != null ? `${Math.round(r.relative_humidity)}%` : "—",
-    },
-  };
-}
 
 
 // ============================================================================
@@ -367,7 +235,14 @@ export async function getHeatmapPointsByCityDateMetric(
   return { points: raw[date] ?? [], raw };
 }
 
-export const availableMetrics = [{"average_temperature_c": ["maximum_temperature_c", "minimum_temperature_c", "average_relative_humidity_pct", "average_wind_speed_knots", "precipitation_3d_sum_mm"]}];
+export const availableMetrics = [
+  {
+  "average_temperature_c": ["maximum_temperature_c", "minimum_temperature_c", "average_relative_humidity_pct", "average_wind_speed_knots", "precipitation_3d_sum_mm", "average_temperature_c"]
+  },
+  {
+  "change_in_temperature": ["maximum_temperature_c", "minimum_temperature_c", "average_relative_humidity_pct", "average_wind_speed_knots", "precipitation_3d_sum_mm", "average_temperature_c"]
+  }
+];
 
 const generateAvailableDates = (): string[] => {
   const dates: string[] = [];

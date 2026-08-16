@@ -29,18 +29,18 @@ const HOUSTON_TOOLS: BasePlacedObject[] = [
     name: 'Rice University street trees',
     color: '#22c55e',
     geometry: polygon([
-      [-95.400412, 29.718285],
-      [-95.400347, 29.718055],
-      [-95.399941, 29.718152],
-      [-95.400023, 29.718413],
+      [-95.401231, 29.718059],
+      [-95.401166, 29.717829],
+      [-95.400760, 29.717926],
+      [-95.400842, 29.718187],
     ]),
     params: {
         coverPct: 0.4, // 0–1  fraction of cell under canopy (scale)
         lai: 4, //         ~0–6 Leaf Area Index — transpiring surface (intensity)
         irrigation: 0.6, // 0–1  irrigation level committed to (lever)
       },
-    activeFrom: '2026-07-05',
-    activeTo: '2026-07-07'
+    activeFrom: '2020-07-12',
+    activeTo: '2020-07-17'
   },
   // --- Cool roof coating (high-albedo surface) — TMC rooftop -----------------
   {
@@ -59,8 +59,8 @@ const HOUSTON_TOOLS: BasePlacedObject[] = [
       deltaAlbedo: 0.6, // 0–1  reflectance gain vs baseline (asphalt ~0.1 → cool coat ~0.7)
       coverPct: 0.85,   // 0–1  treated fraction of the cell (scale, linear)
     },
-    activeFrom: '2026-07-05',
-    activeTo: '2026-07-08',
+    activeFrom: '2020-07-12',
+    activeTo: '2020-07-17'
   },
 
   // --- Shade sail (shade structure) — Hermann Park plaza ---------------------
@@ -80,8 +80,8 @@ const HOUSTON_TOOLS: BasePlacedObject[] = [
       opacity: 0.7,           // 0–1  fraction of the direct beam blocked (sail ~0.7)
       footprintFraction: 0.6, // 0–1  shaded ground as a fraction of the cell (scale, linear)
     },
-    activeFrom: '2026-07-05',
-    activeTo: '2026-07-08',
+    activeFrom: '2020-07-12',
+    activeTo: '2020-07-17'
   },
     // --- High-pressure misting (evaporative) — Hermann Park, point source ------
   {
@@ -96,22 +96,29 @@ const HOUSTON_TOOLS: BasePlacedObject[] = [
       coverageRadiusM: 25, // m      plume reach — distance-falloff scale
       activeFraction: 0.8, // 0–1    duty cycle (humidity/temperature gated)
     },
-    activeFrom: '2026-07-05',
-    activeTo: '2026-07-08',
+    activeFrom: '2020-07-12',
+    activeTo: '2020-07-17'
   },
 
   
 ];
 
-const HOUSTON_DATES = ['2026-07-05', '2026-07-06', '2026-07-07', '2026-07-08'];
+const HOUSTON_DATES = [
+  '2020-07-12',
+  '2020-07-13',
+  '2020-07-14',
+  '2020-07-15',
+  '2020-07-16',
+  '2020-07-17',
+];
 
 const clone = <T,>(value: T): T =>
   typeof structuredClone === 'function'
     ? structuredClone(value)
     : JSON.parse(JSON.stringify(value));
 
-// Build date -> { Houston: tools } for each date, cloning the tool set so the
-// four dates don't share the same object references.
+// Build date -> { Houston: tools } for each date in the active window, cloning
+// the tool set so dates do not share the same object references.
 const MOCK_PLACED_OBJECTS: PlacedObjectsByDateCity = Object.fromEntries(
   HOUSTON_DATES.map((date) => [date, { Houston: clone(HOUSTON_TOOLS) }]),
 );

@@ -30,6 +30,7 @@
 import type { HeatmapPointsByDate, HeatmapMetricValue } from '../types/heatmap';
 import type { BasePlacedObjectCategorized } from '../hooks/usePlacedObjects';
 import type { Polygon } from '../types/heatmap';
+import { parseTemperature, parsePercentage } from '../services/parsers';
 
 // --- Vegetation cooling model ------------------------------------------------
 // Estimates the pedestrian-level temperature drop from vegetation via two
@@ -626,7 +627,7 @@ function getEvaporativeParams(
 
 /** This model only moves temperature; leave other metrics untouched. */
 function metricIsTemperature(metric: string): boolean {
-  return /temp/i.test(metric);
+  return metric === 'average_temperature_c' || metric === 'change_in_temperature';
 }
 
 /**
@@ -676,7 +677,14 @@ export async function getSimulatedPointsByDate(
   pointsByDate: HeatmapPointsByDate,
   placedObjects: BasePlacedObjectCategorized,
 ): Promise<HeatmapPointsByDate> {
+  console.log('[Simulation 00] entered getSimulatedPointsByDate', {
+    metric,
+    dates: Object.keys(pointsByDate),
+    placedObjectCategories: Object.keys(placedObjects),
+  });
   await delay(MOCK_LATENCY_MS); // simulate network latency for loading states
+
+  console.log('[Simulation 01] delay complete');
 
   // Deep clone so we never mutate the caller's baseline readings.
   const simulated: HeatmapPointsByDate = Object.fromEntries(
@@ -685,10 +693,23 @@ export async function getSimulatedPointsByDate(
       points.map((p) => structuredClone(p)),
     ]),
   );
+  console.log('[Simulation 02] baseline cloned', {
+    pointsByDate: Object.fromEntries(
+      Object.entries(simulated).map(([date, points]) => [date, points.length]),
+    ),
+  });
   const affectsTemperature = metricIsTemperature(metric);
   const isChangeInTemp = metric === 'change_in_temperature';
+  console.log('[Simulation 03] metric flags resolved', {
+    affectsTemperature,
+    isChangeInTemp,
+  });
 
   for (const [category, objects] of Object.entries(placedObjects)) {
+    console.log('[Simulation 04] category reached', {
+      category,
+      objectCount: objects.length,
+    });
     // Route each category to its model.
     const isVegetation = category === VEGETATION_CATEGORY;
     const isHighAlbedo = category === HIGH_ALBEDO_CATEGORY;
@@ -700,40 +721,76 @@ export async function getSimulatedPointsByDate(
       (!isVegetation && !isHighAlbedo && !isShade && !isEvaporative) ||
       !affectsTemperature
     ) {
+      console.log('[Simulation 05] category skipped', {
+        category,
+        isVegetation,
+        isHighAlbedo,
+        isShade,
+        isEvaporative,
+        affectsTemperature,
+      });
       continue;
     }
 
     for (const object of objects) {
+      console.log('[Simulation 06] object reached', {
+        category,
+        id: object.id,
+        type: object.type,
+        activeFrom: object.activeFrom,
+        activeTo: object.activeTo,
+        geometryKind: object.geometry?.kind,
+        params: object.params,
+      });
       // --- Evaporative: point-source plume, no polygon. Gather points within
       //     the coverage radius of the source and apply a distance falloff. ---
       if (isEvaporative) {
+        console.log('[Simulation 07] evaporative branch reached', { id: object.id });
         const evapParams = getEvaporativeParams(object);
-        if (!evapParams) continue; // missing params → nothing to apply
+        console.log('[Simulation 08] evaporative params resolved', { id: object.id, evapParams });
+        if (!evapParams) {
+          console.log('[Simulation 09] evaporative object skipped: missing params', { id: object.id });
+          continue;
+        }
 
         const source = geometryAnchor(object.geometry);
+        console.log('[Simulation 10] evaporative source resolved', { id: object.id, source });
         const activeByDate = filterByActiveWindow(
           simulated,
           object.activeFrom,
           object.activeTo,
         );
+        console.log('[Simulation 11] evaporative active dates resolved', {
+          id: object.id,
+          dates: Object.keys(activeByDate),
+          pointCount: Object.values(activeByDate).reduce((total, points) => total + points.length, 0),
+        });
 
         for (const points of Object.values(activeByDate)) {
+          console.log('[Simulation 12] evaporative date points reached', { id: object.id, pointCount: points.length });
           for (const point of points) {
             const dist = distanceMeters(source, point.location_coordinates);
             if (dist > evapParams.coverageRadiusM) continue; // outside the plume
 
+            console.log('[Simulation 13] evaporative point covered', {
+              id: object.id,
+              location: point.location_coordinates,
+              distanceM: dist,
+            });
+
             const beforeC = point.value;
-            const rhBefore = parseFloat(
-              point.individual_metrics?.relative_humidity ?? '',
-            );
+            const rhBefore = parsePercentage(
+              point.individual_metrics?.average_relative_humidity_pct ?? '',
+            ) ?? NaN;
             const hasRh = Number.isFinite(rhBefore);
 
             // Weather ceiling needs the real temperature. On the ΔT layer the
             // point value is 0, so read the temperature shared into the metrics
             // (fall back to a representative hot day if it's missing).
-            const metricTempC = parseFloat(
-              point.individual_metrics?.avg_temperature_c ?? '',
-            );
+            const metricTempC = parseTemperature(
+              point.individual_metrics?.average_temperature_c ?? '',
+            ) ?? NaN;
+
             const weatherTempC = isChangeInTemp
               ? (Number.isFinite(metricTempC) ? metricTempC : CHANGE_IN_TEMP_ASSUMED_C)
               : beforeC;
@@ -748,6 +805,7 @@ export async function getSimulatedPointsByDate(
 
             if (isChangeInTemp) {
               point.value = deltaT; // ΔT layer: store the signed change directly
+              console.log('[Simulation 14] evaporative delta applied', { id: object.id, deltaT });
               continue;
             }
 
@@ -764,48 +822,75 @@ export async function getSimulatedPointsByDate(
 
             point.value = afterC;
             if (point.individual_metrics) {
-              point.individual_metrics.avg_temperature_c = `${afterC.toFixed(1)}°C`;
+              point.individual_metrics.average_temperature_c = `${afterC.toFixed(1)}°C`;
               if (hasRh) {
-                point.individual_metrics.relative_humidity = `${Math.round(rhAfter)}%`;
+                point.individual_metrics.average_relative_humidity_pct = `${Math.round(rhAfter)}%`;
               }
             }
+            console.log('[Simulation 15] evaporative temperature applied', { id: object.id, afterC, deltaT });
           }
         }
 
+        console.log('[Simulation 16] evaporative branch complete', { id: object.id });
         continue; // handled — skip the polygon/footprint path below
       }
 
       // --- Footprint archetypes (vegetation / albedo / shade): polygon path ---
       const polygon = getObjectPolygon(object.geometry);
-      if (!polygon) continue; // these archetypes only act over a drawn polygon
+
+      console.log('[Simulation 17] polygon resolved', { id: object.id, hasPolygon: Boolean(polygon) });
+      if (!polygon) {
+        console.log('[Simulation 18] object skipped: no polygon', { id: object.id });
+        continue;
+      } // these archetypes only act over a drawn polygon
 
       const activeByDate = filterByActiveWindow(
         simulated,
         object.activeFrom,
         object.activeTo,
       );
+      console.log('[Simulation 19] polygon active dates resolved', {
+        id: object.id,
+        dates: Object.keys(activeByDate),
+        pointCount: Object.values(activeByDate).reduce((total, points) => total + points.length, 0),
+      });
       const covered = pointsInsidePolygonByDate(activeByDate, polygon);
+      console.log('[Simulation 20] polygon coverage resolved', {
+        id: object.id,
+        pointCount: Object.values(covered).reduce((total, points) => total + points.length, 0),
+        dates: Object.keys(covered),
+      });
 
       // Resolve params for whichever model this category uses.
       const vegParams = isVegetation ? getCoolingParams(object) : null;
       const albedoParams = isHighAlbedo ? getAlbedoParams(object) : null;
       const shadeParams = isShade ? getShadeParams(object) : null;
-      if (!vegParams && !albedoParams && !shadeParams) continue; // no usable params
+      console.log('[Simulation 21] polygon params resolved', {
+        id: object.id,
+        vegParams,
+        albedoParams,
+        shadeParams,
+      });
+      if (!vegParams && !albedoParams && !shadeParams) {
+        console.log('[Simulation 22] polygon object skipped: missing params', { id: object.id });
+        continue;
+      } // no usable params
 
       for (const points of Object.values(covered)) {
+        console.log('[Simulation 23] covered date points reached', { id: object.id, pointCount: points.length });
         for (const point of points) {
           const beforeC = point.value;
-          const rhBefore = parseFloat(
-            point.individual_metrics?.relative_humidity ?? '',
-          );
+          const rhBefore = parsePercentage(
+            point.individual_metrics?.average_relative_humidity_pct ?? '',
+          ) ?? NaN;
           const hasRh = Number.isFinite(rhBefore);
 
           // Weather ceiling needs the real temperature. On the ΔT layer the
           // point value is 0, so read the temperature shared into the metrics
           // (fall back to a representative hot day if it's missing).
-          const metricTempC = parseFloat(
-            point.individual_metrics?.avg_temperature_c ?? '',
-          );
+          const metricTempC = parseTemperature(
+            point.individual_metrics?.average_temperature_c ?? '',
+          ) ?? NaN;
           const weatherTempC = isChangeInTemp
             ? (Number.isFinite(metricTempC) ? metricTempC : CHANGE_IN_TEMP_ASSUMED_C)
             : beforeC;
@@ -834,6 +919,7 @@ export async function getSimulatedPointsByDate(
 
           if (isChangeInTemp) {
             point.value = deltaT; // ΔT layer: store the signed change directly
+            console.log('[Simulation 24] polygon delta applied', { id: object.id, deltaT });
             continue;
           }
 
@@ -851,15 +937,18 @@ export async function getSimulatedPointsByDate(
 
           point.value = afterC;
           if (point.individual_metrics) {
-            point.individual_metrics.avg_temperature_c = `${afterC.toFixed(1)}°C`;
+            point.individual_metrics.average_temperature_c = `${afterC.toFixed(1)}°C`;
             if (vegParams && hasRh) {
-              point.individual_metrics.relative_humidity = `${Math.round(rhAfter)}%`;
+              point.individual_metrics.average_relative_humidity_pct = `${Math.round(rhAfter)}%`;
             }
           }
+          console.log('[Simulation 25] polygon temperature applied', { id: object.id, afterC, deltaT });
         }
       }
+      console.log('[Simulation 26] polygon branch complete', { id: object.id });
     }
   }
 
+  console.log('[Simulation 27] simulation complete', simulated);
   return simulated;
 }

@@ -370,6 +370,7 @@ const hoverablePolygons = useMemo(() => {
       if (availableMetricLayers.some((metric) => Object.keys(metric)[0] === prevKey)) {
         return prev;
       }
+      
       return availableMetricLayers[0];
     });
   }, [availableMetricLayers, setSelectedMetric]);

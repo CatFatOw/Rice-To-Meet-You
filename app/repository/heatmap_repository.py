@@ -119,6 +119,7 @@ class HeatmapRepository:
 
     WEATHER_TABLE = "market_daily_weather"
     HEAT_INDEX_TABLE = "urban_heat_index_updated"
+    SYNTHETIC_METRICS = {"change_in_temperature"}
 
     # -- schema cache -------------------------------------------------------
     # Reflected schema objects are shared by every repository instance in this
@@ -187,9 +188,9 @@ class HeatmapRepository:
         ("heat_index", " / 100"),
         ("_score", " / 100"),
         ("_index", " / 100"),
-        ("temp", "\u00b0F"),
-        ("feels_like", "\u00b0F"),
-        ("dew_point", "\u00b0F"),
+        ("temp", "\u00b0C"),
+        ("feels_like", "\u00b0C"),
+        ("dew_point", "\u00b0C"),
     )
 
     def __init__(self, session: Session) -> None:
@@ -647,7 +648,6 @@ class HeatmapRepository:
         )
 
         return results
-
     def getDataPointsForCityDateMetric(
         self,
         weather_date: DateLike,
@@ -670,10 +670,11 @@ class HeatmapRepository:
         weather = self._get_table(self.WEATHER_TABLE)
         heat_index = self._get_table(self.HEAT_INDEX_TABLE)
 
-        metric_column, _ = self._resolve_metric_column(
+        metric_column, metric_source = self._resolve_metric_column(
             metric_name, weather, heat_index
         )
-        metric_on_weather = metric_column.table is weather
+        metric_on_weather = metric_source == "w__"
+        metric_is_synthetic = metric_source == "synthetic__"
 
         requested_names: List[str] = []
         if additional_metrics:
@@ -681,7 +682,7 @@ class HeatmapRepository:
                 dict.fromkeys(
                     name
                     for raw_name in additional_metrics
-                    if (name := str(raw_name).strip()) and name != metric_name
+                    if (name := str(raw_name).strip())
                 )
             )
 
@@ -689,7 +690,12 @@ class HeatmapRepository:
         plan: List[Tuple[str, str]] = []
         for name in requested_names:
             column, _ = self._resolve_metric_column(name, weather, heat_index)
-            plan.append(("w" if column.table is weather else "h", name))
+            source = (
+                "s"
+                if name in self.SYNTHETIC_METRICS
+                else "w" if column.table is weather else "h"
+            )
+            plan.append((source, name))
 
         heat_names = [name for source, name in plan if source == "h"]
         needs_weather = metric_on_weather or any(
@@ -700,6 +706,9 @@ class HeatmapRepository:
         weather_index = cls._weather_index
         to_weight = self._to_weight
         format_value = self._format_value
+
+        # This metric is always reported as zero, regardless of source data.
+        force_zero = metric_name == "change_in_temperature"
 
         points: List[HeatmapMetricValue] = []
 
@@ -735,7 +744,11 @@ class HeatmapRepository:
             latitudes = block.latitude
             heat_columns = [block.metrics[name] for name in heat_names]
             memos: List[Dict[Any, str]] = [{} for _ in heat_names]
-            metric_values = None if metric_on_weather else block.metrics[metric_name]
+            metric_values = (
+                None
+                if metric_on_weather or metric_is_synthetic
+                else block.metrics[metric_name]
+            )
 
             # When no requested metric comes from the heat-index table, every
             # point in this market carries an identical individual_metrics
@@ -748,10 +761,15 @@ class HeatmapRepository:
             for i in range(block.count):
                 if metric_on_weather:
                     value = market_weight
+                elif metric_is_synthetic:
+                    value = 0
                 else:
                     value = metric_values[i]
                     if value != value:  # NaN sentinel: the column was NULL
                         continue
+
+                if force_zero:
+                    value = 0
 
                 point: HeatmapMetricValue = {
                     "value": value,
@@ -843,6 +861,8 @@ class HeatmapRepository:
         for table, prefix in ((weather, "w__"), (heat_index, "h__")):
             if name in table.columns:
                 return table.columns[name], prefix
+        if name in self.SYNTHETIC_METRICS:
+            return None, "synthetic__"
         available = sorted(
             c.name
             for t in (weather, heat_index)

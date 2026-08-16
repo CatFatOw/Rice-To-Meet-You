@@ -23,6 +23,8 @@ import type { OverallStatisticsProps, POIStatisticsProps } from '../types/statis
 import useSimulationRunner from '../hooks/useSimulationRunner';
 import { getSimulatedPointsByDate } from '../api/simulation';
 
+
+
 import usePlacedObjects, {
   PLACED_OBJECT_CATEGORIES,
   type BasePlacedObject,
@@ -31,6 +33,7 @@ import usePlacedObjects, {
 } from '../hooks/usePlacedObjects';
 
 import { getHeatmapPointsByCityDateMetric } from '../api/map';
+import { fetchPlacedObjectsForCity } from '../api/tool';
 
 function isPlacedObjectCategory(value: string): value is PlacedObjectCategory {
   return (PLACED_OBJECT_CATEGORIES as readonly string[]).includes(value);
@@ -154,11 +157,31 @@ const SimulationPage: React.FC = () => {
     setSelectedDate(baselineSelectedDate);
     setDisplayedHeatmapPoints(baselineHeatmapPoints);
   };
+  
+  const getBaselinePointsByDate = async (
+    fromDate: string,
+    toDate: string,
+    city: string,
+    metric: string,
+    selectedAdditionalMetrics: string[],
+  ): Promise<Record<string, HeatmapMetricValue[]>> => {
+    const baselinePointsByDate: Record<string, HeatmapMetricValue[]> = {};
+    const dateList = eachDay(fromDate, toDate);
+    for (const date of dateList){
+      const result = await getHeatmapPointsByCityDateMetric(city, date, metric, {
+        additionalMetrics: selectedAdditionalMetrics
+    });
+      baselinePointsByDate[date] = result.points;
+      
+    }
+    return baselinePointsByDate;
+  }
 
   const onStartSimulation = async () => {
     if (!selectedCity || !fromDate || !toDate) return;
 
     const metric = selectedMetricKey ?? Object.keys(availableMetrics[0] ?? {})[0];
+  
     const date = selectedDate ?? baselineSelectedDate;
     if (!date || !metric) return;
 
@@ -166,12 +189,23 @@ const SimulationPage: React.FC = () => {
     //    points into one frame per date for the timeline runner.
     let framesByDate: Record<string, HeatmapMetricValue[]>;
     try {
+
+      const baselinePointsByDate = await getBaselinePointsByDate(fromDate, toDate, selectedCity, metric, selectedAdditionalMetrics)
+      const placedObjects = placedObjectsControls.placedObjects.length > 0
+        ? placedObjectsControls.placedObjects
+        : await fetchPlacedObjectsForCity(date, selectedCity);
+      console.log('[Simulation] placed objects selected', {
+        date,
+        city: selectedCity,
+        count: placedObjects.length,
+      });
       const simulatedPointsByDate = await getSimulatedPointsByDate(
         metric,
-        { [date]: baselineHeatmapPoints },
-        toCategorizedPlacedObjects(placedObjectsControls.placedObjects),
+        baselinePointsByDate,
+        toCategorizedPlacedObjects(placedObjects),
       );
       framesByDate = simulatedPointsByDate;
+      
     } catch (error) {
       console.error('Failed to simulate points by date', error);
       return;
@@ -196,6 +230,10 @@ const SimulationPage: React.FC = () => {
     });
 
   };
+
+
+
+ 
 
 
 
@@ -259,8 +297,9 @@ const SimulationPage: React.FC = () => {
         signal: controller.signal,
       },
     )
-      .then(({ points }) => {
+      .then(({ points}) => {
         if (ignore) return;
+        
         setBaselineHeatmapPoints(points);
       })
       .catch((error) => {
