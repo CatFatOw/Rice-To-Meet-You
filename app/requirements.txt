@@ -1,5 +1,6 @@
 fastapi
 uvicorn[standard]
+orjson
 sqlalchemy
 alembic
 psycopg2-binary

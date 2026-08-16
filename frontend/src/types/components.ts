@@ -181,8 +181,8 @@ export interface HeatmapProps {
   setIsSearching: React.Dispatch<React.SetStateAction<boolean>>;
   showSuggestions: boolean;
   setShowSuggestions: React.Dispatch<React.SetStateAction<boolean>>;
-  selectedMetric: string | null;
-  setSelectedMetric: React.Dispatch<React.SetStateAction<string | null>>;
+  selectedMetric: Record<string, string[]> | null;
+  setSelectedMetric: React.Dispatch<React.SetStateAction<Record<string, string[]> | null>>;
   editingAreaId: string | null;
   setEditingAreaId: React.Dispatch<React.SetStateAction<string | null>>;
   isAreaDragging: boolean;

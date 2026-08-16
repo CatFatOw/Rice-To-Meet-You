@@ -30,3 +30,10 @@ def get_pois_by_city(
         offset=offset,
     )
     return pois
+
+
+@router.get("/get-all-pois", status_code=200)
+def get_all_pois() -> list[dict]:
+    db = SessionLocal()
+    pois = CorePoiGeometryRepository(db).getAll()
+    return pois

@@ -6,7 +6,7 @@ import NavigationBar from '../components/NavigationBar';
 import OverallStatistics from '../components/OverallStatistics';
 import POIStatistics from '../components/POIStatistics';
 import {
-  callMockAllCityPOIs,
+  callAllCityPOIs,
   type CityPOIArea,
   type CityPOIAreaMap,
   type HeatmapMetricValue,
@@ -73,7 +73,7 @@ const ExplorePage: React.FC = () => {
 
   // --- Statistics and UI state ---
   // Controls metric selection and statistics panel data.
-  const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
+  const [selectedMetric, setSelectedMetric] = useState<Record<string, string[]> | null>(null);
   const [containSimulation] = useState(false);
   const [overallStatisticsProps, setOverallStatisticsProps] =
     useState<OverallStatisticsProps>();
@@ -91,7 +91,7 @@ const ExplorePage: React.FC = () => {
 
     const loadMockPOIs = async () => {
       try {
-        const poisByCity = await callMockAllCityPOIs();
+        const poisByCity = await callAllCityPOIs();
         if (isMounted) {
           setCityPOIAreas(poisByCity);
         }
@@ -118,8 +118,8 @@ const ExplorePage: React.FC = () => {
     const controller = new AbortController();
     let ignore = false;
 
-    getHeatmapPointsByCityDateMetric(selectedCity, selectedDate, selectedMetric, {
-      additionalMetrics: [],
+    getHeatmapPointsByCityDateMetric(selectedCity, selectedDate, Object.keys(selectedMetric)[0], {
+      additionalMetrics: Object.values(selectedMetric)[0],
       signal: controller.signal,
     })
       .then(({ points }) => {

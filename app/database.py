@@ -7,6 +7,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
 
+
+
 def _load_environment_from_project_root() -> None:
     """Load values from the repository-level .env file if present."""
     env_path = Path(__file__).resolve().parent.parent / ".env"

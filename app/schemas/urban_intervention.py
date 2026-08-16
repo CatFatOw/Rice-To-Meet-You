@@ -1,6 +1,8 @@
 from datetime import datetime
-from typing import Literal, NotRequired, TypeAlias, TypedDict
+from typing import Literal, TypeAlias
 from uuid import UUID
+
+from typing_extensions import NotRequired, TypedDict
 
 
 # ---------------------------------------------------------------------------

@@ -365,14 +365,22 @@ const hoverablePolygons = useMemo(() => {
     }
 
     setSelectedMetric((prev) => {
-      if (prev && availableMetricLayers.includes(prev)) return prev;
+      if (!prev) return availableMetricLayers[0];
+      const prevKey = Object.keys(prev)[0];
+      if (availableMetricLayers.some((metric) => Object.keys(metric)[0] === prevKey)) {
+        return prev;
+      }
       return availableMetricLayers[0];
     });
   }, [availableMetricLayers, setSelectedMetric]);
 
   // Presentation derived from the active metric: key, display name, layer
   // colour ramp and matching legend gradient.
-  const activeMetricKey = selectedMetric ?? availableMetricLayers[0] ?? 'heat_risk_score';
+  const activeMetricKey = selectedMetric
+    ? Object.keys(selectedMetric)[0]
+    : availableMetricLayers[0]
+      ? Object.keys(availableMetricLayers[0])[0]
+      : 'heat_risk_score';
   const activeMetricWeightOffset = useMemo(
     () => metricWeightOffset(activeMetricKey),
     [activeMetricKey],
@@ -456,7 +464,10 @@ const hoverablePolygons = useMemo(() => {
   // Wraps around at the end of the list; no-op when there's nothing to cycle to.
   const cycleMetric = useCallback(() => {
     if (availableMetricLayers.length <= 1) return;
-    const idx = availableMetricLayers.findIndex((metric) => metric === selectedMetric);
+    const selectedMetricKey = selectedMetric ? Object.keys(selectedMetric)[0] : null;
+    const idx = availableMetricLayers.findIndex(
+      (metric) => Object.keys(metric)[0] === selectedMetricKey,
+    );
     const next =
       availableMetricLayers[(idx + 1 + availableMetricLayers.length) % availableMetricLayers.length];
     setSelectedMetric(next);

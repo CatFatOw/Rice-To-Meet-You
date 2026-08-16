@@ -1,8 +1,15 @@
-from fastapi import FastAPI, HTTPException, Depends, status 
+from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session 
-import database 
+from contextlib import asynccontextmanager
+from repository.heatmap_repository import HeatmapRepository
+from repository.core_poi_geometry_respository import CorePoiGeometryRepository
+
+import redis.asyncio as redis
+from sqlalchemy.orm import Session
+import database
+import asyncio
 import models
+from database import engine
 from routers import (
     core_poi,
     dataset,
@@ -18,8 +25,52 @@ from routers import (
 )
 
 
+import logging
+logging.basicConfig(level=logging.INFO)
 
-app = FastAPI()
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Reflection only - cheap, and it lets the first request skip it.
+    HeatmapRepository.initialize_metadata(engine)
+
+    async def preload_heatmap() -> None:
+        try:
+            await asyncio.to_thread(HeatmapRepository.initialize_tables, engine)
+            logger.info("Heatmap cache ready: %s", HeatmapRepository.cache_stats())
+        except Exception:
+            logger.exception("Heatmap preload failed; falling back to queries")
+
+    async def preload_core_poi() -> None:
+        # Reflection happens inside the thread so a missing/misplaced POI table
+        # degrades to per-request loading instead of blocking startup.
+        try:
+            await asyncio.to_thread(CorePoiGeometryRepository.initialize_tables, engine)
+            logger.info(
+                "Core POI cache ready: %s", CorePoiGeometryRepository.cache_stats()
+            )
+        except Exception:
+            logger.exception("Core POI preload failed; falling back to queries")
+
+    tasks = [
+        asyncio.create_task(preload_heatmap(), name="preload-heatmap"),
+        asyncio.create_task(preload_core_poi(), name="preload-core-poi"),
+    ]
+
+    yield
+
+    # Cancellation cannot interrupt the worker threads; wait them out instead.
+    pending = [task for task in tasks if not task.done()]
+    if pending:
+        logger.info(
+            "Waiting for %d preload task(s) to finish before shutdown", len(pending)
+        )
+        await asyncio.gather(*pending, return_exceptions=True)
+
+
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

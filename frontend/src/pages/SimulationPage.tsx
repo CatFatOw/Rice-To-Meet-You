@@ -8,7 +8,7 @@ import POIStatistics from '../components/POIStatistics';
 import {
   availableDates,
   availableMetrics,
-  callMockAllCityPOIs,
+  callAllCityPOIs,
   type CityPOIArea,
   type CityPOIAreaMap,
   type HeatmapMetricValue,
@@ -139,12 +139,15 @@ const SimulationPage: React.FC = () => {
 
   // --- Statistics and UI state ---
   // Controls metric selection and statistics panel data.
-  const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
+  const [selectedMetric, setSelectedMetric] = useState<Record<string, string[]> | null>(null);
   const [overallStatisticsProps, setOverallStatisticsProps] =
     useState<OverallStatisticsProps>();
   const [poiStatisticsProps, setPOIStatisticsProps] = useState<POIStatisticsProps>();
 
   const { runTimeline, stop, isRunning } = useSimulationRunner();
+
+  const selectedMetricKey = selectedMetric ? Object.keys(selectedMetric)[0] : null;
+  const selectedAdditionalMetrics = selectedMetric ? Object.values(selectedMetric)[0] : [];
 
   const onStopSimulation = () => {
     stop();
@@ -155,9 +158,9 @@ const SimulationPage: React.FC = () => {
   const onStartSimulation = async () => {
     if (!selectedCity || !fromDate || !toDate) return;
 
-    const metric = selectedMetric ?? availableMetrics[0];
+    const metric = selectedMetricKey ?? Object.keys(availableMetrics[0] ?? {})[0];
     const date = selectedDate ?? baselineSelectedDate;
-    if (!date) return;
+    if (!date || !metric) return;
 
     // 1. Simulate over the baseline points-by-date, then re-wrap each date's
     //    points into one frame per date for the timeline runner.
@@ -208,7 +211,7 @@ const SimulationPage: React.FC = () => {
 
     const loadMockPOIs = async () => {
       try {
-        const poisByCity = await callMockAllCityPOIs();
+        const poisByCity = await callAllCityPOIs();
         if (isMounted) {
           setCityPOIAreas(poisByCity);
         }
@@ -238,7 +241,7 @@ const SimulationPage: React.FC = () => {
   // --- Update heatmap visualization ---
   // Load the current city/date/metric slice from the backend.
   useEffect(() => {
-    if (!selectedCity || !selectedMetric || !selectedDate) {
+    if (!selectedCity || !selectedMetricKey || !selectedDate) {
       setBaselineHeatmapPoints([]);
       setDisplayedHeatmapPoints([]);
       return;
@@ -250,9 +253,9 @@ const SimulationPage: React.FC = () => {
     getHeatmapPointsByCityDateMetric(
       selectedCity,
       selectedDate,
-      selectedMetric,
+      selectedMetricKey,
       {
-        additionalMetrics: [],
+        additionalMetrics: selectedAdditionalMetrics,
         signal: controller.signal,
       },
     )
@@ -271,12 +274,7 @@ const SimulationPage: React.FC = () => {
       ignore = true;
       controller.abort();
     };
-  }, [selectedCity, selectedDate, selectedMetric]);
-
-  useEffect(() => {
-    console.log(displayedHeatmapPoints)
-
-  }, [displayedHeatmapPoints])
+  }, [selectedAdditionalMetrics, selectedCity, selectedDate, selectedMetricKey]);
 
  
 
