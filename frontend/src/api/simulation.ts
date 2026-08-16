@@ -1,6 +1,36 @@
+/**
+ * =============================================================================
+ * Urban heat intervention simulation
+ * =============================================================================
+ *
+ * Estimates how planner-placed cooling interventions change pedestrian-level
+ * temperature (and, where relevant, relative humidity) across a heatmap of
+ * point readings grouped by date.
+ *
+ * Four intervention archetypes are modelled, each with its own physics:
+ *   1. Vegetation        — latent (transpiration) + shade cooling over a polygon
+ *   2. High-albedo surface — reflects more solar over a polygon
+ *   3. Shade structure   — blocks the direct solar beam over a polygon
+ *   4. Evaporative/water — misting/fountain plume from a point source
+ *
+ * Shared shape of every model:
+ *   - A weather-derived ceiling ΔT_max (the most cooling physically available
+ *     under the current conditions).
+ *   - A dimensionless intensity in [0, 1] derived from the planner's inputs.
+ *   - deltaT = ΔT_max × intensity, applied to the initial temperature.
+ *
+ * Sign convention (IMPORTANT): every model returns `finalTemp` plus a SIGNED
+ * `deltaT`, where negative means cooling. The internal `deltaT` variable used
+ * before the return is the positive magnitude; the returned field negates it.
+ *
+ * The public entry point is `getSimulatedPointsByDate`, which applies every
+ * placed object to a cloned copy of the readings and returns the result.
+ */
+
 import type { HeatmapPointsByDate, HeatmapMetricValue } from '../types/heatmap';
-import type { BasePlacedObjectCategorized } from '../hooks/usePlacedObjects';
+import type { BasePlacedObject, BasePlacedObjectCategorized } from '../hooks/usePlacedObjects';
 import type { Polygon } from '../types/heatmap';
+import { parseTemperature, parsePercentage } from '../services/parsers';
 
 // --- Vegetation cooling model ------------------------------------------------
 // Estimates the pedestrian-level temperature drop from vegetation via two
@@ -37,31 +67,49 @@ const LAI_EXTINCTION = 0.5;         // Beer–Lambert extinction coefficient in 
 const DELTA_T_MAX_ANCHOR = 5;       // °C: cooling asymptote under hot-dry-sunny-calm conditions
 const VPD_REF = 4.5;                // kPa: peak-case VPD used to normalize f_VPD (38 °C / 28% RH ≈ 4.8)
 
-/** Saturation vapor pressure (kPa) from air temperature (°C) — Tetens. */
+/**
+ * Saturation vapor pressure (kPa) from air temperature (°C) — Tetens equation.
+ * The maximum water vapor the air can hold at the given temperature; rises
+ * steeply with heat, which is why hot air has more evaporative "room".
+ */
 export function saturationVaporPressure(temperatureC: number): number {
   return 0.6108 * Math.exp((17.27 * temperatureC) / (temperatureC + 237.3));
 }
 
-/** Vapor pressure deficit (kPa) from temperature (°C) and RH (0–100). */
+/**
+ * Vapor pressure deficit (kPa) — the gap between how much moisture the air
+ * could hold and how much it currently holds. Larger VPD = drier air = more
+ * evaporative cooling potential.
+ *
+ * @param temperatureC     air temperature (°C)
+ * @param relativeHumidity relative humidity (0–100)
+ */
 export function vaporPressureDeficit(temperatureC: number, relativeHumidity: number): number {
   return saturationVaporPressure(temperatureC) * (1 - relativeHumidity / 100);
 }
 
 /**
- * Weather-dependent cooling ceiling:
+ * Weather-dependent cooling ceiling for vegetation:
  *   ΔT_max = 5 °C × f_VPD × f_solar × f_wind
+ *
+ * f_VPD scales the anchor by how dry the air is (capped at 1 at the reference
+ * VPD); f_solar and f_wind default to 1 unless real data is supplied.
  */
 export function deltaTMaxFromWeather(weather: WeatherParams): number {
   const { temperatureC, relativeHumidity, fSolar = 1, fWind = 1 } = weather;
 
   const vpd = vaporPressureDeficit(temperatureC, relativeHumidity);
-  const fVPD = Math.min(vpd / VPD_REF, 1.0);
+  const fVPD = Math.min(vpd / VPD_REF, 1.0); // normalize to [0, 1] against the peak-case VPD
 
   return DELTA_T_MAX_ANCHOR * fVPD * fSolar * fWind;
 }
 
 /**
  * Compute vegetation cooling for one cell.
+ *
+ * @param initialTemp starting temperature at the cell (°C)
+ * @param params      planner-chosen vegetation inputs
+ * @param deltaTMax   either a fixed ceiling (°C) or WeatherParams to derive one
  * @returns { finalTemp, deltaT } — deltaT is the SIGNED change (negative = cooling).
  */
 export function vegetationCooling(
@@ -71,28 +119,33 @@ export function vegetationCooling(
 ): { finalTemp: number; deltaT: number } {
   const { vegetatedCoverage, canopyFraction, lai, waterFactor } = params;
 
+  // Accept a precomputed ceiling, or derive it from weather.
   const deltaTMaxC =
     typeof deltaTMax === 'number' ? deltaTMax : deltaTMaxFromWeather(deltaTMax);
 
   // Step 1 — saturating LAI transform (Beer–Lambert), not linear.
+  // Extra leaf area gives diminishing returns as the canopy closes.
   const fLAI = 1 - Math.exp(-LAI_EXTINCTION * lai);
 
   // Step 2 — the two cooling channels.
+  // Latent: transpiration, gated fully by water availability.
   const latent = vegetatedCoverage * fLAI * waterFactor;
+  // Shade: canopy blocking sun; partly survives drought (leaves still cast shade
+  // even when transpiration stops), controlled by SHADE_DROUGHT_SURVIVAL.
   const shade =
     vegetatedCoverage *
     canopyFraction *
     fLAI *
     (SHADE_DROUGHT_SURVIVAL + (1 - SHADE_DROUGHT_SURVIVAL) * waterFactor);
 
-  // Step 3 — combine into normalized intensity (0–1).
+  // Step 3 — combine into normalized intensity (0–1) via the channel weights.
   const intensity = WEIGHT_LATENT * latent + WEIGHT_SHADE * shade;
 
   // Step 4 — scale to a temperature drop, then apply to the initial temp.
-  const deltaT = deltaTMaxC * intensity;
+  const deltaT = deltaTMaxC * intensity; // positive magnitude
   const finalTemp = initialTemp - deltaT;
 
-  return { finalTemp, deltaT: -deltaT };
+  return { finalTemp, deltaT: -deltaT }; // negate so callers see cooling as < 0
 }
 
 // Simulated network latency so callers can exercise their loading states.
@@ -122,7 +175,12 @@ const SOLAR_PROXY_T_LOW = 20;         // °C at/below which thermal loading ≈ 
 const SOLAR_PROXY_T_HIGH = 38;        // °C at/above which thermal loading ≈ peak
 
 /**
- * Weather ceiling: ΔT_max = 4 °C × f_thermal × f_solar.
+ * Weather ceiling for high-albedo surfaces:
+ *   ΔT_max = 4 °C × f_thermal × f_solar
+ *
+ * There is no VPD term (reflectance doesn't depend on humidity); instead a
+ * temperature-based f_thermal ramps linearly from 0 at SOLAR_PROXY_T_LOW to 1
+ * at SOLAR_PROXY_T_HIGH, standing in for solar loading.
  */
 export function deltaTMaxFromWeatherAlbedo(weather: AlbedoWeatherParams): number {
   const { temperatureC, fSolar = 1 } = weather;
@@ -131,13 +189,17 @@ export function deltaTMaxFromWeatherAlbedo(weather: AlbedoWeatherParams): number
   const fThermal = Math.min(
     Math.max((temperatureC - SOLAR_PROXY_T_LOW) / span, 0),
     1,
-  );
+  ); // clamp the linear ramp to [0, 1]
 
   return DELTA_T_MAX_ANCHOR_ALBEDO * fThermal * fSolar;
 }
 
 /**
  * Compute high-albedo surface cooling for one cell.
+ *
+ * @param initialTemp starting temperature at the cell (°C)
+ * @param params      planner-chosen albedo inputs
+ * @param deltaTMax   either a fixed ceiling (°C) or AlbedoWeatherParams
  * @returns { finalTemp, deltaT } — deltaT is the SIGNED change (negative = cooling).
  */
 export function albedoCooling(
@@ -167,11 +229,13 @@ export function albedoCooling(
 // --- Shade structure cooling model ------------------------------------------
 // Blocks the direct solar beam over a footprint (no evaporation).
 
+/** Planner-chosen inputs for a shade structure. All fractions are 0–1. */
 export interface ShadeCoolingParams {
   opacity: number;         // 0–1  fraction of the direct beam blocked
   shadedFootprint: number; // 0–1  shaded ground as a fraction of the cell (linear)
 }
 
+/** Environmental inputs — shade cooling scales with SOLAR loading (temp proxy). */
 export interface ShadeWeatherParams {
   temperatureC: number;    // °C   air temperature (solar-loading proxy)
   fSolar?: number;         // 0–1  insolation multiplier (default 1)
@@ -179,11 +243,16 @@ export interface ShadeWeatherParams {
 
 const DELTA_T_MAX_ANCHOR_SHADE = 5;  // °C: pedestrian-air cooling asymptote
 const DIRECT_BEAM_FRACTION = 0.85;   // max blockable share of global irradiance
-const SHADE_SOLAR_T_LOW = 20;
-const SHADE_SOLAR_T_HIGH = 38;
+const SHADE_SOLAR_T_LOW = 20;        // °C floor of the solar-proxy ramp
+const SHADE_SOLAR_T_HIGH = 38;       // °C ceiling of the solar-proxy ramp
 
 /**
- * Weather ceiling: ΔT_max = 5 °C × f_thermal × f_solar × f_direct.
+ * Weather ceiling for shade structures:
+ *   ΔT_max = 5 °C × f_thermal × f_solar × f_direct
+ *
+ * Like albedo, uses a temperature-based solar proxy (f_thermal). The extra
+ * DIRECT_BEAM_FRACTION caps the effect at the blockable (direct-beam) share of
+ * irradiance — diffuse sky radiation still reaches the ground under shade.
  */
 export function deltaTMaxFromWeatherShade(weather: ShadeWeatherParams): number {
   const { temperatureC, fSolar = 1 } = weather;
@@ -194,6 +263,11 @@ export function deltaTMaxFromWeatherShade(weather: ShadeWeatherParams): number {
 
 /**
  * Compute shade-structure cooling for one cell.
+ *
+ * @param initialTemp starting temperature at the cell (°C)
+ * @param params      planner-chosen shade inputs
+ * @param deltaTMax   either a fixed ceiling (°C) or ShadeWeatherParams. The
+ *                    numeric default already folds in DIRECT_BEAM_FRACTION.
  * @returns { finalTemp, deltaT } — deltaT is the SIGNED change (negative = cooling).
  */
 export function shadeCooling(
@@ -220,12 +294,14 @@ export function shadeCooling(
 // Misting + fountains: latent heat from evaporating free water. VPD-gated, and a
 // point-source plume that falls off with distance.
 
+/** Planner-chosen inputs for an evaporative source (misting/fountain). */
 export interface EvaporativeCoolingParams {
   evapRateLpm: number;      // L/min  effective evaporation
   coverageRadiusM: number;  // m      plume reach — distance-falloff scale
   activeFraction: number;   // 0–1    duty cycle
 }
 
+/** Environmental inputs — evaporation is VPD-gated and wind-dispersed. */
 export interface EvaporativeWeatherParams {
   temperatureC: number;      // °C
   relativeHumidity: number;  // 0–100  drives VPD, like ET
@@ -239,7 +315,11 @@ const DELTA_T_MAX_ANCHOR_EVAP = 8;       // °C: peak-source cooling under hot, 
 const VPD_REF_EVAP = 4.5;                // kPa: peak-case VPD normalizer
 
 /**
- * Weather ceiling: ΔT_max = 8 °C × f_VPD × f_wind.
+ * Weather ceiling for evaporative sources:
+ *   ΔT_max = 8 °C × f_VPD × f_wind
+ *
+ * VPD-gated like vegetation's latent channel; wind lowers the ceiling by
+ * dispersing the plume before it can cool the air.
  */
 export function deltaTMaxFromWeatherEvap(weather: EvaporativeWeatherParams): number {
   const { temperatureC, relativeHumidity, fWind = 1 } = weather;
@@ -250,6 +330,15 @@ export function deltaTMaxFromWeatherEvap(weather: EvaporativeWeatherParams): num
 
 /**
  * Evaporative cooling at a point `distanceM` from the source.
+ *
+ * Combines a source-strength term (how much latent power the emitter provides,
+ * saturating at EVAP_POWER_REF_W) with a linear distance falloff and a duty
+ * cycle. Points beyond the coverage radius receive nothing.
+ *
+ * @param initialTemp starting temperature at the point (°C)
+ * @param params      planner-chosen evaporative inputs
+ * @param distanceM   distance from the source to this point (m)
+ * @param deltaTMax   either a fixed ceiling (°C) or EvaporativeWeatherParams
  * @returns { finalTemp, deltaT } — deltaT is the SIGNED change (negative = cooling).
  */
 export function evaporativeCooling(
@@ -266,13 +355,13 @@ export function evaporativeCooling(
   // Latent cooling power: P = ṁ · L_v  (kg/s × J/kg = W).
   const massRateKgS = (Math.max(evapRateLpm, 0) * WATER_DENSITY_KG_PER_L) / 60;
   const powerW = massRateKgS * LATENT_HEAT_VAPORIZATION;
-  const iSource = Math.min(powerW / EVAP_POWER_REF_W, 1);
+  const iSource = Math.min(powerW / EVAP_POWER_REF_W, 1); // normalize to [0, 1]
 
   // Linear plume falloff: full at the source, 0 at/beyond the coverage radius.
   const r = Math.max(distanceM, 0);
   const falloff = coverageRadiusM > 0 ? Math.max(1 - r / coverageRadiusM, 0) : 0;
 
-  const duty = Math.min(Math.max(activeFraction, 0), 1);
+  const duty = Math.min(Math.max(activeFraction, 0), 1); // fraction of time active
 
   const deltaT = deltaTMaxC * iSource * duty * falloff;
   const finalTemp = initialTemp - deltaT;
@@ -280,7 +369,9 @@ export function evaporativeCooling(
 }
 
 // --- Polygon spatial filtering ----------------------------------------------
+// Helpers to decide which readings fall inside a drawn intervention footprint.
 
+/** Axis-aligned lon/lat extent of a polygon — a cheap pre-filter. */
 type BoundingBox = {
   minLon: number;
   minLat: number;
@@ -288,6 +379,7 @@ type BoundingBox = {
   maxLat: number;
 };
 
+/** Compute the bounding box (min/max lon & lat) enclosing a polygon's vertices. */
 function getBoundingBox(polygon: Polygon): BoundingBox {
   let minLon = Infinity;
   let minLat = Infinity;
@@ -304,6 +396,7 @@ function getBoundingBox(polygon: Polygon): BoundingBox {
   return { minLon, minLat, maxLon, maxLat };
 }
 
+/** Fast rejection test: is (lon, lat) within the polygon's bounding box? */
 function isInsideBoundingBox(
   lon: number,
   lat: number,
@@ -317,6 +410,10 @@ function isInsideBoundingBox(
   );
 }
 
+/**
+ * Ray-casting point-in-polygon test. Counts how many polygon edges a horizontal
+ * ray from the point crosses; an odd count means the point is inside.
+ */
 function pointInPolygon(
   lon: number,
   lat: number,
@@ -324,6 +421,7 @@ function pointInPolygon(
 ): boolean {
   let inside = false;
 
+  // Walk each edge (i, j) where j trails i by one, wrapping at the end.
   for (
     let i = 0, j = polygon.length - 1;
     i < polygon.length;
@@ -332,19 +430,23 @@ function pointInPolygon(
     const [xi, yi] = polygon[i];
     const [xj, yj] = polygon[j];
 
+    // Edge straddles the ray's latitude AND the crossing is to the point's right.
     const crossesRay =
       yi > lat !== yj > lat &&
       lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi;
 
     if (crossesRay) {
-      inside = !inside;
+      inside = !inside; // toggle on each crossing
     }
   }
 
   return inside;
 }
 
-/** True if a single reading's coordinates fall inside the polygon. */
+/**
+ * True if a single reading's coordinates fall inside the polygon. Applies the
+ * cheap bounding-box check first, then the exact ray-cast test.
+ */
 function isPointInsidePolygon(
   point: HeatmapMetricValue,
   polygon: Polygon,
@@ -352,30 +454,33 @@ function isPointInsidePolygon(
 ): boolean {
   const [lon, lat] = point.location_coordinates;
   if (!isInsideBoundingBox(lon, lat, bbox)) {
-    return false;
+    return false; // outside the box → cannot be inside the polygon
   }
   return pointInPolygon(lon, lat, polygon);
 }
 
-/** Approx great-circle distance in meters (equirectangular; fine at city scale). */
+/**
+ * Approx great-circle distance in meters (equirectangular; fine at city scale).
+ * Projects lon/lat to local meters using the mean latitude, then Pythagoras.
+ */
 function distanceMeters(a: [number, number], b: [number, number]): number {
   const [lon1, lat1] = a;
   const [lon2, lat2] = b;
   const midLat = ((lat1 + lat2) / 2) * (Math.PI / 180);
-  const dx = (lon2 - lon1) * Math.cos(midLat) * 111320;
-  const dy = (lat2 - lat1) * 110540;
+  const dx = (lon2 - lon1) * Math.cos(midLat) * 111320; // meters per degree lon at this lat
+  const dy = (lat2 - lat1) * 110540;                    // meters per degree lat
   return Math.hypot(dx, dy);
 }
 
 /**
  * Filter a by-date reading set down to the points that fall inside `polygon`,
- * preserving the by-date grouping.
+ * preserving the by-date grouping. Dates with no interior points are dropped.
  */
 function pointsInsidePolygonByDate(
   pointsByDate: HeatmapPointsByDate,
   polygon: Polygon,
 ): HeatmapPointsByDate {
-  const bbox = getBoundingBox(polygon);
+  const bbox = getBoundingBox(polygon); // compute once, reuse across all points
   const result: HeatmapPointsByDate = {};
 
   for (const [date, points] of Object.entries(pointsByDate)) {
@@ -391,8 +496,10 @@ function pointsInsidePolygonByDate(
   return result;
 }
 
-/** Source anchor for radius-based archetypes: a point's coords, or the centroid
- *  of a line/polygon. */
+/**
+ * Source anchor for radius-based archetypes: a point's coords, or the centroid
+ * of a line/polygon. Used to locate the emitter for evaporative sources.
+ */
 function geometryAnchor(geometry: {
   kind?: string;
   longitude?: number;
@@ -400,9 +507,11 @@ function geometryAnchor(geometry: {
   coordinates?: [number, number][];
   ring?: Polygon;
 }): [number, number] {
+  // A point geometry is its own anchor.
   if (geometry.kind === 'point' && geometry.longitude != null && geometry.latitude != null) {
     return [geometry.longitude, geometry.latitude];
   }
+  // Otherwise average the vertices (line coordinates or polygon ring).
   const pts = geometry.kind === 'line' ? geometry.coordinates : geometry.ring;
   if (!pts || pts.length === 0) return [0, 0];
   const total = pts.reduce(
@@ -414,6 +523,8 @@ function geometryAnchor(geometry: {
 
 
 // --- Assumptions about the placed-object + reading shapes -------------------
+// Category keys and param mappings that bridge the toolbox's placed objects to
+// the physics models above. Adjust the *_CATEGORY strings to match your toolbox.
 
 /** Archetype key whose objects cool via ET/shade. */
 const VEGETATION_CATEGORY = 'Vegetation';
@@ -451,7 +562,10 @@ function getObjectPolygon(object: { kind?: string; ring?: Polygon }): Polygon | 
   return object.kind === 'polygon' && object.ring ? object.ring : null;
 }
 
-/** Map a placed object's toolbox params onto the vegetation model's inputs. */
+/**
+ * Map a placed object's toolbox params onto the vegetation model's inputs.
+ * Returns null if any required field is missing, so callers can skip the object.
+ */
 function getCoolingParams(
   object: { params?: PlacedVegetationParams },
 ): VegetationCoolingParams | null {
@@ -467,6 +581,10 @@ function getCoolingParams(
   };
 }
 
+/**
+ * Map a placed object's params onto the albedo model's inputs.
+ * Returns null if required fields are missing.
+ */
 function getAlbedoParams(
   object: { params?: { deltaAlbedo?: number; coverPct?: number } },
 ): AlbedoCoolingParams | null {
@@ -475,7 +593,10 @@ function getAlbedoParams(
   return { deltaAlbedo: p.deltaAlbedo, areaCoverage: p.coverPct };
 }
 
-/** Map a placed shade object's params onto the shade model's inputs. */
+/**
+ * Map a placed shade object's params onto the shade model's inputs.
+ * Returns null if required fields are missing.
+ */
 function getShadeParams(
   object: { params?: { opacity?: number; footprintFraction?: number } },
 ): ShadeCoolingParams | null {
@@ -484,6 +605,10 @@ function getShadeParams(
   return { opacity: p.opacity, shadedFootprint: p.footprintFraction };
 }
 
+/**
+ * Map a placed object's params onto the evaporative model's inputs.
+ * Returns null if required fields are missing.
+ */
 function getEvaporativeParams(
   object: {
     params?: { evapRateLpm?: number; coverageRadiusM?: number; activeFraction?: number };
@@ -502,9 +627,14 @@ function getEvaporativeParams(
 
 /** This model only moves temperature; leave other metrics untouched. */
 function metricIsTemperature(metric: string): boolean {
-  return /temp/i.test(metric);
+  return metric === 'average_temperature_c' || metric === 'change_in_temperature';
 }
 
+/**
+ * Keep only the dates that fall within an intervention's [activeFrom, activeTo]
+ * window (either bound optional → open-ended on that side). The point arrays are
+ * kept by reference so downstream mutations propagate back to `simulated`.
+ */
 function filterByActiveWindow(
   pointsByDate: HeatmapPointsByDate,
   activeFrom?: string,
@@ -525,29 +655,62 @@ function filterByActiveWindow(
 
 /**
  * Run the intervention simulation for one metric.
- * Works on a clone so the caller's baseline pointsByDate is never mutated.
- */
-/**
- * Run the intervention simulation for one metric.
- * Works on a clone so the caller's baseline pointsByDate is never mutated.
+ *
+ * Deep-clones the input readings, then for every placed object whose category
+ * moves temperature, applies the matching model to the readings inside its
+ * footprint (polygon archetypes) or plume (evaporative) and within its active
+ * date window. Mutates only the clone, so the caller's baseline `pointsByDate`
+ * is never touched.
+ *
+ * Two output modes per point:
+ *   - `change_in_temperature` metric → point.value is set to the signed ΔT.
+ *   - any other temperature metric → point.value becomes the new temperature,
+ *     and (for vegetation/evaporative only) relative_humidity is bumped up.
+ *
+ * @param metric        the heatmap metric being simulated
+ * @param pointsByDate  baseline readings grouped by date (not mutated)
+ * @param placedObjects planner's interventions, grouped by archetype category
+ * @returns a new by-date reading set with the interventions applied
  */
 export async function getSimulatedPointsByDate(
   metric: string,
   pointsByDate: HeatmapPointsByDate,
   placedObjects: BasePlacedObjectCategorized,
 ): Promise<HeatmapPointsByDate> {
-  await delay(MOCK_LATENCY_MS);
+  console.log('[Simulation 00] entered getSimulatedPointsByDate', {
+    metric,
+    dates: Object.keys(pointsByDate),
+    placedObjectCategories: Object.keys(placedObjects),
+  });
+  await delay(MOCK_LATENCY_MS); // simulate network latency for loading states
 
+  console.log('[Simulation 01] delay complete');
+
+  // Deep clone so we never mutate the caller's baseline readings.
   const simulated: HeatmapPointsByDate = Object.fromEntries(
     Object.entries(pointsByDate).map(([date, points]) => [
       date,
       points.map((p) => structuredClone(p)),
     ]),
   );
+  console.log('[Simulation 02] baseline cloned', {
+    pointsByDate: Object.fromEntries(
+      Object.entries(simulated).map(([date, points]) => [date, points.length]),
+    ),
+  });
   const affectsTemperature = metricIsTemperature(metric);
   const isChangeInTemp = metric === 'change_in_temperature';
+  console.log('[Simulation 03] metric flags resolved', {
+    affectsTemperature,
+    isChangeInTemp,
+  });
 
   for (const [category, objects] of Object.entries(placedObjects)) {
+    console.log('[Simulation 04] category reached', {
+      category,
+      objectCount: objects.length,
+    });
+    // Route each category to its model.
     const isVegetation = category === VEGETATION_CATEGORY;
     const isHighAlbedo = category === HIGH_ALBEDO_CATEGORY;
     const isShade = category === SHADE_CATEGORY;
@@ -558,44 +721,81 @@ export async function getSimulatedPointsByDate(
       (!isVegetation && !isHighAlbedo && !isShade && !isEvaporative) ||
       !affectsTemperature
     ) {
+      console.log('[Simulation 05] category skipped', {
+        category,
+        isVegetation,
+        isHighAlbedo,
+        isShade,
+        isEvaporative,
+        affectsTemperature,
+      });
       continue;
     }
 
     for (const object of objects) {
+      console.log('[Simulation 06] object reached', {
+        category,
+        id: object.id,
+        type: object.type,
+        activeFrom: object.activeFrom,
+        activeTo: object.activeTo,
+        geometryKind: object.geometry?.kind,
+        params: object.params,
+      });
       // --- Evaporative: point-source plume, no polygon. Gather points within
       //     the coverage radius of the source and apply a distance falloff. ---
       if (isEvaporative) {
+        console.log('[Simulation 07] evaporative branch reached', { id: object.id });
         const evapParams = getEvaporativeParams(object);
-        if (!evapParams) continue;
+        console.log('[Simulation 08] evaporative params resolved', { id: object.id, evapParams });
+        if (!evapParams) {
+          console.log('[Simulation 09] evaporative object skipped: missing params', { id: object.id });
+          continue;
+        }
 
         const source = geometryAnchor(object.geometry);
+        console.log('[Simulation 10] evaporative source resolved', { id: object.id, source });
         const activeByDate = filterByActiveWindow(
           simulated,
           object.activeFrom,
           object.activeTo,
         );
+        console.log('[Simulation 11] evaporative active dates resolved', {
+          id: object.id,
+          dates: Object.keys(activeByDate),
+          pointCount: Object.values(activeByDate).reduce((total, points) => total + points.length, 0),
+        });
 
         for (const points of Object.values(activeByDate)) {
+          console.log('[Simulation 12] evaporative date points reached', { id: object.id, pointCount: points.length });
           for (const point of points) {
             const dist = distanceMeters(source, point.location_coordinates);
             if (dist > evapParams.coverageRadiusM) continue; // outside the plume
 
+            console.log('[Simulation 13] evaporative point covered', {
+              id: object.id,
+              location: point.location_coordinates,
+              distanceM: dist,
+            });
+
             const beforeC = point.value;
-            const rhBefore = parseFloat(
-              point.individual_metrics?.relative_humidity ?? '',
-            );
+            const rhBefore = parsePercentage(
+              point.individual_metrics?.average_relative_humidity_pct ?? '',
+            ) ?? NaN;
             const hasRh = Number.isFinite(rhBefore);
 
             // Weather ceiling needs the real temperature. On the ΔT layer the
             // point value is 0, so read the temperature shared into the metrics
             // (fall back to a representative hot day if it's missing).
-            const metricTempC = parseFloat(
-              point.individual_metrics?.avg_temperature_c ?? '',
-            );
+            const metricTempC = parseTemperature(
+              point.individual_metrics?.average_temperature_c ?? '',
+            ) ?? NaN;
+
             const weatherTempC = isChangeInTemp
               ? (Number.isFinite(metricTempC) ? metricTempC : CHANGE_IN_TEMP_ASSUMED_C)
               : beforeC;
 
+            // Use the weather-aware overload when humidity is available.
             const { finalTemp: afterC, deltaT } = hasRh
               ? evaporativeCooling(beforeC, evapParams, dist, {
                   temperatureC: weatherTempC,
@@ -604,11 +804,13 @@ export async function getSimulatedPointsByDate(
               : evaporativeCooling(beforeC, evapParams, dist);
 
             if (isChangeInTemp) {
-              point.value = deltaT;
+              point.value = deltaT; // ΔT layer: store the signed change directly
+              console.log('[Simulation 14] evaporative delta applied', { id: object.id, deltaT });
               continue;
             }
 
             // Evaporation adds vapor → RH rises (same coupling as vegetation).
+            // Conserve vapor pressure: RH scales by the saturation-pressure ratio.
             const rhAfter = hasRh
               ? Math.min(
                   100,
@@ -620,48 +822,75 @@ export async function getSimulatedPointsByDate(
 
             point.value = afterC;
             if (point.individual_metrics) {
-              point.individual_metrics.avg_temperature_c = `${afterC.toFixed(1)}°C`;
+              point.individual_metrics.average_temperature_c = `${afterC.toFixed(1)}°C`;
               if (hasRh) {
-                point.individual_metrics.relative_humidity = `${Math.round(rhAfter)}%`;
+                point.individual_metrics.average_relative_humidity_pct = `${Math.round(rhAfter)}%`;
               }
             }
+            console.log('[Simulation 15] evaporative temperature applied', { id: object.id, afterC, deltaT });
           }
         }
 
+        console.log('[Simulation 16] evaporative branch complete', { id: object.id });
         continue; // handled — skip the polygon/footprint path below
       }
 
       // --- Footprint archetypes (vegetation / albedo / shade): polygon path ---
       const polygon = getObjectPolygon(object.geometry);
-      if (!polygon) continue;
+
+      console.log('[Simulation 17] polygon resolved', { id: object.id, hasPolygon: Boolean(polygon) });
+      if (!polygon) {
+        console.log('[Simulation 18] object skipped: no polygon', { id: object.id });
+        continue;
+      } // these archetypes only act over a drawn polygon
 
       const activeByDate = filterByActiveWindow(
         simulated,
         object.activeFrom,
         object.activeTo,
       );
+      console.log('[Simulation 19] polygon active dates resolved', {
+        id: object.id,
+        dates: Object.keys(activeByDate),
+        pointCount: Object.values(activeByDate).reduce((total, points) => total + points.length, 0),
+      });
       const covered = pointsInsidePolygonByDate(activeByDate, polygon);
+      console.log('[Simulation 20] polygon coverage resolved', {
+        id: object.id,
+        pointCount: Object.values(covered).reduce((total, points) => total + points.length, 0),
+        dates: Object.keys(covered),
+      });
 
       // Resolve params for whichever model this category uses.
       const vegParams = isVegetation ? getCoolingParams(object) : null;
       const albedoParams = isHighAlbedo ? getAlbedoParams(object) : null;
       const shadeParams = isShade ? getShadeParams(object) : null;
-      if (!vegParams && !albedoParams && !shadeParams) continue;
+      console.log('[Simulation 21] polygon params resolved', {
+        id: object.id,
+        vegParams,
+        albedoParams,
+        shadeParams,
+      });
+      if (!vegParams && !albedoParams && !shadeParams) {
+        console.log('[Simulation 22] polygon object skipped: missing params', { id: object.id });
+        continue;
+      } // no usable params
 
       for (const points of Object.values(covered)) {
+        console.log('[Simulation 23] covered date points reached', { id: object.id, pointCount: points.length });
         for (const point of points) {
           const beforeC = point.value;
-          const rhBefore = parseFloat(
-            point.individual_metrics?.relative_humidity ?? '',
-          );
+          const rhBefore = parsePercentage(
+            point.individual_metrics?.average_relative_humidity_pct ?? '',
+          ) ?? NaN;
           const hasRh = Number.isFinite(rhBefore);
 
           // Weather ceiling needs the real temperature. On the ΔT layer the
           // point value is 0, so read the temperature shared into the metrics
           // (fall back to a representative hot day if it's missing).
-          const metricTempC = parseFloat(
-            point.individual_metrics?.avg_temperature_c ?? '',
-          );
+          const metricTempC = parseTemperature(
+            point.individual_metrics?.average_temperature_c ?? '',
+          ) ?? NaN;
           const weatherTempC = isChangeInTemp
             ? (Number.isFinite(metricTempC) ? metricTempC : CHANGE_IN_TEMP_ASSUMED_C)
             : beforeC;
@@ -669,6 +898,7 @@ export async function getSimulatedPointsByDate(
           let afterC: number;
           let deltaT: number;
 
+          // Dispatch to the model matching this object's category.
           if (vegParams) {
             ({ finalTemp: afterC, deltaT } = hasRh
               ? vegetationCooling(beforeC, vegParams, {
@@ -688,7 +918,8 @@ export async function getSimulatedPointsByDate(
           }
 
           if (isChangeInTemp) {
-            point.value = deltaT;
+            point.value = deltaT; // ΔT layer: store the signed change directly
+            console.log('[Simulation 24] polygon delta applied', { id: object.id, deltaT });
             continue;
           }
 
@@ -706,15 +937,163 @@ export async function getSimulatedPointsByDate(
 
           point.value = afterC;
           if (point.individual_metrics) {
-            point.individual_metrics.avg_temperature_c = `${afterC.toFixed(1)}°C`;
+            point.individual_metrics.average_temperature_c = `${afterC.toFixed(1)}°C`;
             if (vegParams && hasRh) {
-              point.individual_metrics.relative_humidity = `${Math.round(rhAfter)}%`;
+              point.individual_metrics.average_relative_humidity_pct = `${Math.round(rhAfter)}%`;
             }
           }
+          console.log('[Simulation 25] polygon temperature applied', { id: object.id, afterC, deltaT });
         }
       }
+      console.log('[Simulation 26] polygon branch complete', { id: object.id });
     }
   }
 
+  console.log('[Simulation 27] simulation complete', simulated);
   return simulated;
+}
+
+/** The composition model used when several interventions affect one point. */
+export type SimulationMode = 'standard' | 'contextual';
+
+export interface SimulationFeedback {
+  mode: SimulationMode;
+  affectedPoints: number;
+  overlapPoints: number;
+  maxObjectsAtPoint: number;
+  averageCoolingC: number;
+  maxCapacityUsed: number;
+  affectedLocations: string[];
+  overlapLocations: string[];
+  contributingInterventions: string[];
+  interventionsWithoutEffect: string[];
+  contextualInteractions: string[];
+}
+
+export interface DiminishingSimulationResult {
+  pointsByDate: HeatmapPointsByDate;
+  feedback: SimulationFeedback;
+}
+
+const CONTEXTUAL_INTERACTIONS: Array<{ categories: [string, string]; factor: number; label: string }> = [
+  { categories: [VEGETATION_CATEGORY, EVAPORATIVE_CATEGORY], factor: 1.25, label: 'Vegetation + water: irrigation and evapotranspiration reinforce cooling (+25%).' },
+  { categories: [VEGETATION_CATEGORY, HIGH_ALBEDO_CATEGORY], factor: 0.82, label: 'Vegetation + reflective concrete: overlapping benefits are less complementary (-18%).' },
+  { categories: [VEGETATION_CATEGORY, SHADE_CATEGORY], factor: 0.86, label: 'Vegetation + shade: shared solar blocking produces partial redundancy (-14%).' },
+  { categories: [SHADE_CATEGORY, EVAPORATIVE_CATEGORY], factor: 0.92, label: 'Shade + water: lower airflow modestly limits the evaporative plume (-8%).' },
+];
+
+function clampSimulation(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function isActiveOnDate(object: BasePlacedObject, date: string): boolean {
+  const time = new Date(date).getTime();
+  return time >= (object.activeFrom ? new Date(object.activeFrom).getTime() : -Infinity)
+    && time <= (object.activeTo ? new Date(object.activeTo).getTime() : Infinity);
+}
+
+function coolingCeilingForPoint(temperatureC: number, relativeHumidity?: number): number {
+  const vegetation = relativeHumidity == null ? DELTA_T_MAX_ANCHOR
+    : deltaTMaxFromWeather({ temperatureC, relativeHumidity });
+  const evaporative = relativeHumidity == null ? DELTA_T_MAX_ANCHOR_EVAP
+    : deltaTMaxFromWeatherEvap({ temperatureC, relativeHumidity });
+  return Math.max(vegetation, evaporative, deltaTMaxFromWeatherAlbedo({ temperatureC }), deltaTMaxFromWeatherShade({ temperatureC }), 0.1);
+}
+
+function individualCooling(
+  category: string,
+  object: BasePlacedObject,
+  point: HeatmapMetricValue,
+  temperatureC: number,
+  relativeHumidity?: number,
+): number | null {
+  if (category === EVAPORATIVE_CATEGORY) {
+    const params = getEvaporativeParams(object);
+    if (!params) return null;
+    const distance = distanceMeters(geometryAnchor(object.geometry), point.location_coordinates);
+    if (distance > params.coverageRadiusM) return null;
+    const result = relativeHumidity == null
+      ? evaporativeCooling(temperatureC, params, distance)
+      : evaporativeCooling(temperatureC, params, distance, { temperatureC, relativeHumidity });
+    return Math.max(0, -result.deltaT);
+  }
+
+  const polygon = getObjectPolygon(object.geometry);
+  if (!polygon || !isPointInsidePolygon(point, polygon, getBoundingBox(polygon))) return null;
+  if (category === VEGETATION_CATEGORY) {
+    const params = getCoolingParams(object);
+    if (!params) return null;
+    const result = relativeHumidity == null ? vegetationCooling(temperatureC, params)
+      : vegetationCooling(temperatureC, params, { temperatureC, relativeHumidity });
+    return Math.max(0, -result.deltaT);
+  }
+  if (category === HIGH_ALBEDO_CATEGORY) {
+    const params = getAlbedoParams(object);
+    return params ? Math.max(0, -albedoCooling(temperatureC, params, { temperatureC }).deltaT) : null;
+  }
+  if (category === SHADE_CATEGORY) {
+    const params = getShadeParams(object);
+    return params ? Math.max(0, -shadeCooling(temperatureC, params, { temperatureC }).deltaT) : null;
+  }
+  return null;
+}
+
+/**
+ * Applies every active intervention against the same baseline and combines
+ * contributions with 1 - product(1 - contribution / capacity). This prevents
+ * overlapping projects from unrealistically stacking their full cooling effect.
+ */
+export async function runDiminishingReturnSimulation(
+  metric: string,
+  pointsByDate: HeatmapPointsByDate,
+  categorizedObjects: BasePlacedObjectCategorized,
+  mode: SimulationMode = 'standard',
+): Promise<DiminishingSimulationResult> {
+  const feedback: SimulationFeedback = { mode, affectedPoints: 0, overlapPoints: 0, maxObjectsAtPoint: 0, averageCoolingC: 0, maxCapacityUsed: 0, affectedLocations: [], overlapLocations: [], contributingInterventions: [], interventionsWithoutEffect: [], contextualInteractions: [] };
+  if (!metricIsTemperature(metric)) return { pointsByDate: structuredClone(pointsByDate), feedback };
+  const isChangeMetric = metric === 'change_in_temperature';
+  let totalCooling = 0;
+  const affectedLocations = new Set<string>();
+  const overlapLocations = new Set<string>();
+  const contributors = new Set<string>();
+  const labels = new Map<string, string>();
+  Object.entries(categorizedObjects).forEach(([category, objects]) => objects.forEach((object) => labels.set(object.id, object.name ?? object.type ?? category)));
+
+  const result = Object.fromEntries(Object.entries(pointsByDate).map(([date, points]) => [date, points.map((sourcePoint, index) => {
+    const point = structuredClone(sourcePoint);
+    const parsedTemperature = parseTemperature(sourcePoint.individual_metrics?.average_temperature_c ?? '');
+    const parsedHumidity = parsePercentage(sourcePoint.individual_metrics?.average_relative_humidity_pct ?? '');
+    const temperatureC = isChangeMetric ? (parsedTemperature ?? CHANGE_IN_TEMP_ASSUMED_C) : sourcePoint.value;
+    const relativeHumidity = parsedHumidity ?? undefined;
+    const ceiling = coolingCeilingForPoint(temperatureC, relativeHumidity);
+    const raw = Object.entries(categorizedObjects).flatMap(([category, objects]) => objects
+      .filter((object) => isActiveOnDate(object, date))
+      .map((object) => ({ object, category, cooling: individualCooling(category, object, sourcePoint, temperatureC, relativeHumidity) }))
+      .filter((item): item is { object: BasePlacedObject; category: string; cooling: number } => item.cooling != null && item.cooling > 0));
+    if (!raw.length) return point;
+    const categories = new Set(raw.map((item) => item.category));
+    const interactions = mode === 'contextual' ? CONTEXTUAL_INTERACTIONS.filter((interaction) => categories.has(interaction.categories[0]) && categories.has(interaction.categories[1])) : [];
+    const factor = interactions.reduce((current, interaction) => current * interaction.factor, 1);
+    const impact = 1 - raw.reduce((remaining, item) => remaining * (1 - clampSimulation((item.cooling * factor) / ceiling, 0, 1)), 1);
+    const coolingC = ceiling * impact;
+    const finalTemperature = temperatureC - coolingC;
+    feedback.affectedPoints += 1;
+    feedback.maxObjectsAtPoint = Math.max(feedback.maxObjectsAtPoint, raw.length);
+    feedback.maxCapacityUsed = Math.max(feedback.maxCapacityUsed, impact * 100);
+    totalCooling += coolingC;
+    const location = sourcePoint.individual_metrics?.location_name ?? `Point ${index + 1}`;
+    affectedLocations.add(location);
+    if (raw.length > 1) { feedback.overlapPoints += 1; overlapLocations.add(location); }
+    raw.forEach((item) => contributors.add(item.object.id));
+    interactions.forEach((interaction) => { if (!feedback.contextualInteractions.includes(interaction.label)) feedback.contextualInteractions.push(interaction.label); });
+    point.value = isChangeMetric ? -coolingC : finalTemperature;
+    point.individual_metrics = { ...point.individual_metrics, average_temperature_c: `${finalTemperature.toFixed(1)}°C`, simulation_cooling_c: `${coolingC.toFixed(2)}°C`, simulation_overlap_count: String(raw.length), simulation_capacity_used: `${(impact * 100).toFixed(0)}%` };
+    return point;
+  })]));
+  feedback.averageCoolingC = feedback.affectedPoints ? totalCooling / feedback.affectedPoints : 0;
+  feedback.affectedLocations = [...affectedLocations];
+  feedback.overlapLocations = [...overlapLocations];
+  feedback.contributingInterventions = [...contributors].map((id) => labels.get(id) ?? id);
+  feedback.interventionsWithoutEffect = [...labels].filter(([id]) => !contributors.has(id)).map(([, label]) => label);
+  return { pointsByDate: result, feedback };
 }
