@@ -116,6 +116,22 @@
     {
       "key": "polygonImpactGridId",
       "value": "1"
+    },
+    {
+      "key": "visitorParquetPath",
+      "value": "C:\\\\Users\\\\micha\\\\Downloads\\\\Rice-To-Meet-You\\\\app\\\\final_visitors_df.parquet"
+    },
+    {
+      "key": "visitorCity",
+      "value": "Kansas City"
+    },
+    {
+      "key": "visitorDate",
+      "value": "2026-08-16"
+    },
+    {
+      "key": "visitorId",
+      "value": "1"
     }
   ],
   "item": [
@@ -1960,6 +1976,161 @@
             },
             "method": "DELETE",
             "url": "{{baseUrl}}/weather/delete/{{weatherObservationId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Final Visitor Data",
+      "item": [
+        {
+          "name": "Get All Visitor Data",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": "{{baseUrl}}/final_visitor/all"
+          }
+        },
+        {
+          "name": "Get Visitor Data By City and Date",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('returns visitor rows or no-data response', function () { pm.expect([200, 404]).to.include(pm.response.code); });",
+                  "if (pm.response.code === 200) { pm.expect(pm.response.json()).to.be.an('array'); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/final_visitor/get-visitor-by-city-date?city={{visitorCity}}&date={{visitorDate}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "final_visitor",
+                "get-visitor-by-city-date"
+              ],
+              "query": [
+                {
+                  "key": "city",
+                  "value": "{{visitorCity}}"
+                },
+                {
+                  "key": "date",
+                  "value": "{{visitorDate}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Visitor Data",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('visitor row created', function () { pm.response.to.have.status(201); });",
+                  "if (pm.response.code === 201) { pm.collectionVariables.set('visitorId', pm.response.json().id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"city\": \"{{visitorCity}}\",\n  \"local_date\": \"{{visitorDate}}\",\n  \"avg_daily_visits\": 125.5,\n  \"location_name\": \"Postman Visitor Test Location\",\n  \"brand\": \"Postman Test Brand\",\n  \"street_address\": \"6100 Main St\",\n  \"latitude\": 29.7604,\n  \"longitude\": -95.3698\n}"
+            },
+            "url": "{{baseUrl}}/final_visitor/upload"
+          }
+        },
+        {
+          "name": "Update Visitor Data",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"city\": \"{{visitorCity}}\",\n  \"local_date\": \"{{visitorDate}}\",\n  \"avg_daily_visits\": 150.0,\n  \"location_name\": \"Postman Visitor Test Location\",\n  \"brand\": \"Postman Test Brand\",\n  \"street_address\": \"6100 Main St\",\n  \"latitude\": 29.7604,\n  \"longitude\": -95.3698\n}"
+            },
+            "url": "{{baseUrl}}/final_visitor/update/{{visitorId}}"
+          }
+        },
+        {
+          "name": "Delete Visitor Data",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "DELETE",
+            "url": "{{baseUrl}}/final_visitor/delete/{{visitorId}}"
+          }
+        },
+        {
+          "name": "Load Final Visitor Parquet Into Database",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('loaded', function () { pm.response.to.have.status(200); });",
+                  "pm.test('reports loaded records', function () { pm.expect(pm.response.text()).to.include('Finished adding all data'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/final_visitor/upload_all_data?file_path={{visitorParquetPath}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "final_visitor",
+                "upload_all_data"
+              ],
+              "query": [
+                {
+                  "key": "file_path",
+                  "value": "{{visitorParquetPath}}"
+                }
+              ]
+            }
           }
         }
       ]

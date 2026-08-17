@@ -3,13 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from repository.heatmap_repository import HeatmapRepository
 from repository.core_poi_geometry_respository import CorePoiGeometryRepository
+from repository.final_visitor_repository import VisitorRepository
 
 import redis.asyncio as redis
 from sqlalchemy.orm import Session
 import database
 import asyncio
 import models
-from database import engine
+from database import engine, SessionLocal
 from routers import (
     core_poi,
     dataset,
@@ -22,6 +23,8 @@ from routers import (
     polygon,
     urban_intervention,
     users,
+    final_visitor
+
 )
 
 
@@ -34,7 +37,13 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Reflection only - cheap, and it lets the first request skip it.
-    HeatmapRepository.initialize_metadata(engine)
+    try:
+        HeatmapRepository.initialize_metadata(engine)
+    except Exception:
+        # Heatmap source tables are optional in a fresh or partial database.
+        # Keep unrelated API routes available while the background preload logs
+        # the missing-table detail.
+        logger.exception("Heatmap metadata initialization skipped")
 
     async def preload_heatmap() -> None:
         try:
@@ -58,6 +67,21 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(preload_heatmap(), name="preload-heatmap"),
         asyncio.create_task(preload_core_poi(), name="preload-core-poi"),
     ]
+
+    def preload_visitors() -> None:
+        """Create a startup-only session and fill the shared visitor cache."""
+        print("Pre-loading visitor information...")
+        db = SessionLocal()
+        try:
+            VisitorRepository.initialize_table(db)
+            print("Visitor information pre-loading complete.")
+        finally:
+            db.close()
+
+    # Do not create a background task for this cache. The API must not serve
+    # visitor lookups until every visitor row has been loaded into memory.
+    await asyncio.to_thread(preload_visitors)
+    logger.info("Visitor cache ready")
 
     yield
 
@@ -92,6 +116,8 @@ app.include_router(heatmap.router)
 app.include_router(core_poi.router)
 app.include_router(polygon.router)
 app.include_router(urban_intervention.router)
+
+app.include_router(final_visitor.router)
 
 # Show which tables are gonna be created
 print(database.Base.metadata.tables.keys())
