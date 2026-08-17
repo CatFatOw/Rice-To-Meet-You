@@ -28,7 +28,7 @@
  */
 
 import type { HeatmapPointsByDate, HeatmapMetricValue } from '../types/heatmap';
-import type { BasePlacedObjectCategorized } from '../hooks/usePlacedObjects';
+import type { BasePlacedObject, BasePlacedObjectCategorized } from '../hooks/usePlacedObjects';
 import type { Polygon } from '../types/heatmap';
 import { parseTemperature, parsePercentage } from '../services/parsers';
 
@@ -951,4 +951,149 @@ export async function getSimulatedPointsByDate(
 
   console.log('[Simulation 27] simulation complete', simulated);
   return simulated;
+}
+
+/** The composition model used when several interventions affect one point. */
+export type SimulationMode = 'standard' | 'contextual';
+
+export interface SimulationFeedback {
+  mode: SimulationMode;
+  affectedPoints: number;
+  overlapPoints: number;
+  maxObjectsAtPoint: number;
+  averageCoolingC: number;
+  maxCapacityUsed: number;
+  affectedLocations: string[];
+  overlapLocations: string[];
+  contributingInterventions: string[];
+  interventionsWithoutEffect: string[];
+  contextualInteractions: string[];
+}
+
+export interface DiminishingSimulationResult {
+  pointsByDate: HeatmapPointsByDate;
+  feedback: SimulationFeedback;
+}
+
+const CONTEXTUAL_INTERACTIONS: Array<{ categories: [string, string]; factor: number; label: string }> = [
+  { categories: [VEGETATION_CATEGORY, EVAPORATIVE_CATEGORY], factor: 1.25, label: 'Vegetation + water: irrigation and evapotranspiration reinforce cooling (+25%).' },
+  { categories: [VEGETATION_CATEGORY, HIGH_ALBEDO_CATEGORY], factor: 0.82, label: 'Vegetation + reflective concrete: overlapping benefits are less complementary (-18%).' },
+  { categories: [VEGETATION_CATEGORY, SHADE_CATEGORY], factor: 0.86, label: 'Vegetation + shade: shared solar blocking produces partial redundancy (-14%).' },
+  { categories: [SHADE_CATEGORY, EVAPORATIVE_CATEGORY], factor: 0.92, label: 'Shade + water: lower airflow modestly limits the evaporative plume (-8%).' },
+];
+
+function clampSimulation(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function isActiveOnDate(object: BasePlacedObject, date: string): boolean {
+  const time = new Date(date).getTime();
+  return time >= (object.activeFrom ? new Date(object.activeFrom).getTime() : -Infinity)
+    && time <= (object.activeTo ? new Date(object.activeTo).getTime() : Infinity);
+}
+
+function coolingCeilingForPoint(temperatureC: number, relativeHumidity?: number): number {
+  const vegetation = relativeHumidity == null ? DELTA_T_MAX_ANCHOR
+    : deltaTMaxFromWeather({ temperatureC, relativeHumidity });
+  const evaporative = relativeHumidity == null ? DELTA_T_MAX_ANCHOR_EVAP
+    : deltaTMaxFromWeatherEvap({ temperatureC, relativeHumidity });
+  return Math.max(vegetation, evaporative, deltaTMaxFromWeatherAlbedo({ temperatureC }), deltaTMaxFromWeatherShade({ temperatureC }), 0.1);
+}
+
+function individualCooling(
+  category: string,
+  object: BasePlacedObject,
+  point: HeatmapMetricValue,
+  temperatureC: number,
+  relativeHumidity?: number,
+): number | null {
+  if (category === EVAPORATIVE_CATEGORY) {
+    const params = getEvaporativeParams(object);
+    if (!params) return null;
+    const distance = distanceMeters(geometryAnchor(object.geometry), point.location_coordinates);
+    if (distance > params.coverageRadiusM) return null;
+    const result = relativeHumidity == null
+      ? evaporativeCooling(temperatureC, params, distance)
+      : evaporativeCooling(temperatureC, params, distance, { temperatureC, relativeHumidity });
+    return Math.max(0, -result.deltaT);
+  }
+
+  const polygon = getObjectPolygon(object.geometry);
+  if (!polygon || !isPointInsidePolygon(point, polygon, getBoundingBox(polygon))) return null;
+  if (category === VEGETATION_CATEGORY) {
+    const params = getCoolingParams(object);
+    if (!params) return null;
+    const result = relativeHumidity == null ? vegetationCooling(temperatureC, params)
+      : vegetationCooling(temperatureC, params, { temperatureC, relativeHumidity });
+    return Math.max(0, -result.deltaT);
+  }
+  if (category === HIGH_ALBEDO_CATEGORY) {
+    const params = getAlbedoParams(object);
+    return params ? Math.max(0, -albedoCooling(temperatureC, params, { temperatureC }).deltaT) : null;
+  }
+  if (category === SHADE_CATEGORY) {
+    const params = getShadeParams(object);
+    return params ? Math.max(0, -shadeCooling(temperatureC, params, { temperatureC }).deltaT) : null;
+  }
+  return null;
+}
+
+/**
+ * Applies every active intervention against the same baseline and combines
+ * contributions with 1 - product(1 - contribution / capacity). This prevents
+ * overlapping projects from unrealistically stacking their full cooling effect.
+ */
+export async function runDiminishingReturnSimulation(
+  metric: string,
+  pointsByDate: HeatmapPointsByDate,
+  categorizedObjects: BasePlacedObjectCategorized,
+  mode: SimulationMode = 'standard',
+): Promise<DiminishingSimulationResult> {
+  const feedback: SimulationFeedback = { mode, affectedPoints: 0, overlapPoints: 0, maxObjectsAtPoint: 0, averageCoolingC: 0, maxCapacityUsed: 0, affectedLocations: [], overlapLocations: [], contributingInterventions: [], interventionsWithoutEffect: [], contextualInteractions: [] };
+  if (!metricIsTemperature(metric)) return { pointsByDate: structuredClone(pointsByDate), feedback };
+  const isChangeMetric = metric === 'change_in_temperature';
+  let totalCooling = 0;
+  const affectedLocations = new Set<string>();
+  const overlapLocations = new Set<string>();
+  const contributors = new Set<string>();
+  const labels = new Map<string, string>();
+  Object.entries(categorizedObjects).forEach(([category, objects]) => objects.forEach((object) => labels.set(object.id, object.name ?? object.type ?? category)));
+
+  const result = Object.fromEntries(Object.entries(pointsByDate).map(([date, points]) => [date, points.map((sourcePoint, index) => {
+    const point = structuredClone(sourcePoint);
+    const parsedTemperature = parseTemperature(sourcePoint.individual_metrics?.average_temperature_c ?? '');
+    const parsedHumidity = parsePercentage(sourcePoint.individual_metrics?.average_relative_humidity_pct ?? '');
+    const temperatureC = isChangeMetric ? (parsedTemperature ?? CHANGE_IN_TEMP_ASSUMED_C) : sourcePoint.value;
+    const relativeHumidity = parsedHumidity ?? undefined;
+    const ceiling = coolingCeilingForPoint(temperatureC, relativeHumidity);
+    const raw = Object.entries(categorizedObjects).flatMap(([category, objects]) => objects
+      .filter((object) => isActiveOnDate(object, date))
+      .map((object) => ({ object, category, cooling: individualCooling(category, object, sourcePoint, temperatureC, relativeHumidity) }))
+      .filter((item): item is { object: BasePlacedObject; category: string; cooling: number } => item.cooling != null && item.cooling > 0));
+    if (!raw.length) return point;
+    const categories = new Set(raw.map((item) => item.category));
+    const interactions = mode === 'contextual' ? CONTEXTUAL_INTERACTIONS.filter((interaction) => categories.has(interaction.categories[0]) && categories.has(interaction.categories[1])) : [];
+    const factor = interactions.reduce((current, interaction) => current * interaction.factor, 1);
+    const impact = 1 - raw.reduce((remaining, item) => remaining * (1 - clampSimulation((item.cooling * factor) / ceiling, 0, 1)), 1);
+    const coolingC = ceiling * impact;
+    const finalTemperature = temperatureC - coolingC;
+    feedback.affectedPoints += 1;
+    feedback.maxObjectsAtPoint = Math.max(feedback.maxObjectsAtPoint, raw.length);
+    feedback.maxCapacityUsed = Math.max(feedback.maxCapacityUsed, impact * 100);
+    totalCooling += coolingC;
+    const location = sourcePoint.individual_metrics?.location_name ?? `Point ${index + 1}`;
+    affectedLocations.add(location);
+    if (raw.length > 1) { feedback.overlapPoints += 1; overlapLocations.add(location); }
+    raw.forEach((item) => contributors.add(item.object.id));
+    interactions.forEach((interaction) => { if (!feedback.contextualInteractions.includes(interaction.label)) feedback.contextualInteractions.push(interaction.label); });
+    point.value = isChangeMetric ? -coolingC : finalTemperature;
+    point.individual_metrics = { ...point.individual_metrics, average_temperature_c: `${finalTemperature.toFixed(1)}°C`, simulation_cooling_c: `${coolingC.toFixed(2)}°C`, simulation_overlap_count: String(raw.length), simulation_capacity_used: `${(impact * 100).toFixed(0)}%` };
+    return point;
+  })]));
+  feedback.averageCoolingC = feedback.affectedPoints ? totalCooling / feedback.affectedPoints : 0;
+  feedback.affectedLocations = [...affectedLocations];
+  feedback.overlapLocations = [...overlapLocations];
+  feedback.contributingInterventions = [...contributors].map((id) => labels.get(id) ?? id);
+  feedback.interventionsWithoutEffect = [...labels].filter(([id]) => !contributors.has(id)).map(([, label]) => label);
+  return { pointsByDate: result, feedback };
 }
