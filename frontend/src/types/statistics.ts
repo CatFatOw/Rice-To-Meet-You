@@ -64,6 +64,7 @@ export interface POIStatisticsProps {
   onStartSimulation?: () => void;
   onStopSimulation?: () => void;
   isRunning?: boolean;
+  loadingSimulation?: boolean;
   onSimulate?: () => void;
 }
 

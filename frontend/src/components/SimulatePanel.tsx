@@ -1,5 +1,6 @@
 import SelectDate from './SelectDate';
 import SimulateButton from './SimulateButton';
+import { LoaderCircle } from 'lucide-react';
 
 export interface SimulatePanelProps {
   fromDate?: string | null;
@@ -11,6 +12,7 @@ export interface SimulatePanelProps {
   onSimulate?: () => void;
   onStopSimulation?: () => void;
   isRunning?: boolean;
+  loadingSimulation?: boolean;
   title?: string;
 }
 
@@ -30,6 +32,7 @@ export default function SimulatePanel({
   onSimulate,
   onStopSimulation,
   isRunning,
+  loadingSimulation,
   title = 'Simulate',
 }: SimulatePanelProps) {
   const handleStart = onStartSimulation ?? onSimulate;
@@ -78,7 +81,21 @@ export default function SimulatePanel({
             Stop
           </button>
         ) : (
-          <SimulateButton onClick={handleStart} className="h-10 min-w-28" />
+          <SimulateButton
+            onClick={handleStart}
+            disabled={loadingSimulation}
+            label={
+              loadingSimulation ? (
+                <span className="inline-flex items-center gap-2">
+                  <LoaderCircle size={16} aria-hidden="true" className="animate-spin" />
+                  Loading
+                </span>
+              ) : (
+                'Simulate'
+              )
+            }
+            className="h-10 min-w-28"
+          />
         )}
       </div>
     </div>

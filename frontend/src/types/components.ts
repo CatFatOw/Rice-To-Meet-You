@@ -63,6 +63,7 @@ export interface ToolboxProps {
   // --- Metric toggle ---
   selectedDate: string | null;
   setSelectedDate: React.Dispatch<React.SetStateAction<string | null>>;
+  setBaselineSelectedDate?: React.Dispatch<React.SetStateAction<string | null>>;
   availableDates: string[];
   metricLabel: string;
   canToggleMetric: boolean;
@@ -115,7 +116,7 @@ export interface ToolboxProps {
 export interface SimulateButtonProps {
   onClick?: () => void;
   disabled?: boolean;
-  label?: string;
+  label?: React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -157,6 +158,9 @@ export interface HeatmapProps {
   displayedHeatmapPoints: HeatmapMetricValue[];
   selectedDate: string | null;
   setSelectedDate: React.Dispatch<React.SetStateAction<string | null>>;
+  setBaselineSelectedDate?: React.Dispatch<React.SetStateAction<string | null>>;
+  isLoading?: boolean;
+  isRunning?: boolean;
   mapContainerRef: React.RefObject<HTMLDivElement | null>;
   mapRef: React.MutableRefObject<import('maplibre-gl').Map | null>;
   mapSyncFrameRef: React.MutableRefObject<number | null>;

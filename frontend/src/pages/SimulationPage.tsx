@@ -85,15 +85,17 @@ const SimulationPage: React.FC = () => {
   // Stores the selected city and loaded environmental data.
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [cityPOIAreas, setCityPOIAreas] = useState<CityPOIAreaMap>({});
+  const [isPOIAreasLoading, setIsPOIAreasLoading] = useState(true);
   const [displayedHeatmapPoints, setDisplayedHeatmapPoints] =
     useState<HeatmapMetricValue[]>([]);
+  const [isHeatmapPointsLoading, setIsHeatmapPointsLoading] = useState(false);
   const [baselineHeatmapPoints, setBaselineHeatmapPoints] =
     useState<HeatmapMetricValue[]>([]);
 
   // --- Date and timeline state ---
   // Controls the active date and simulation period.
   const [selectedDate, setSelectedDate] = useState<string | null>('2020-01-01');
-  const [baselineSelectedDate] = useState<string | null>('2020-01-01');
+  const [baselineSelectedDate, setBaselineSelectedDate] = useState<string | null>('2020-01-01');
   const [fromDate, setFromDate] = useState<string | null>('2020-01-01');
   const [toDate, setToDate] = useState<string | null>('2020-01-01');
 
@@ -102,6 +104,7 @@ const SimulationPage: React.FC = () => {
   const [, setSimulationByDate] =
     useState<Record<string, HeatmapMetricValue[]> | null>(null);
   const [containSimulation] = useState(true);
+  const [loadingSimulation, setLoadingSimulation] = useState(false);
   const simulationTimerRef = useRef<number | null>(null);
 
   // --- Placed objects (toolbox items) ---
@@ -147,10 +150,11 @@ const SimulationPage: React.FC = () => {
     useState<OverallStatisticsProps>();
   const [poiStatisticsProps, setPOIStatisticsProps] = useState<POIStatisticsProps>();
 
-  const { runTimeline, stop, isRunning } = useSimulationRunner();
+  const { runTimeline, stop, isRunning } = useSimulationRunner({intervalMs: 3000});
 
   const selectedMetricKey = selectedMetric ? Object.keys(selectedMetric)[0] : null;
   const selectedAdditionalMetrics = selectedMetric ? Object.values(selectedMetric)[0] : [];
+
 
   const onStopSimulation = () => {
     stop();
@@ -182,20 +186,22 @@ const SimulationPage: React.FC = () => {
 
     const metric = selectedMetricKey ?? Object.keys(availableMetrics[0] ?? {})[0];
   
-    const date = selectedDate ?? baselineSelectedDate;
-    if (!date || !metric) return;
+    if (!selectedDate && !baselineSelectedDate) return;
+    if (!metric) return;
 
     // 1. Simulate over the baseline points-by-date, then re-wrap each date's
     //    points into one frame per date for the timeline runner.
     let framesByDate: Record<string, HeatmapMetricValue[]>;
+    setLoadingSimulation(true);
     try {
 
       const baselinePointsByDate = await getBaselinePointsByDate(fromDate, toDate, selectedCity, metric, selectedAdditionalMetrics)
       const placedObjects = placedObjectsControls.placedObjects.length > 0
         ? placedObjectsControls.placedObjects
-        : await fetchPlacedObjectsForCity(date, selectedCity);
+        : await fetchPlacedObjectsForCity(fromDate, toDate, selectedCity);
       console.log('[Simulation] placed objects selected', {
-        date,
+        fromDate,
+        toDate,
         city: selectedCity,
         count: placedObjects.length,
       });
@@ -209,6 +215,8 @@ const SimulationPage: React.FC = () => {
     } catch (error) {
       console.error('Failed to simulate points by date', error);
       return;
+    } finally {
+      setLoadingSimulation(false);
     }
     // 2. Play the timeline. runTimeline calls stop() first (resets timer +
     //    isRunning), stores the result via onStart, then updates the page-owned
@@ -248,6 +256,7 @@ const SimulationPage: React.FC = () => {
     let isMounted = true;
 
     const loadMockPOIs = async () => {
+      setIsPOIAreasLoading(true);
       try {
         const poisByCity = await callAllCityPOIs();
         if (isMounted) {
@@ -255,6 +264,8 @@ const SimulationPage: React.FC = () => {
         }
       } catch (error) {
         console.error('Failed to load mock city POIs', error);
+      } finally {
+        if (isMounted) setIsPOIAreasLoading(false);
       }
     };
 
@@ -280,6 +291,7 @@ const SimulationPage: React.FC = () => {
   // Load the current city/date/metric slice from the backend.
   useEffect(() => {
     if (!selectedCity || !selectedMetricKey || !selectedDate) {
+      setIsHeatmapPointsLoading(false);
       setBaselineHeatmapPoints([]);
       setDisplayedHeatmapPoints([]);
       return;
@@ -287,6 +299,7 @@ const SimulationPage: React.FC = () => {
 
     const controller = new AbortController();
     let ignore = false;
+    setIsHeatmapPointsLoading(true);
 
     getHeatmapPointsByCityDateMetric(
       selectedCity,
@@ -301,21 +314,22 @@ const SimulationPage: React.FC = () => {
         if (ignore) return;
         
         setBaselineHeatmapPoints(points);
+        setIsHeatmapPointsLoading(false);
       })
       .catch((error) => {
         if (ignore || controller.signal.aborted) return;
         console.error('Failed to load baseline heatmap point', error);
         setBaselineHeatmapPoints([]);
         setDisplayedHeatmapPoints([]);
+        setIsHeatmapPointsLoading(false);
       });
 
     return () => {
       ignore = true;
       controller.abort();
     };
-  }, [selectedAdditionalMetrics, selectedCity, selectedDate, selectedMetricKey]);
+  }, [selectedAdditionalMetrics, selectedCity, baselineSelectedDate, selectedMetricKey]);
 
- 
 
   useEffect(() => {
     if (isRunning) return;
@@ -411,6 +425,9 @@ const SimulationPage: React.FC = () => {
               displayedHeatmapPoints={displayedHeatmapPoints}
               selectedDate={selectedDate}
               setSelectedDate={setSelectedDate}
+              setBaselineSelectedDate={setBaselineSelectedDate}
+              isLoading={!isRunning && (isPOIAreasLoading || isHeatmapPointsLoading)}
+              isRunning={isRunning}
               mapContainerRef={mapContainerRef}
               mapRef={mapRef}
               mapSyncFrameRef={mapSyncFrameRef}
@@ -462,6 +479,7 @@ const SimulationPage: React.FC = () => {
                 onStartSimulation={onStartSimulation}
                 onStopSimulation={onStopSimulation}
                 isRunning={isRunning}
+                loadingSimulation={loadingSimulation}
               />
             </section>
           </div>

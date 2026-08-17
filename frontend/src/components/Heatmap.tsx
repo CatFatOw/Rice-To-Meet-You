@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
 import { Expand, Shrink } from 'lucide-react';
 import DeckGL from '@deck.gl/react';
 import {
@@ -195,6 +195,9 @@ const Heatmap: React.FC<HeatmapProps> = ({
   displayedHeatmapPoints,
   selectedDate,
   setSelectedDate,
+  setBaselineSelectedDate,
+  isLoading = false,
+  isRunning = false,
   mapContainerRef,
   mapRef,
   mapSyncFrameRef,
@@ -240,6 +243,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
   // placedObjectsControls is optional (ExplorePage renders without a toolbox),
   // so default to an empty list rather than guarding at every use site.
   const currentPlacedObjects = placedObjectsControls?.placedObjects ?? [];
+  const [isPlacedObjectsLoading, setIsPlacedObjectsLoading] = useState(false);
   const pendingPlacedObjects = useMemo(
     () =>
       placedObjectsControls?.pendingPlacedObject
@@ -353,7 +357,7 @@ const hoverablePolygons = useMemo(() => {
   // ======================================================
 
   /** Metric layers available for the selected city on the selected date. */
-  const availableMetricLayers = availableMetrics;
+  const availableMetricLayers = availableMetrics as unknown as Record<string, string[]>[];
 
   // Keep selectedMetric valid as the available layers change (city switch, date
   // change, simulation run): preserve the current metric if it still exists,
@@ -409,29 +413,38 @@ const hoverablePolygons = useMemo(() => {
   useEffect(() => {
     if (!setPlacedObjects) return;
 
+    if (isRunning) {
+      setIsPlacedObjectsLoading(false);
+      return;
+    }
+
     if (!selectedCity || !selectedDate) {
+      setIsPlacedObjectsLoading(false);
       setPlacedObjects([]);
       return;
     }
 
     let ignore = false;
+    setIsPlacedObjectsLoading(true);
 
     fetchPlacedObjects()
       .then((byDateCity) => {
         if (ignore) return;
         const tools = byDateCity[selectedDate]?.[selectedCity] ?? [];
         setPlacedObjects(tools);
+        setIsPlacedObjectsLoading(false);
       })
       .catch((error) => {
         if (ignore) return;
         console.error('Failed to load placed objects', error);
         setPlacedObjects([]);
+        setIsPlacedObjectsLoading(false);
       });
 
     return () => {
       ignore = true;
     };
-  }, [selectedCity, selectedDate, setPlacedObjects]);
+  }, [isRunning, selectedCity, selectedDate, setPlacedObjects]);
 
 
   // Mirror the in-progress polygon draft into a pending placed object so it
@@ -579,53 +592,7 @@ const hoverablePolygons = useMemo(() => {
         }
 
 
-        
 
-        // const sampledPoint = sampleHeatmapMetricByCity(
-        //   heatmapAnchorsByCity,
-        //   selectedCity,
-        //   selectedDate,
-        //   activeMetricKey,
-        //   longitude,
-        //   latitude,
-        // );
-
-        // // Cursor is inside the city view but outside the sampled grid.
-        // if (!sampledPoint) {
-        //   setHoveringHeatmap(false);
-        //   setTooltip(null);
-        //   return;
-        // }
-
-        // // Prefer polygon context over raw coordinate label when the hovered
-        // // point is inside a user/placed polygon.
-        // const hoveredPolygon = hoverablePolygons.find(({ ring }) =>
-        //   isPointInPolygon(ring, longitude, latitude),
-        // );
-
-        // const prioritizedPoint = hoveredPolygon
-        //   ? {
-        //       ...sampledPoint,
-        //       location_name:
-        //         hoveredPolygon.source === 'placed'
-        //           ? (hoveredPolygon.object.name?.trim() || hoveredPolygon.object.type)
-        //           : hoveredPolygon.area.name,
-        //     }
-        //   : sampledPoint;
-
-        // setHoveringHeatmap(true);
-        // const surface = mapRef.current
-        //   ? classifySurface(mapRef.current, info.x, info.y)
-        //   : { type: 'unknown' as SurfaceType };
-
-        // setTooltip({
-        //   point: prioritizedPoint,
-        //   metric: activeMetricKey,
-        //   x: info.x,
-        //   y: info.y,
-        //   coordinates: { longitude, latitude },
-        //   surface,
-        // });
         
       },
       [
@@ -760,7 +727,7 @@ const hoverablePolygons = useMemo(() => {
           kept in sync by handleViewStateChange. */}
       <div
         ref={mapContainerRef}
-        style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}
+        style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, filter: !isRunning && (isLoading || isPlacedObjectsLoading) ? 'blur(4px)' : undefined, transition: 'filter 180ms ease' }}
       />
 
       {/* deck.gl overlay canvas. dragPan is disabled while an area is being
@@ -774,8 +741,55 @@ const hoverablePolygons = useMemo(() => {
         controller={{ dragPan: !isAreaDragging, scrollZoom: true, touchZoom: true }}
         layers={layers}
         getCursor={getCursor}
-        style={{ position: 'absolute', width: '100%', height: '100%' }}
+        style={{ position: 'absolute', width: '100%', height: '100%', filter: !isRunning && (isLoading || isPlacedObjectsLoading) ? 'blur(4px)' : undefined, transition: 'filter 180ms ease' }}
       />
+
+      {!isRunning && (isLoading || isPlacedObjectsLoading) && (
+        <div
+          role="status"
+          aria-live="polite"
+          aria-label="Loading heatmap data"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 25,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(2, 8, 23, 0.28)',
+            pointerEvents: 'none',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '12px 16px',
+              border: '1px solid rgba(148, 163, 184, 0.45)',
+              borderRadius: 10,
+              background: 'rgba(2, 8, 23, 0.88)',
+              color: '#f8fafc',
+              fontSize: 14,
+              fontWeight: 600,
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.28)',
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                width: 18,
+                height: 18,
+                border: '2px solid rgba(148, 163, 184, 0.45)',
+                borderTopColor: '#38bdf8',
+                borderRadius: '50%',
+                animation: 'heatmap-loading-spin 0.8s linear infinite',
+              }}
+            />
+            Loading heatmap
+          </div>
+        </div>
+      )}
 
       <SearchBar
         searchQuery={searchQuery}
@@ -793,6 +807,7 @@ const hoverablePolygons = useMemo(() => {
         displayToolbox={displayToolbox}
         selectedDate={selectedDate}
         setSelectedDate={setSelectedDate}
+        setBaselineSelectedDate={setBaselineSelectedDate}
         availableDates={availableDates}
         metricLabel={metricLabelText}
         canToggleMetric={availableMetricLayers.length > 1}

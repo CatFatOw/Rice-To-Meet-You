@@ -147,13 +147,24 @@ export async function fetchPlacedObjectsByDate(
   return clone(MOCK_PLACED_OBJECTS[date] ?? {});
 }
 
-/** Tools for one city on one date. Empty array if either is unknown. */
+/** Tools for one city across an inclusive ISO-date range. */
 export async function fetchPlacedObjectsForCity(
-  date: string,
+  fromDate: string,
+  toDate: string,
   city: string,
 ): Promise<BasePlacedObject[]> {
   await new Promise((resolve) => setTimeout(resolve, LATENCY_MS));
-  return clone(MOCK_PLACED_OBJECTS[date]?.[city] ?? []);
+
+  const objectsById = new Map<string, BasePlacedObject>();
+  for (const [date, byCity] of Object.entries(MOCK_PLACED_OBJECTS)) {
+    if (date < fromDate || date > toDate) continue;
+
+    for (const object of byCity[city] ?? []) {
+      objectsById.set(object.id, object);
+    }
+  }
+
+  return clone([...objectsById.values()]);
 }
 
 

@@ -104,6 +104,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
   displayToolbox,
   selectedDate,
   setSelectedDate,
+  setBaselineSelectedDate,
   availableDates,
   metricLabel,
   canToggleMetric,
@@ -481,7 +482,10 @@ const handleDrawIntervention = React.useCallback(
         <SelectDate
           label="Date"
           value={selectedDate}
-          onChange={(isoDate) => setSelectedDate(isoDate)}
+          onChange={(isoDate) => {
+            setSelectedDate(isoDate);
+            setBaselineSelectedDate?.(isoDate);
+          }}
           availableDates={availableDates}
           disabled={!citySelected}
           variant="bare"
