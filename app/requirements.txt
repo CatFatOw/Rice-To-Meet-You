@@ -12,4 +12,4 @@ pykrige
 passlib
 python-jose
 python-multipart
-redis
+redis>=5.0
