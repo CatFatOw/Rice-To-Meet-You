@@ -3,13 +3,8 @@ import { Expand, Shrink } from 'lucide-react';
 import DeckGL from '@deck.gl/react';
 import { type CityPOIArea } from '../api/map';
 import { type City } from '../data/hostCities';
-import { getColor, getSmoothColor, hasSmoothRamp } from '../services/colors';
-import {
-  buildCityMetricRaster,
-  isInsideRaster,
-  metricScore,
-  sampleMetricGrid,
-} from '../services/metricRaster';
+import { getColor, getSmoothColor, hasSmoothRamp, rampDomain } from '../services/colors';
+import { buildMetricRaster, isInsideRaster, sampleSurface } from '../services/metricRaster';
 import { useHeatmapLayers } from '../hooks/useHeatmapLayers';
 import SearchBar from './SearchBar';
 import Toolbox from './Toolbox';
@@ -19,11 +14,11 @@ import type { SurfaceType } from '../services/map';
 import { classifySurface } from '../services/map';
 import type { GeocodeResult } from '../types/search';
 import type {
-  CityMetricRasterEntry,
   HeatmapProps,
+  MetricSurfaceRaster,
   TooltipState,
 } from '../types/components';
-import type { CityMetricGrid, HeatmapMetricValue as MetricValue } from '../types/heatmap';
+import type { HeatmapMetricValue as MetricValue } from '../types/heatmap';
 import type { ViewState } from '../types/viewState';
 import { fetchPlacedObjects } from '../api/tool';
 import type { Geometry } from '../types/simulation';
@@ -99,20 +94,16 @@ function hexToRgb(hex: string): [number, number, number] {
 // Map a metric onto the shared palette in utils/colors.
 // ======================================================
 
-/**
- * Maps a metric to the palette name `getColor` understands.
- * 'heat_risk_score' has no palette of its own and reuses the temperature ramp.
- */
+/** Maps a metric to the palette name the colour helpers understand. */
 function colorMetricKey(metric: string): string {
-  if (metric === 'heat_risk_score') return 'temperature';
   return metric;
 }
 
 /**
- * Colour lookup for the legend. Metrics that come from the interpolated grid
- * (heat_risk, crowd_density, ...) have their own continuous ramp, so the
- * legend samples the *same* function the raster renderer uses and therefore
- * always matches what is drawn. Everything else keeps the banded getColor.
+ * Colour lookup for the legend. The two surface metrics have their own
+ * continuous ramp, so the legend samples the *same* function the raster
+ * renderer uses and therefore always matches what is drawn. Everything else
+ * keeps the banded getColor.
  */
 function legendColor(value: number, metric: string): [number, number, number] {
   return hasSmoothRamp(metric) ? getSmoothColor(value, metric) : getColor(value, metric);
@@ -130,15 +121,13 @@ function rgbaCss(rgb: [number, number, number], alpha: number): string {
  * spans ~10–44; visitor density is a 0–100 index.
  */
 function metricStops(colorMetric: string): number[] {
-  // Grid metrics are normalized to a 0-100 score, so a uniform ramp is right.
-  if (hasSmoothRamp(colorMetric) && colorMetric !== 'temperature') {
-    return [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-  }
-  if (colorMetric === 'temperature') {
-    return [12, 16, 20, 23, 25, 27, 29, 31, 33, 35, 37, 39, 44];
-  }
-  if (colorMetric === 'change_in_temperature') {
-    return [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5];
+  // Sample the metric's own continuous ramp end to end, so the legend spans
+  // exactly the range the surface can paint.
+  const domain = rampDomain(colorMetric);
+  if (domain) {
+    const [lo, hi] = domain;
+    const steps = 12;
+    return Array.from({ length: steps + 1 }, (_, i) => lo + ((hi - lo) * i) / steps);
   }
   return [0, 20, 40, 60, 80, 100];
 }
@@ -168,8 +157,8 @@ function metricLegendGradient(metric: string): string {
  * anything else is snake_case -> Title Case.
  */
 function formatMetricName(metricKey: string): string {
-  if (metricKey === 'heat_risk_score' || metricKey === 'heat_risk') return 'Heat Risk';
-  if (metricKey === 'visitor_activity' || metricKey === 'crowd_density') return 'Visitor Activity';
+  if (metricKey === 'average_temperature_c') return 'Average Temperature';
+  if (metricKey === 'change_in_temperature') return 'Change In Temperature';
   return metricKey
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
@@ -183,7 +172,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
   setSelectedCity,
   cityPOIAreas,
   displayedHeatmapPoints,
-  metricGridsByCity,
+  metricSurfaces,
   selectedDate,
   setSelectedDate,
   setBaselineSelectedDate,
@@ -328,38 +317,8 @@ const Heatmap: React.FC<HeatmapProps> = ({
   // Metric selection and derived display data
   // ======================================================
 
-  // Interpolated grids in view. Only the selected city's grid is drawn, so
-  // cities the backend has no grid data for simply render no surface.
-  const visibleCityGrids = useMemo(() => {
-    const entries: [string, CityMetricGrid][] = [];
-    for (const [cityName, grid] of Object.entries(metricGridsByCity)) {
-      if (cityName === selectedCity) entries.push([cityName, grid]);
-    }
-    return entries;
-  }, [metricGridsByCity, selectedCity]);
-
-  /**
-   * Metric layers available for the selected city on the selected date. The
-   * interpolated grid is the source of truth when the backend has one; the
-   * static `availableMetrics` list is the fallback for cities without grids.
-   */
-  const gridMetricLayers = useMemo(() => {
-    const keys = new Set<string>();
-    for (const [, grid] of visibleCityGrids) {
-      for (const metricKey of Object.keys(grid.metrics)) keys.add(metricKey);
-    }
-    return Array.from(keys)
-      .sort()
-      .map((key) => ({ [key]: [] as string[] }));
-  }, [visibleCityGrids]);
-
-  const availableMetricLayers = useMemo(
-    () =>
-      gridMetricLayers.length > 0
-        ? gridMetricLayers
-        : (availableMetrics as unknown as Record<string, string[]>[]),
-    [gridMetricLayers],
-  );
+  /** Metric layers available for the selected city on the selected date. */
+  const availableMetricLayers = availableMetrics as unknown as Record<string, string[]>[];
 
   // Keep selectedMetric valid as the available layers change (city switch, date
   // change, simulation run): preserve the current metric if it still exists,
@@ -387,58 +346,64 @@ const Heatmap: React.FC<HeatmapProps> = ({
     ? Object.keys(selectedMetric)[0]
     : availableMetricLayers[0]
       ? Object.keys(availableMetricLayers[0])[0]
-      : 'heat_risk_score';
+      : 'average_temperature_c';
   const metricLabelText = formatMetricName(activeMetricKey);
   const activeMetricLegendGradient = useMemo(
     () => metricLegendGradient(activeMetricKey),
     [activeMetricKey],
   );
 
-  // One geographically-anchored raster per visible city for the active metric.
-  // The image is fixed-resolution and pinned to its lon/lat bounds, so the
-  // rendered surface never changes with zoom.
-  const metricRasters: CityMetricRasterEntry[] = useMemo(
+  // One rendered image per city surface, each geographically anchored to its own
+  // city's bounds. They are fixed-resolution, so the drawn surfaces never
+  // resample with zoom. Keyed on each surface's own shape so a new simulation
+  // frame produces a new raster rather than reusing a stale one.
+  const metricSurfaceRasters: MetricSurfaceRaster[] = useMemo(
     () =>
-      visibleCityGrids
-        .filter(([, grid]) => grid.metrics[activeMetricKey])
-        .map(([cityName, grid]) => ({
-          cityName,
-          grid,
-          raster: buildCityMetricRaster(cityName, grid, activeMetricKey),
-        })),
-    [visibleCityGrids, activeMetricKey],
+      metricSurfaces
+        .filter((surface) => surface.metric_key === activeMetricKey)
+        .map((surface) => {
+          const cacheKey = [
+            surface.city ?? 'unscoped',
+            surface.metric_key,
+            surface.bounds.join(','),
+            surface.rows,
+            surface.cols,
+            surface.min,
+            surface.max,
+            surface.source_count,
+          ].join('|');
+          return { surface, raster: buildMetricRaster(cacheKey, surface) };
+        }),
+    [metricSurfaces, activeMetricKey],
   );
 
   /**
-   * Sample every metric of the grid at a coordinate. Returns a synthesized
-   * reading when the coordinate lands inside a city raster, or null outside all
-   * of them, so places without data never show values.
+   * Read the city surfaces at a coordinate. Returns a synthesized reading from
+   * whichever city's surface contains it, or null when the coordinate is
+   * outside every city, so places without data never show values. The value is
+   * in the metric's own units.
    */
   const sampleRasterPoint = useCallback(
     (lon: number, lat: number): MetricValue | null => {
-      for (const { cityName, grid, raster } of metricRasters) {
+      for (const { surface, raster } of metricSurfaceRasters) {
         if (!isInsideRaster(raster, lon, lat)) continue;
-        const raw = sampleMetricGrid(grid, activeMetricKey, lon, lat);
-        if (raw === null) continue;
 
-        const individualMetrics: Record<string, string> = {};
-        for (const metricKey of Object.keys(grid.metrics)) {
-          const value = sampleMetricGrid(grid, metricKey, lon, lat);
-          if (value !== null) individualMetrics[metricKey] = value.toFixed(1);
-        }
+        const value = sampleSurface(surface, lon, lat);
+        if (value === null) continue;
 
-        const { min, max } = grid.metrics[activeMetricKey];
         return {
-          value: Math.round(metricScore(raw, min, max)),
-          location_name: `${cityName} · ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
+          value,
+          location_name: surface.city
+            ? `${surface.city} \u00b7 ${lat.toFixed(4)}, ${lon.toFixed(4)}`
+            : `${lat.toFixed(4)}, ${lon.toFixed(4)}`,
           location_coordinates: [lon, lat],
-          individual_metrics: individualMetrics,
+          individual_metrics: { [surface.metric_key]: `${value.toFixed(1)} \u00b0C` },
           is_interpolated: true,
         };
       }
       return null;
     },
-    [metricRasters, activeMetricKey],
+    [metricSurfaceRasters],
   );
 
   // Load mock placed-object tools for the selected city + date and push them
@@ -544,7 +509,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
     isDrawing,
     selectedCity,
     displayedHeatmapPoints,
-    metricRasters,
+    metricSurfaceRasters,
     displayedPOIAreas,
     userPOIAreas,
     editingAreaId,

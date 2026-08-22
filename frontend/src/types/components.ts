@@ -4,16 +4,14 @@ import type {
   HeatmapMetricValue,
   CityPOIArea,
   CityPOIAreaMap,
-  CityMetricGrid,
-  HeatmapMetricGridResponse,
+  MetricSurface,
 } from './heatmap';
-import type { CityMetricRaster } from '../services/metricRaster';
+import type { MetricRaster } from '../services/metricRaster';
 
-/** One city's grid plus the raster rendered from it for the active metric. */
-export interface CityMetricRasterEntry {
-  cityName: string;
-  grid: CityMetricGrid;
-  raster: CityMetricRaster;
+/** One city's kriged surface plus the raster image rendered from it. */
+export interface MetricSurfaceRaster {
+  surface: MetricSurface;
+  raster: MetricRaster;
 }
 import type { PlacedObject as ToolboxPlacedObject, ToolboxItemDef } from './toolbox';
 import type { SurfaceType } from './map';
@@ -170,8 +168,11 @@ export interface HeatmapProps {
   setSelectedCity: React.Dispatch<React.SetStateAction<string | null>>;
   cityPOIAreas: CityPOIAreaMap;
   displayedHeatmapPoints: HeatmapMetricValue[];
-  /** Interpolated raster grids per city; drives the continuous heat surface. */
-  metricGridsByCity: HeatmapMetricGridResponse;
+  /**
+   * One independently kriged surface per city for the active metric. Each is
+   * fitted on that city's own readings and clipped to its outline.
+   */
+  metricSurfaces: MetricSurface[];
   selectedDate: string | null;
   setSelectedDate: React.Dispatch<React.SetStateAction<string | null>>;
   setBaselineSelectedDate?: React.Dispatch<React.SetStateAction<string | null>>;
@@ -237,7 +238,8 @@ export interface UseHeatmapLayersArgs {
   selectedCity: string | null;
 
   displayedHeatmapPoints: HeatmapMetricValue[];
-  metricRasters: CityMetricRasterEntry[];
+  /** One rendered surface per city; empty while none are loaded. */
+  metricSurfaceRasters: MetricSurfaceRaster[];
 
   displayedPOIAreas: CityPOIArea[];
   userPOIAreas: CityPOIArea[];

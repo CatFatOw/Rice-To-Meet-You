@@ -9,13 +9,13 @@ import {
   availableDates,
   availableMetrics,
   callAllCityPOIs,
-  callHeatmapMetricsGrid,
   type CityPOIArea,
   type CityPOIAreaMap,
   type HeatmapMetricValue,
-  type HeatmapMetricGridResponse,
 } from '../api/map';
 import { callMockStatistics } from '../api/statistics';
+import { fetchInterpolatedCitySurfaces } from '../api/gridInterpolation';
+import type { MetricSurface } from '../types/heatmap';
 import { determineCityView } from '../services/cityViews';
 import { eachDay } from '../services/simulation';
 import type { ViewState } from '../types/viewState';
@@ -90,9 +90,9 @@ const SimulationPage: React.FC = () => {
   const [isPOIAreasLoading, setIsPOIAreasLoading] = useState(true);
   const [displayedHeatmapPoints, setDisplayedHeatmapPoints] =
     useState<HeatmapMetricValue[]>([]);
-  // Interpolated raster grids per city; these drive the continuous surface.
-  const [metricGridsByCity, setMetricGridsByCity] =
-    useState<HeatmapMetricGridResponse>({});
+  // One independently kriged surface per city for the active metric; these
+  // drive the continuous map.
+  const [metricSurfaces, setMetricSurfaces] = useState<MetricSurface[]>([]);
   const [isHeatmapPointsLoading, setIsHeatmapPointsLoading] = useState(false);
   const [baselineHeatmapPoints, setBaselineHeatmapPoints] =
     useState<HeatmapMetricValue[]>([]);
@@ -151,6 +151,7 @@ const SimulationPage: React.FC = () => {
   // --- Statistics and UI state ---
   // Controls metric selection and statistics panel data.
   const [selectedMetric, setSelectedMetric] = useState<Record<string, string[]> | null>(null);
+
   const [overallStatisticsProps, setOverallStatisticsProps] =
     useState<OverallStatisticsProps>();
   const [poiStatisticsProps, setPOIStatisticsProps] = useState<POIStatisticsProps>();
@@ -281,29 +282,51 @@ const SimulationPage: React.FC = () => {
     };
   }, []);
 
-  // --- Load interpolated metric grids ---
-  // The backend serves one kriged raster grid per city; the map renders it as
-  // the continuous metric surface. An empty response just means no surface.
+  // --- Krige the displayed readings into one surface per city ---
+  // The backend (POST /grid_interpolation/surfaces) partitions the readings by
+  // city outline and fits each city on its own readings alone, so every city's
+  // surface is generated from that city's data rather than sliced out of one
+  // wider fit. Each is clipped to its own outline.
+  //
+  // Points are sent from here rather than read server-side so a running
+  // simulation - whose adjusted readings exist only in the browser - is drawn
+  // through exactly the same path as saved data.
   useEffect(() => {
-    let isMounted = true;
+    if (!selectedMetricKey || displayedHeatmapPoints.length === 0) {
+      setMetricSurfaces([]);
+      return;
+    }
 
-    const loadMetricGrids = async () => {
-      try {
-        const gridsByCity = await callHeatmapMetricsGrid();
-        if (isMounted) {
-          setMetricGridsByCity(gridsByCity);
+    const controller = new AbortController();
+    let ignore = false;
+
+    // No `cities` filter: build a surface for whichever cities these readings
+    // actually fall inside, so the map stays correct if more than one city's
+    // readings are ever loaded at once.
+    fetchInterpolatedCitySurfaces(selectedMetricKey, displayedHeatmapPoints, {
+      signal: controller.signal,
+    })
+      .then((result) => {
+        if (ignore) return;
+        setMetricSurfaces(result?.surfaces ?? []);
+        // A city with too few readings inside it gets no surface. Say so rather
+        // than leaving a silent hole in the map.
+        for (const [city, reason] of Object.entries(result?.skipped ?? {})) {
+          console.warn(`No interpolated surface for ${city}: ${reason}`);
         }
-      } catch (error) {
-        console.error('Failed to load heatmap metric grids', error);
-      }
-    };
-
-    loadMetricGrids();
+      })
+      .catch((error) => {
+        if (ignore || controller.signal.aborted) return;
+        console.error('Failed to interpolate city surfaces', error);
+        setMetricSurfaces([]);
+      });
 
     return () => {
-      isMounted = false;
+      ignore = true;
+      controller.abort();
     };
-  }, []);
+  }, [displayedHeatmapPoints, selectedMetricKey]);
+
 
   // --- Cleanup simulation state on unmount ---
   // Ensure any running simulation timer is cleared when component unmounts
@@ -452,7 +475,7 @@ const SimulationPage: React.FC = () => {
               setSelectedCity={setSelectedCity}
               cityPOIAreas={cityPOIAreas}
               displayedHeatmapPoints={displayedHeatmapPoints}
-              metricGridsByCity={metricGridsByCity}
+              metricSurfaces={metricSurfaces}
               selectedDate={selectedDate}
               setSelectedDate={setSelectedDate}
               setBaselineSelectedDate={setBaselineSelectedDate}

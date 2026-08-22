@@ -41,29 +41,45 @@ export interface HeatmapMetricValue {
 }
 
 // ---------------------------------------------------------------------------
-// Interpolated raster grids (backend /heatmap/metrics/grid)
+// Kriged surfaces (backend POST /grid_interpolation/surface)
 // ---------------------------------------------------------------------------
 
-// One metric's interpolated value lattice for a city. values[row][col] holds
-// the metric value at that grid cell centroid; row 0 is the southernmost row.
-export interface MetricGrid {
-  min: number;
-  max: number;
-  values: (number | null)[][];
+/** A city's interpolation rectangle, as a closed GeoJSON Polygon ring. */
+export interface BoundaryGeometry {
+  type: 'Polygon';
+  coordinates: number[][][];
 }
 
-// A city's full interpolated raster grid for continuous map rendering.
-export interface CityMetricGrid {
-  state?: string | null;
+/**
+ * A continuous value field produced by ordinary kriging, as a regular lattice
+ * pinned to geographic bounds. values[row][col] holds the interpolated value at
+ * that cell's centroid; row 0 is the southernmost row.
+ *
+ * Values are in the metric's own units (degrees C), not a normalized score.
+ *
+ * A surface is scoped to one city: `bounds` is that city's rectangle, and the
+ * lattice spans exactly that rectangle, so the drawn surface stops at the city
+ * edge instead of bleeding across the country.
+ */
+export interface MetricSurface {
+  metric_key: string;
   bounds: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
   rows: number;
   cols: number;
-  timestamp: string;
-  metrics: Record<string, MetricGrid>;
+  // values[row][col]; row 0 is the southernmost row. Every cell carries a
+  // value - the lattice and the city rectangle are the same shape.
+  values: number[][];
+  min: number;
+  max: number;
+  variance_mean: number;
+  /** Readings inside the city rectangle that fed this surface's fit. */
+  source_count: number;
+  /** Resolved city name, null when the request carried no city. */
+  city: string | null;
+  /** The city rectangle as GeoJSON, for stroking the edge. Null when unscoped. */
+  boundary: BoundaryGeometry | null;
+  interpolation_method: string;
 }
-
-// City name -> interpolated raster grid available for that city.
-export type HeatmapMetricGridResponse = Record<string, CityMetricGrid>;
 
 // One metric's readings for a single day.
 export interface HeatmapMetricSnapshot {

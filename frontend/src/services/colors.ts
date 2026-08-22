@@ -82,107 +82,78 @@ export function getColor(v: number, metric: Metric): [number, number, number] {
 }
 
 // ---------------------------------------------------------------------------
-// Continuous ramps for the interpolated raster surface
+// Continuous ramps for the interpolated kriged surface
 // ---------------------------------------------------------------------------
 // getColor above returns banded colors (one flat color per threshold), which is
-// right for the legend's discrete stops. The raster renderer needs a *smooth*
-// lookup instead, so a continuously interpolated value field does not come out
-// as visible contour bands.
+// right for a legend's discrete stops. The kriged surface needs a *smooth*
+// lookup instead, so a continuously interpolated field does not come out as
+// visible contour bands.
+//
+// Stops are in each metric's own units - degrees Celsius here, not a 0-100
+// score - so the renderer colors the real interpolated value directly.
 
-/** Map a raw metric key onto the ramp family it should be drawn with. */
-export function colorMetricKey(metric: string): string {
-  if (metric === 'heat_risk_score') return 'heat_risk';
-  if (metric === 'heat_index') return 'heat_risk';
-  if (metric === 'visitor_density' || metric === 'visitor_activity') return 'crowd_density';
-  return metric;
-}
-
-// Ramp stops per metric family, sorted by descending threshold.
 const RAMPS: Record<string, Stop[]> = {
-  temperature: [
-    // Standard weather-forecast temperature ramp (°F): cold → hot
-    [100, [153, 0, 38]], // extreme heat, dark red
-    [90, [189, 0, 38]], // very hot, red
-    [80, [240, 59, 32]], // hot, orange-red
-    [70, [253, 141, 60]], // warm, orange
-    [60, [254, 178, 76]], // mild, amber
-    [50, [255, 237, 160]], // cool, pale yellow
-    [40, [161, 218, 180]], // chilly, green
-    [32, [65, 182, 196]], // cold, cyan
-    [20, [44, 127, 184]], // freezing, blue
-    [0, [37, 52, 148]], // frigid, deep blue
+  // Absolute temperature (degrees C): blue -> green -> yellow -> orange -> red.
+  // Mirrors the banded getColor stops above so the surface and the legend agree.
+  average_temperature_c: [
+    [40, [189, 0, 38]], // deep red
+    [38, [227, 26, 28]],
+    [36, [240, 59, 32]],
+    [34, [252, 78, 42]],
+    [32, [253, 141, 60]],
+    [30, [253, 174, 97]], // orange
+    [28, [254, 196, 79]],
+    [26, [254, 217, 118]],
+    [24, [255, 237, 160]], // pale yellow
+    [21, [217, 240, 163]],
+    [18, [161, 218, 180]], // green
+    [14, [102, 194, 165]],
+    [10, [65, 182, 196]], // cyan
+    [5, [44, 127, 184]], // blue
+    [0, [37, 66, 154]], // dark blue
+    [-10, [20, 30, 100]], // deep blue
   ],
-  heat_risk: [
-    [90, [127, 29, 29]],
-    [75, [220, 38, 38]],
-    [60, [249, 115, 22]],
-    [45, [245, 158, 11]],
-    [30, [234, 179, 8]],
-    [15, [132, 204, 22]],
-    [0, [20, 184, 166]],
-  ],
-  crowd_density: [
-    [90, [236, 72, 153]],
-    [75, [168, 85, 247]],
-    [60, [99, 102, 241]],
-    [45, [59, 130, 246]],
-    [30, [14, 165, 233]],
-    [15, [45, 212, 191]],
-    [0, [15, 118, 110]],
-  ],
-  cooling_centers: [
-    [90, [14, 165, 233]],
-    [75, [6, 182, 212]],
-    [60, [34, 211, 238]],
-    [45, [103, 232, 249]],
-    [30, [125, 211, 252]],
-    [15, [186, 230, 253]],
-    [0, [30, 64, 175]],
-  ],
-  infrastructure_strain: [
-    [90, [190, 18, 60]],
-    [75, [225, 29, 72]],
-    [60, [251, 113, 133]],
-    [45, [251, 146, 60]],
-    [30, [250, 204, 21]],
-    [15, [163, 230, 53]],
-    [0, [22, 163, 74]],
-  ],
-  population: [
-    [90, [109, 40, 217]],
-    [75, [124, 58, 237]],
-    [60, [139, 92, 246]],
-    [45, [168, 85, 247]],
-    [30, [192, 132, 252]],
-    [15, [216, 180, 254]],
-    [0, [59, 130, 246]],
-  ],
-  default: [
-    [90, [239, 68, 68]],
-    [75, [249, 115, 22]],
-    [60, [245, 158, 11]],
-    [45, [234, 179, 8]],
-    [30, [132, 204, 22]],
-    [15, [20, 184, 166]],
-    [0, [37, 99, 235]],
+  // Diverging delta-T (degrees C): blue (cooling) -> neutral -> red (warming).
+  // The midpoint is deliberately a light neutral so "no change" reads as
+  // absence rather than as a color of its own.
+  change_in_temperature: [
+    [5, [165, 0, 38]], // strong warming
+    [4, [215, 48, 39]],
+    [3, [244, 109, 67]],
+    [2, [253, 174, 97]],
+    [1, [254, 224, 144]],
+    [0, [247, 247, 247]], // no change
+    [-1, [209, 229, 240]],
+    [-2, [146, 197, 222]],
+    [-3, [67, 147, 195]],
+    [-4, [33, 102, 172]],
+    [-5, [8, 48, 107]], // strong cooling
   ],
 };
 
-/** True when the metric has a smooth ramp of its own (not the fallback). */
+/** True when the metric has a continuous surface ramp of its own. */
 export function hasSmoothRamp(metric: string): boolean {
-  return colorMetricKey(metric) in RAMPS;
-}
-
-function rampFor(metric: string): Stop[] {
-  return RAMPS[colorMetricKey(metric)] ?? RAMPS.default;
+  return metric in RAMPS;
 }
 
 /**
- * Continuous lookup: linearly blend between the two bracketing stops so a
- * smooth value field renders as a smooth gradient instead of contour bands.
+ * Value range a metric's ramp spans, used to lay out the legend gradient.
+ * Returns null for metrics without a ramp.
+ */
+export function rampDomain(metric: string): [number, number] | null {
+  const stops = RAMPS[metric];
+  if (!stops) return null;
+  return [stops[stops.length - 1][0], stops[0][0]];
+}
+
+/**
+ * Continuous lookup in the metric's own units: linearly blend between the two
+ * bracketing stops so a smooth field renders as a smooth gradient instead of
+ * contour bands. Values outside the ramp clamp to its end colors.
  */
 export function getSmoothColor(v: number, metric: string): RGB {
-  const stops = rampFor(metric);
+  const stops = RAMPS[metric];
+  if (!stops) return getColor(v, metric);
   if (v >= stops[0][0]) return stops[0][1];
 
   for (let i = 0; i < stops.length - 1; i += 1) {

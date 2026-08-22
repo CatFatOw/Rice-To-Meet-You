@@ -6,6 +6,7 @@ import {
   TextLayer,
   IconLayer,
   BitmapLayer,
+  GeoJsonLayer,
 } from '@deck.gl/layers';
 import { type CityPOIArea, type HeatmapMetricValue } from '../api/map';
 import { cities, type City } from '../data/hostCities';
@@ -89,7 +90,7 @@ export function useHeatmapLayers({
   isDrawing,
   selectedCity,
   displayedHeatmapPoints,
-  metricRasters,
+  metricSurfaceRasters,
   displayedPOIAreas,
   userPOIAreas,
   editingAreaId,
@@ -181,24 +182,54 @@ export function useHeatmapLayers({
     [onCityClick, isDrawing, selectedCity],
   );
 
-  // Continuous interpolated surface. Each city's grid is rendered once into an
-  // off-screen canvas (see services/metricRaster) and pinned to its lon/lat
-  // bounds, so the surface is a true bilinear interpolation of the backend's
-  // kriged cell values and does not resample as the user zooms.
+  // Continuous interpolated surface. The backend ordinary-kriges the readings
+  // into a value lattice; that lattice is rendered once into an off-screen
+  // canvas (see services/metricRaster) and pinned to its lon/lat bounds, so the
+  // surface does not resample as the user zooms.
+  // One image per city, each anchored to its own city's bounds. They are
+  // separate layers rather than one national image because each was kriged
+  // independently from its own city's readings.
   const visibleMetricLayers = useMemo(
     () =>
-      metricRasters.map(
-        ({ cityName, raster }) =>
+      metricSurfaceRasters.map(
+        ({ surface, raster }) =>
           new BitmapLayer({
-            id: `metric-raster-${cityName}`,
+            id: `metric-surface-raster-${surface.city ?? 'unscoped'}`,
             image: raster.canvas,
             bounds: raster.bounds,
             opacity: 0.82,
             pickable: false,
           }),
       ),
-    [metricRasters],
+    [metricSurfaceRasters],
   );
+
+  // Outline of each city a surface covers. Drawn on top of the rasters so the
+  // edge of the data is explicit: inside the line the surface is interpolated
+  // from that city's readings, outside it nothing is claimed. Unfilled, since
+  // the rasters below already carry the color.
+  const cityBoundaryLayer = useMemo(() => {
+    const features = metricSurfaceRasters
+      .filter(({ surface }) => surface.boundary)
+      .map(({ surface }) => ({
+        type: 'Feature',
+        geometry: surface.boundary,
+        properties: { city: surface.city },
+      }));
+    if (features.length === 0) return null;
+
+    return new GeoJsonLayer({
+      id: 'city-boundary-layer',
+      data: { type: 'FeatureCollection', features } as never,
+      pickable: false,
+      stroked: true,
+      filled: false,
+      getLineColor: [148, 163, 184, 220],
+      getLineWidth: 2,
+      lineWidthUnits: 'pixels',
+      lineWidthMinPixels: 1.5,
+    });
+  }, [metricSurfaceRasters]);
 
   // Transparent, pickable dots sitting exactly on each reading. The heatmap
   // above is the visible surface; this layer exists only so hovering a point
@@ -469,6 +500,7 @@ export function useHeatmapLayers({
   return useMemo(
     () => [
       ...visibleMetricLayers,
+      ...(cityBoundaryLayer ? [cityBoundaryLayer] : []),
       pointPickLayer,
       poiAreaLayer,
       placedObjectPolygonLayer,
@@ -482,6 +514,7 @@ export function useHeatmapLayers({
     ],
     [
       visibleMetricLayers,
+      cityBoundaryLayer,
       pointPickLayer,
       poiAreaLayer,
       placedObjectPolygonLayer,

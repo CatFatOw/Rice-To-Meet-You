@@ -1,11 +1,14 @@
-import type { CityMetricGrid } from '../types/heatmap';
+import type { MetricSurface } from '../types/heatmap';
 import { getSmoothColor } from './colors';
 
-// Rendered raster for one city + metric: a fixed-size colorized image anchored
-// to geographic bounds (so it never changes with zoom). The bounds are the
-// rectangle through the outermost grid cell centroids, so every rendered pixel
-// is a true interpolation between measured/kriged centroid values.
-export interface CityMetricRaster {
+// Rendered raster for one city's kriged surface: a fixed-size colorized image
+// anchored to geographic bounds (so it never resamples with zoom). The bounds
+// are the rectangle through the outermost lattice centroids, so every rendered
+// pixel is a true interpolation between kriged values.
+//
+// The image covers the city rectangle and nothing beyond it: one city, one
+// rectangle, one image.
+export interface MetricRaster {
   canvas: HTMLCanvasElement;
   bounds: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
   width: number;
@@ -18,38 +21,33 @@ const MAX_RASTER_WIDTH = 960;
 const MAX_RASTER_HEIGHT = 1280;
 const RASTER_ALPHA = 210;
 
-const RASTER_CACHE = new Map<string, CityMetricRaster>();
+const RASTER_CACHE = new Map<string, MetricRaster>();
 const MAX_RASTER_CACHE_ENTRIES = 24;
 
 function clamp(value: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, value));
 }
 
-// The contiguous rectangle spanning all grid cell centroids: the cell bbox
+// The contiguous rectangle spanning all lattice centroids: the surface bbox
 // inset by half a cell on every side.
-export function centroidBounds(grid: CityMetricGrid): [number, number, number, number] {
-  const [minLon, minLat, maxLon, maxLat] = grid.bounds;
-  const halfLon = (maxLon - minLon) / grid.cols / 2;
-  const halfLat = (maxLat - minLat) / grid.rows / 2;
+export function centroidBounds(surface: MetricSurface): [number, number, number, number] {
+  const [minLon, minLat, maxLon, maxLat] = surface.bounds;
+  const halfLon = (maxLon - minLon) / surface.cols / 2;
+  const halfLat = (maxLat - minLat) / surface.rows / 2;
   return [minLon + halfLon, minLat + halfLat, maxLon - halfLon, maxLat - halfLat];
 }
 
 /**
- * Bilinear sample of a rows x cols value lattice at a lon/lat. Values sit at
- * cell centroids (row 0 = southernmost). Null neighbors are skipped by
- * renormalizing the remaining weights; returns null outside the grid bounds or
- * when every contributing neighbor is null.
+ * Bilinear sample of the rows x cols value lattice at a lon/lat. Values sit at
+ * cell centroids (row 0 = southernmost). Returns null outside the city
+ * rectangle, which is how the caller knows a coordinate belongs to no city.
  */
-export function sampleMetricGrid(
-  grid: CityMetricGrid,
-  metricKey: string,
+export function sampleSurface(
+  surface: MetricSurface,
   lon: number,
   lat: number,
 ): number | null {
-  const metric = grid.metrics[metricKey];
-  if (!metric) return null;
-
-  const [minLon, minLat, maxLon, maxLat] = grid.bounds;
+  const [minLon, minLat, maxLon, maxLat] = surface.bounds;
   if (lon < minLon || lon > maxLon || lat < minLat || lat > maxLat) return null;
 
   const lonSpan = maxLon - minLon;
@@ -58,46 +56,35 @@ export function sampleMetricGrid(
 
   // Fractional lattice position; the 0.5 shift puts integer positions on cell
   // centroids, and clamping holds edge half-cells at the edge value.
-  const colF = clamp(((lon - minLon) / lonSpan) * grid.cols - 0.5, 0, grid.cols - 1);
-  const rowF = clamp(((lat - minLat) / latSpan) * grid.rows - 0.5, 0, grid.rows - 1);
+  const colF = clamp(((lon - minLon) / lonSpan) * surface.cols - 0.5, 0, surface.cols - 1);
+  const rowF = clamp(((lat - minLat) / latSpan) * surface.rows - 0.5, 0, surface.rows - 1);
   const col0 = Math.floor(colF);
   const row0 = Math.floor(rowF);
-  const col1 = Math.min(col0 + 1, grid.cols - 1);
-  const row1 = Math.min(row0 + 1, grid.rows - 1);
+  const col1 = Math.min(col0 + 1, surface.cols - 1);
+  const row1 = Math.min(row0 + 1, surface.rows - 1);
   const tCol = colF - col0;
   const tRow = rowF - row0;
 
-  const neighbors: Array<[number | null | undefined, number]> = [
-    [metric.values[row0]?.[col0], (1 - tRow) * (1 - tCol)],
-    [metric.values[row0]?.[col1], (1 - tRow) * tCol],
-    [metric.values[row1]?.[col0], tRow * (1 - tCol)],
-    [metric.values[row1]?.[col1], tRow * tCol],
-  ];
-
-  let weightedSum = 0;
-  let weightTotal = 0;
-  for (const [value, weight] of neighbors) {
-    if (value === null || value === undefined || weight <= 0) continue;
-    weightedSum += value * weight;
-    weightTotal += weight;
+  const v00 = surface.values[row0]?.[col0];
+  const v01 = surface.values[row0]?.[col1];
+  const v10 = surface.values[row1]?.[col0];
+  const v11 = surface.values[row1]?.[col1];
+  // Guards a malformed lattice only; a well-formed surface always has all four.
+  if (v00 === undefined || v01 === undefined || v10 === undefined || v11 === undefined) {
+    return null;
   }
 
-  return weightTotal > 0 ? weightedSum / weightTotal : null;
+  const top = v00 * (1 - tCol) + v01 * tCol;
+  const bottom = v10 * (1 - tCol) + v11 * tCol;
+  return top * (1 - tRow) + bottom * tRow;
 }
 
-// Normalize a raw metric value into the 0-100 score space the color ramps and
-// tooltip use. min === max mirrors the backend's metric_to_intensity (=> 100).
-export function metricScore(value: number, min: number, max: number): number {
-  if (max === min) return 100;
-  return clamp(((value - min) / (max - min)) * 100, 0, 100);
-}
-
-function renderRaster(grid: CityMetricGrid, metricKey: string): CityMetricRaster {
-  const bounds = centroidBounds(grid);
+function renderRaster(surface: MetricSurface): MetricRaster {
+  const bounds = centroidBounds(surface);
   const [minLon, minLat, maxLon, maxLat] = bounds;
   const lonSpan = Math.max(maxLon - minLon, 1e-9);
   const latSpan = Math.max(maxLat - minLat, 1e-9);
-  const width = clamp(grid.cols * PIXELS_PER_CELL, MIN_RASTER_WIDTH, MAX_RASTER_WIDTH);
+  const width = clamp(surface.cols * PIXELS_PER_CELL, MIN_RASTER_WIDTH, MAX_RASTER_WIDTH);
   const height = clamp(Math.round((width * latSpan) / lonSpan), 1, MAX_RASTER_HEIGHT);
 
   const canvas = document.createElement('canvas');
@@ -108,18 +95,19 @@ function renderRaster(grid: CityMetricGrid, metricKey: string): CityMetricRaster
     return { canvas, bounds, width, height };
   }
 
-  const metric = grid.metrics[metricKey];
   const image = ctx.createImageData(width, height);
 
   for (let y = 0; y < height; y += 1) {
-    // Canvas y = 0 is the top (north); the value grid's row 0 is south.
+    // Canvas y = 0 is the top (north); the value lattice's row 0 is south.
     const lat = maxLat - ((y + 0.5) / height) * latSpan;
     for (let x = 0; x < width; x += 1) {
       const lon = minLon + ((x + 0.5) / width) * lonSpan;
-      const value = sampleMetricGrid(grid, metricKey, lon, lat);
-      if (value === null) continue; // transparent pixel
+      const value = sampleSurface(surface, lon, lat);
+      if (value === null) continue; // outside the rectangle: leave transparent
 
-      const [r, g, b] = getSmoothColor(metricScore(value, metric.min, metric.max), metricKey);
+      // Colored by the real interpolated value in the metric's own units, so
+      // the same temperature is the same color on every date and in every city.
+      const [r, g, b] = getSmoothColor(value, surface.metric_key);
       const offset = (y * width + x) * 4;
       image.data[offset] = r;
       image.data[offset + 1] = g;
@@ -132,17 +120,12 @@ function renderRaster(grid: CityMetricGrid, metricKey: string): CityMetricRaster
   return { canvas, bounds, width, height };
 }
 
-/** Build (or reuse from cache) the rendered raster for one city + metric. */
-export function buildCityMetricRaster(
-  cityName: string,
-  grid: CityMetricGrid,
-  metricKey: string,
-): CityMetricRaster {
-  const cacheKey = `${cityName}|${metricKey}|${grid.timestamp}`;
+/** Build (or reuse from cache) the rendered raster for one kriged surface. */
+export function buildMetricRaster(cacheKey: string, surface: MetricSurface): MetricRaster {
   const cached = RASTER_CACHE.get(cacheKey);
   if (cached) return cached;
 
-  const raster = renderRaster(grid, metricKey);
+  const raster = renderRaster(surface);
   RASTER_CACHE.set(cacheKey, raster);
   if (RASTER_CACHE.size > MAX_RASTER_CACHE_ENTRIES) {
     const oldestKey = RASTER_CACHE.keys().next().value;
@@ -152,8 +135,8 @@ export function buildCityMetricRaster(
   return raster;
 }
 
-/** True when the coordinate lands inside the rendered data rectangle. */
-export function isInsideRaster(raster: CityMetricRaster, lon: number, lat: number): boolean {
+/** True when the coordinate lands inside the rendered surface rectangle. */
+export function isInsideRaster(raster: MetricRaster, lon: number, lat: number): boolean {
   const [minLon, minLat, maxLon, maxLat] = raster.bounds;
   return lon >= minLon && lon <= maxLon && lat >= minLat && lat <= maxLat;
 }

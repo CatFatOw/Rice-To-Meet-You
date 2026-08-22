@@ -16,9 +16,6 @@ import type {
   HeatmapMetricPOIPoint,
   HeatmapMetricPOIByCity,
   HeatmapPointsByDate,
-  MetricGrid,
-  CityMetricGrid,
-  HeatmapMetricGridResponse,
 } from '../types/heatmap';
 
 
@@ -36,9 +33,6 @@ export type {
   HeatmapMetricPOIByCity,
   Polygon,
   LocationReading,
-  MetricGrid,
-  CityMetricGrid,
-  HeatmapMetricGridResponse,
 };
 
 // Centralizing the base URL makes it easy to point a build at a deployed API
@@ -282,7 +276,7 @@ const generateAvailableDates = (): string[] => {
 export const availableDates = generateAvailableDates();
 
 // ============================================================================
-// Interpolated raster grids + simulation writes
+// POI import + simulation writes
 // ============================================================================
 
 export interface SimulationPlacedObject {
@@ -324,21 +318,6 @@ export interface CorePOIImportResponse {
   skipped_count: number;
   total_rows: number;
   errors: string[];
-}
-
-/**
- * Interpolated raster grids per city, used to render the continuous metric
- * surface. An empty `{}` means the grid tables are not seeded yet, in which
- * case the caller simply renders no surface.
- */
-export async function callHeatmapMetricsGrid(): Promise<HeatmapMetricGridResponse> {
-  try {
-    const cityGrids = await fetchBackendJson<HeatmapMetricGridResponse>('/heatmap/metrics/grid');
-    return cityGrids ?? {};
-  } catch (error) {
-    console.warn('Failed to load heatmap metric grids', error);
-    return {};
-  }
 }
 
 /** Saved POI polygons for the map. Falls back to the legacy route, then none. */

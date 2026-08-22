@@ -17,11 +17,19 @@ from repository.grid_interpolation_repository import (
     get_metrics_for_grid_cells,
     update_interpolated_point,
 )
+from data.city_boundaries import (
+    get_city_boundary,
+    get_city_boundary_geojson,
+    resolve_city_name,
+    supported_cities,
+)
 from routers.grid_geometry import get_city_grid_cells
 from schemas import interpolate_schemas
 from services.grid_geometry_services import grid_cells_to_geojson
 from services.grid_interpolation_service import (
     INTERPOLATABLE_METRICS,
+    SURFACE_MAX_RESOLUTION,
+    SURFACE_METRICS,
     add_relative_confidence,
     apply_exact_grid_metrics,
     grid_metrics_to_known_points,
@@ -29,6 +37,8 @@ from services.grid_interpolation_service import (
     interpolated_points_to_geojson,
     interpolated_points_to_heatmap_geojson,
     interpolated_points_to_polygon_geojson,
+    krige_city_surfaces,
+    krige_surface,
 )
 
 router = APIRouter(prefix="/grid_interpolation", tags=["grid_interpolation"])
@@ -40,6 +50,29 @@ def validate_metric_key(metric_key: str, field_name: str = "metric_key"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"{field_name} must be one of: {sorted(INTERPOLATABLE_METRICS)}",
+        )
+
+
+def validate_surface_metric(metric_key: str):
+    """Raise a 400 if a requested metric has no continuous surface."""
+    if metric_key not in SURFACE_METRICS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"metric_key must be one of: {sorted(SURFACE_METRICS)}",
+        )
+
+
+def validate_surface_city(city: str | None):
+    """Reject an unknown city rather than silently widening the surface.
+
+    Falling back to the observations' bounding box for a city we have no
+    rectangle for would draw a surface well past the city, which is exactly the
+    behaviour the city extent exists to prevent.
+    """
+    if city and resolve_city_name(city) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown city '{city}'. Known cities: {supported_cities()}",
         )
 
 
@@ -153,6 +186,116 @@ async def get_interpolated_heatmap(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NOT FOUND")
 
     return interpolated_points_to_heatmap_geojson(data, metric_key=metric_key)
+
+
+@router.get(
+    "/city_boundary",
+    response_model=interpolate_schemas.CityBoundaryResponse,
+)
+async def get_city_boundary_route(city: str):
+    """Return the rectangle the surface for this city is built over."""
+    validate_surface_city(city)
+    boundary = get_city_boundary(city)
+    if not boundary:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="NO CITY BOUNDARY FOUND",
+        )
+
+    return {
+        "city": resolve_city_name(city),
+        "state": boundary["state"],
+        "bounds": boundary["bounds"],
+        "geometry": get_city_boundary_geojson(city),
+    }
+
+
+@router.post("/surface", response_model=interpolate_schemas.SurfaceResponse)
+async def get_interpolated_surface(payload: interpolate_schemas.SurfaceRequest):
+    """Ordinary-krige the supplied readings into a continuous value lattice.
+
+    This is the surface the map draws. It takes its observations from the
+    request rather than the database so that a running simulation - whose
+    adjusted readings only exist in the browser - can be rendered the same way
+    as saved data. Nothing is persisted.
+    """
+    validate_surface_metric(payload.metric_key)
+    validate_surface_city(payload.city)
+
+    if not payload.points:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="points cannot be empty.",
+        )
+
+    if payload.bounds is not None and len(payload.bounds) != 4:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="bounds must be [minLon, minLat, maxLon, maxLat].",
+        )
+
+    if payload.rows * payload.cols > SURFACE_MAX_RESOLUTION**2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"rows * cols cannot exceed {SURFACE_MAX_RESOLUTION**2}.",
+        )
+
+    try:
+        surface = krige_surface(
+            [point.model_dump() for point in payload.points],
+            rows=payload.rows,
+            cols=payload.cols,
+            bounds=payload.bounds,
+            city=payload.city,
+            buffer_deg=payload.boundary_buffer_deg,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    return {"metric_key": payload.metric_key, **surface}
+
+
+@router.post("/surfaces", response_model=interpolate_schemas.CitySurfacesResponse)
+async def get_interpolated_city_surfaces(payload: interpolate_schemas.CitySurfacesRequest):
+    """Krige one independent surface per city.
+
+    Readings are partitioned by city rectangle and each city is fitted on its
+    own readings alone. A city's surface is therefore generated from that city's
+    data, not sliced out of a single wider fit - two cities with different heat
+    regimes cannot flatten each other's detail.
+    """
+    validate_surface_metric(payload.metric_key)
+    for city in payload.cities or []:
+        validate_surface_city(city)
+
+    if not payload.points:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="points cannot be empty.",
+        )
+
+    if payload.rows * payload.cols > SURFACE_MAX_RESOLUTION**2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"rows * cols cannot exceed {SURFACE_MAX_RESOLUTION**2}.",
+        )
+
+    surfaces, skipped = krige_city_surfaces(
+        [point.model_dump() for point in payload.points],
+        rows=payload.rows,
+        cols=payload.cols,
+        cities=payload.cities,
+        buffer_deg=payload.boundary_buffer_deg,
+    )
+
+    return {
+        "metric_key": payload.metric_key,
+        "surfaces": [
+            {"metric_key": payload.metric_key, **surface}
+            for surface in surfaces.values()
+        ],
+        "skipped": skipped,
+    }
 
 
 # Update/when the user draws polygon/points the area of the polygon impacts these points
