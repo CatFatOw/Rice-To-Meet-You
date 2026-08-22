@@ -1,5 +1,6 @@
 fastapi
 uvicorn[standard]
+orjson
 sqlalchemy
 alembic
 psycopg2-binary
@@ -11,3 +12,5 @@ pykrige
 passlib
 python-jose
 python-multipart
+redis>=5.0
+tqdm

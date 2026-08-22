@@ -143,7 +143,10 @@ Set environment variables:
 ```bash
 export DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
 export JWT_KEY="dev-secret-key"
+export REDIS_URL="redis://localhost:6379/0"
 ```
+
+If you do not already have Redis running locally, start it before using features that depend on it (for example, on macOS: `brew install redis && brew services start redis`).
 
 Run migrations:
 
@@ -227,6 +230,18 @@ Detailed routes are documented in [app/README.md](app/README.md). High-level rou
 | Grid Interpolation | `/grid_interpolation` | Interpolate metrics and return GeoJSON. |
 | NWS Weather | `/weather` | Fetch and assign National Weather Service observations. |
 | Polygons | `/polygon` | Store drawn impact regions and compute impacted grid cells. |
+
+### Additional Routes
+
+- GET
+  - `/get-urban-interventions-by-city-date`
+  - `/get-heatmap-points-by-city-date-metric`
+  - `/get-simulated-points-by-city-date`
+  - `/get-pois-by-city`
+  - `/get-statistics`
+- POST
+  - `/create-poi-by-city`
+  - `/create-urban-interventions-by-city`
 
 ## Postman Workflow
 

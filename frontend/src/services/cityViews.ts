@@ -1,12 +1,5 @@
 import { cities, type City } from '../data/hostCities';
-
-interface ViewState {
-  longitude: number;
-  latitude: number;
-  zoom: number;
-  pitch: number;
-  bearing: number;
-}
+import type { ViewState } from '../types/viewState';
 
 const CITY_ZOOM_THRESHOLD = 7;  // below this, you're at a regional/national view
 const CITY_RADIUS_DEG = 0.5;    // how close the view center must sit to a city to count

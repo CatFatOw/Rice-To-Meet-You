@@ -1,4 +1,4 @@
-import type { CityMetricGrid } from '../api/map';
+import type { CityMetricGrid } from '../types/heatmap';
 import { getSmoothColor } from './colors';
 
 // Rendered raster for one city + metric: a fixed-size colorized image anchored

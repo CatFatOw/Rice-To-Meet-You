@@ -1,12 +1,37 @@
 """File handles connecting to a postgres database"""
-import os 
+import os
+from pathlib import Path
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL environment variable is not set")
+
+
+
+def _load_environment_from_project_root() -> None:
+    """Load values from the repository-level .env file if present."""
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):]
+        if "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        os.environ.setdefault(key, value)
+
+
+_load_environment_from_project_root()
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./local_dev.sqlite3")
 
 # SQLlite option for online hosting/production (only if url for sqllite is specified or fallback)
 is_sqlite = DATABASE_URL.startswith("sqlite")

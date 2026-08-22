@@ -1,140 +1,54 @@
 import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
-import {
-  Expand,
-  Shrink,
-  Pencil,
-  Check,
-  Undo2,
-  X,
-  Trash2,
-  Search,
-  MapPin,
-  Crosshair,
-  Loader2,
-  Snowflake,
-  Umbrella,
-  Droplets,
-  Fan,
-  Cross,
-  TreePine,
-} from 'lucide-react';
+import { Expand, Shrink } from 'lucide-react';
 import DeckGL from '@deck.gl/react';
-import {
-  ScatterplotLayer,
-  PolygonLayer,
-  PathLayer,
-  TextLayer,
-  IconLayer,
-  BitmapLayer,
-} from '@deck.gl/layers';
-import {
-  applySimulation,
-  createSimulationPolygon,
-  type CityMetricGrid,
-  type CityPOIArea,
-  type HeatmapMetricGridResponse,
-  type HeatmapMetricValue,
-  type SimulationPlacedObject,
-} from '../api/map';
-import { cities, type City } from '../data/hostCities';
-import { getSmoothColor } from '../utils/colors';
+import { type CityPOIArea } from '../api/map';
+import { type City } from '../data/hostCities';
+import { getColor, getSmoothColor, hasSmoothRamp } from '../services/colors';
 import {
   buildCityMetricRaster,
   isInsideRaster,
   metricScore,
   sampleMetricGrid,
-} from '../utils/metricRaster';
-import maplibregl from 'maplibre-gl';
+} from '../services/metricRaster';
+import { useHeatmapLayers } from '../hooks/useHeatmapLayers';
+import SearchBar from './SearchBar';
+import Toolbox from './Toolbox';
+import HeatRiskScale from './Heatriskscale';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import type { SurfaceType } from '../services/map';
+import { classifySurface } from '../services/map';
+import type { GeocodeResult } from '../types/search';
+import type {
+  CityMetricRasterEntry,
+  HeatmapProps,
+  TooltipState,
+} from '../types/components';
+import type { CityMetricGrid, HeatmapMetricValue as MetricValue } from '../types/heatmap';
+import type { ViewState } from '../types/viewState';
+import { fetchPlacedObjects } from '../api/tool';
+import type { Geometry } from '../types/simulation';
+import { isPolygonSimple } from '../services/polygon';
+import { availableMetrics, availableDates } from '../api/map';
 
-interface ViewState {
-  longitude: number;
-  latitude: number;
-  zoom: number;
-  pitch: number;
-  bearing: number;
-}
 
-interface HeatmapProps {
-  viewState: ViewState;
-  setViewState: React.Dispatch<React.SetStateAction<ViewState>>;
-  selectedCity: string | null;
-  setSelectedCity: React.Dispatch<React.SetStateAction<string | null>>;
-  cityPOIAreas: CityPOIArea[];
-  metricGridsByCity: HeatmapMetricGridResponse;
-  showAllCityHeatmaps?: boolean;
-  mapContainerRef: React.RefObject<HTMLDivElement | null>;
-  mapRef: React.MutableRefObject<maplibregl.Map | null>;
-  mapSyncFrameRef: React.MutableRefObject<number | null>;
-  tooltip: TooltipState | null;
-  setTooltip: React.Dispatch<React.SetStateAction<TooltipState | null>>;
-  isFullscreen: boolean;
-  setIsFullscreen: React.Dispatch<React.SetStateAction<boolean>>;
-  isDrawing: boolean;
-  setIsDrawing: React.Dispatch<React.SetStateAction<boolean>>;
-  draftPoints: [number, number][];
-  setDraftPoints: React.Dispatch<React.SetStateAction<[number, number][]>>;
-  draftColorHex: string;
-  setDraftColorHex: React.Dispatch<React.SetStateAction<string>>;
-  draftName: string;
-  setDraftName: React.Dispatch<React.SetStateAction<string>>;
-  userPOIAreas: CityPOIArea[];
-  setUserPOIAreas: React.Dispatch<React.SetStateAction<CityPOIArea[]>>;
-  hoveringHeatmap: boolean;
-  setHoveringHeatmap: React.Dispatch<React.SetStateAction<boolean>>;
-  searchQuery: string;
-  setSearchQuery: React.Dispatch<React.SetStateAction<string>>;
-  geoResults: GeocodeResult[];
-  setGeoResults: React.Dispatch<React.SetStateAction<GeocodeResult[]>>;
-  isSearching: boolean;
-  setIsSearching: React.Dispatch<React.SetStateAction<boolean>>;
-  showSuggestions: boolean;
-  setShowSuggestions: React.Dispatch<React.SetStateAction<boolean>>;
-  selectedMetric: string | null;
-  setSelectedMetric: React.Dispatch<React.SetStateAction<string | null>>;
-  editingAreaId: string | null;
-  setEditingAreaId: React.Dispatch<React.SetStateAction<string | null>>;
-  isAreaDragging: boolean;
-  setIsAreaDragging: React.Dispatch<React.SetStateAction<boolean>>;
-  onPOIAreaSelect?: (area: CityPOIArea) => void;
-  onMetricPointSelect?: (point: HeatmapMetricValue, metric: string) => void;
-  /**
-   * When true, the left panel renders as a full toolbox: a palette of
-   * placeable objects (cooling stations, shade canopy, ...) that can be
-   * dragged onto the map, followed by the Create POI Area section. When
-   * false (default) only the Create POI Area section is shown.
-   */
-  displayToolbox?: boolean;
-}
 
-export interface TooltipState {
-  point: HeatmapMetricValue;
-  metric: string;
-  x: number;
-  y: number;
-}
 
-// A single resolved place from the geocoder (or a coordinate/city match).
-export interface GeocodeResult {
-  label: string;
-  lng: number;
-  lat: number;
-}
+// Re-exported so existing imports (`import Heatmap, { type GeocodeResult }`)
+// keep working now that the search UI lives in its own component.
+export type { GeocodeResult, TooltipState };
 
+// ======================================================
+// Formatting helpers
+// Pure functions: raw metric keys -> human-readable text.
+// ======================================================
+
+/**
+ * Short display name for a raw sub-metric key, used in the tooltip's
+ * `individual_metrics` breakdown (e.g. 'heatIndexF' -> 'Heat Index').
+ * Unknown keys fall through unchanged so new metrics still render.
+ */
 function metricLabel(metricKey: string): string {
   switch (metricKey) {
-    case 'heat_index':
-      return 'Heat Index';
-    case 'heat_risk':
-      return 'Heat Risk';
-    case 'crowd_density':
-      return 'Crowd Density';
-    case 'population':
-      return 'Population';
-    case 'cooling_centers':
-      return 'Cooling Centers';
-    case 'infrastructure_strain':
-      return 'Infra. Strain';
     case 'temperatureF':
       return 'Air Temp';
     case 'heatIndexF':
@@ -154,6 +68,11 @@ function metricLabel(metricKey: string): string {
   }
 }
 
+/**
+ * Unit suffix inferred from the metric key's naming convention:
+ * a trailing 'F' means Fahrenheit, a trailing 'Pct' means percent.
+ * Returns an empty string for unitless metrics.
+ */
 function metricUnit(metricKey: string): string {
   if (metricKey.endsWith('F')) return ' deg F';
   if (metricKey.endsWith('Pct')) return '%';
@@ -161,6 +80,8 @@ function metricUnit(metricKey: string): string {
 }
 
 // Convert a #rrggbb hex string to an [r, g, b] tuple for deck.gl color props.
+// Malformed components degrade to 0 rather than NaN, which deck.gl would
+// otherwise render as a transparent/black fill.
 function hexToRgb(hex: string): [number, number, number] {
   const normalized = hex.replace('#', '');
   const r = parseInt(normalized.substring(0, 2), 16);
@@ -173,167 +94,67 @@ function hexToRgb(hex: string): [number, number, number] {
   ];
 }
 
-// Parse a "lat, lng" string into [lng, lat] deck.gl order, or null if it isn't
-// a valid coordinate pair. Tolerates degree symbols and optional hemisphere
-// letters, e.g. "29.717154, -95.404182°", "29.71° N, 95.40° W".
-function parseCoordinates(query: string): [number, number] | null {
-  const match = query
-    .trim()
-    .match(
-      /^\s*(-?\d+(?:\.\d+)?)\s*°?\s*([NSns])?\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*°?\s*([EWew])?\s*$/,
-    );
-  if (!match) return null;
+// ======================================================
+// Colour helpers
+// Map a metric onto the shared palette in utils/colors.
+// ======================================================
 
-  let lat = parseFloat(match[1]);
-  let lng = parseFloat(match[3]);
-  const latHem = match[2]?.toUpperCase();
-  const lngHem = match[4]?.toUpperCase();
-
-  if (latHem === 'S') lat = -Math.abs(lat);
-  if (latHem === 'N') lat = Math.abs(lat);
-  if (lngHem === 'W') lng = -Math.abs(lng);
-  if (lngHem === 'E') lng = Math.abs(lng);
-
-  if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
-    return [lng, lat];
-  }
-  return null;
+/**
+ * Maps a metric to the palette name `getColor` understands.
+ * 'heat_risk_score' has no palette of its own and reuses the temperature ramp.
+ */
+function colorMetricKey(metric: string): string {
+  if (metric === 'heat_risk_score') return 'temperature';
+  return metric;
 }
 
-// Free-form place lookup via OpenStreetMap Nominatim. Swap this out for
-// MapTiler / Mapbox / Google Geocoding in production (rate limits + API key).
-async function geocode(query: string, signal?: AbortSignal): Promise<GeocodeResult[]> {
-  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(
-    query,
-  )}`;
-  const res = await fetch(url, { signal, headers: { Accept: 'application/json' } });
-  if (!res.ok) return [];
-  const data = (await res.json()) as Array<{ display_name: string; lon: string; lat: string }>;
-  return data.map((d) => ({
-    label: d.display_name,
-    lng: parseFloat(d.lon),
-    lat: parseFloat(d.lat),
-  }));
+/**
+ * Colour lookup for the legend. Metrics that come from the interpolated grid
+ * (heat_risk, crowd_density, ...) have their own continuous ramp, so the
+ * legend samples the *same* function the raster renderer uses and therefore
+ * always matches what is drawn. Everything else keeps the banded getColor.
+ */
+function legendColor(value: number, metric: string): [number, number, number] {
+  return hasSmoothRamp(metric) ? getSmoothColor(value, metric) : getColor(value, metric);
 }
 
-// Subtle host-city football badge. It borrows the visual language of a global
-// tournament marker without using official tournament branding.
-const FOOTBALL_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 64" width="56" height="64">
-  <defs>
-    <radialGradient id="badgeGlow" cx="50%" cy="35%" r="70%">
-      <stop offset="0%" stop-color="#fef3c7"/>
-      <stop offset="55%" stop-color="#f59e0b"/>
-      <stop offset="100%" stop-color="#92400e"/>
-    </radialGradient>
-  </defs>
-  <path d="M28 3 C16.5 3 7 12.2 7 23.7 C7 40.3 28 61 28 61 C28 61 49 40.3 49 23.7 C49 12.2 39.5 3 28 3 Z" fill="url(#badgeGlow)" stroke="#f8fafc" stroke-width="1.4" opacity="0.94"/>
-  <circle cx="28" cy="24" r="14.5" fill="#07111f" stroke="#fef3c7" stroke-width="1.4"/>
-  <path d="M18 27.5 C22 21 34 21 38 27.5" fill="none" stroke="#38bdf8" stroke-width="1.6" stroke-linecap="round"/>
-  <path d="M19.5 31.5 H36.5" stroke="#94a3b8" stroke-width="1" stroke-linecap="round" opacity="0.8"/>
-  <circle cx="28" cy="24" r="5.3" fill="#f8fafc" stroke="#0f172a" stroke-width="1"/>
-  <polygon points="28,20.2 31.8,23 30.4,27.3 25.6,27.3 24.2,23" fill="#0f172a"/>
-  <path d="M28 18.7 V12.5 M32.8 21.2 L38.3 18.5 M31.3 28.1 L35.2 33 M24.7 28.1 L20.8 33 M23.2 21.2 L17.7 18.5" stroke="#f8fafc" stroke-width="1" stroke-linecap="round" opacity="0.75"/>
-  <path d="M20.5 43 H35.5" stroke="#fff7ed" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
-</svg>`;
-
-const FOOTBALL_ICON = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(FOOTBALL_SVG)}`;
-
-// --- Toolbox: placeable objects that can be dragged onto the map ---
-
-// Definition of a draggable structure available in the toolbox palette.
-interface ToolboxItemDef {
-  type: string;
-  label: string;
-  color: string; // hex; drives both the palette chip and the map pin
-  Icon: React.ComponentType<{ size?: number | string; color?: string }>;
-}
-
-// A placed instance of a toolbox item, positioned in map (lng/lat) space.
-interface PlacedObject {
-  id: string;
-  type: string;
-  longitude: number;
-  latitude: number;
-}
-
-const TOOLBOX_ITEMS: ToolboxItemDef[] = [
-  { type: 'cooling_station', label: 'Cooling Station', color: '#38bdf8', Icon: Snowflake },
-  { type: 'shade_canopy', label: 'Shade Canopy', color: '#a3e635', Icon: Umbrella },
-  { type: 'water_station', label: 'Water Station', color: '#22d3ee', Icon: Droplets },
-  { type: 'misting_fan', label: 'Misting Fan', color: '#818cf8', Icon: Fan },
-  { type: 'first_aid', label: 'First Aid', color: '#f87171', Icon: Cross },
-  { type: 'tree_planting', label: 'Tree Planting', color: '#4ade80', Icon: TreePine },
-];
-
-const TOOLBOX_BY_TYPE: Record<string, ToolboxItemDef> = Object.fromEntries(
-  TOOLBOX_ITEMS.map((item) => [item.type, item]),
-);
-
-// Custom MIME type used to carry the toolbox item type through an HTML5 drag.
-const TOOLBOX_DRAG_MIME = 'application/x-heatmap-toolbox-item';
-
-// White-on-color glyph fragments, drawn centered on the origin, inside the pin.
-function toolboxGlyph(type: string, color: string): string {
-  switch (type) {
-    case 'cooling_station':
-      return `<g stroke="${color}" stroke-width="1.8" stroke-linecap="round">
-        <line x1="0" y1="-8.5" x2="0" y2="8.5"/>
-        <line x1="-7.4" y1="-4.25" x2="7.4" y2="4.25"/>
-        <line x1="-7.4" y1="4.25" x2="7.4" y2="-4.25"/>
-      </g>`;
-    case 'shade_canopy':
-      return `<g fill="${color}">
-        <path d="M-9 1 A9 9 0 0 1 9 1 Z"/>
-        <rect x="-0.9" y="1" width="1.8" height="8" rx="0.9"/>
-      </g>`;
-    case 'water_station':
-      return `<path d="M0 -9 C5 -2.5 7.5 1 7.5 4.2 A7.5 7.5 0 1 1 -7.5 4.2 C-7.5 1 -5 -2.5 0 -9 Z" fill="${color}"/>`;
-    case 'misting_fan':
-      return `<g fill="${color}">
-        <circle r="2.2"/>
-        <path d="M0 -2.4 C-6 -9 -9 -4 -2.2 -1 Z"/>
-        <path d="M2.4 0 C9 -6 4 -9 1 -2.2 Z"/>
-        <path d="M0 2.4 C6 9 9 4 2.2 1 Z"/>
-        <path d="M-2.4 0 C-9 6 -4 9 -1 2.2 Z"/>
-      </g>`;
-    case 'first_aid':
-      return `<g fill="${color}">
-        <rect x="-2.6" y="-8" width="5.2" height="16" rx="1.6"/>
-        <rect x="-8" y="-2.6" width="16" height="5.2" rx="1.6"/>
-      </g>`;
-    case 'tree_planting':
-      return `<g fill="${color}">
-        <polygon points="0,-9 6.5,3.5 -6.5,3.5"/>
-        <rect x="-1.5" y="3.5" width="3" height="5" rx="0.6"/>
-      </g>`;
-    default:
-      return `<circle r="5" fill="${color}"/>`;
-  }
-}
-
-// Teardrop map pin (tip at the bottom) with a white disc and a colored glyph.
-function toolboxMarkerSvg(type: string, color: string): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 60" width="48" height="60">
-    <path d="M24 2 C13 2 4 11 4 22 C4 36 24 57 24 57 C24 57 44 36 44 22 C44 11 35 2 24 2 Z" fill="${color}" stroke="#0f172a" stroke-width="2.5"/>
-    <circle cx="24" cy="22" r="13" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
-    <g transform="translate(24,22)">${toolboxGlyph(type, color)}</g>
-  </svg>`;
-}
-
-function toolboxMarkerDataUrl(type: string, color: string): string {
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(toolboxMarkerSvg(type, color))}`;
-}
-
+/** Format an [r, g, b] tuple plus an alpha as a CSS rgba() string. */
 function rgbaCss(rgb: [number, number, number], alpha: number): string {
   return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
 }
 
+
+/**
+ * Stops (in each metric's own units) used to sample getColor for both the
+ * heatmap colour range and the legend gradient. Temperature is in °C and
+ * spans ~10–44; visitor density is a 0–100 index.
+ */
+function metricStops(colorMetric: string): number[] {
+  // Grid metrics are normalized to a 0-100 score, so a uniform ramp is right.
+  if (hasSmoothRamp(colorMetric) && colorMetric !== 'temperature') {
+    return [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+  }
+  if (colorMetric === 'temperature') {
+    return [12, 16, 20, 23, 25, 27, 29, 31, 33, 35, 37, 39, 44];
+  }
+  if (colorMetric === 'change_in_temperature') {
+    return [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5];
+  }
+  return [0, 20, 40, 60, 80, 100];
+}
+
+/**
+ * CSS linear-gradient for the HeatRiskScale legend, using the same stops as
+ * `metricColorRange` so the legend always matches the rendered heatmap.
+ * Alpha is near-opaque here (unlike the layer ramp) so the legend stays legible.
+ */
 function metricLegendGradient(metric: string): string {
-  const stops = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+  const colorMetric = colorMetricKey(metric);
+  const stops = metricStops(colorMetric);
   const pctStep = 100 / (stops.length - 1);
 
   const segments = stops.map((value, index) => {
-    const color = getSmoothColor(value, metric);
+    const color = legendColor(value, colorMetric);
     const pct = Math.round(index * pctStep);
     return `${rgbaCss(color, 0.95)} ${pct}%`;
   });
@@ -341,21 +162,18 @@ function metricLegendGradient(metric: string): string {
   return `linear-gradient(to right, ${segments.join(', ')})`;
 }
 
+/**
+ * Title-cased display name for a top-level metric key, used in the legend,
+ * the Toolbox toggle and the tooltip header. Two keys are special-cased;
+ * anything else is snake_case -> Title Case.
+ */
 function formatMetricName(metricKey: string): string {
-  if (metricKey === 'heat_risk_score') return 'Heat Risk';
-  if (metricKey === 'visitor_activity') return 'Visitor Activity';
+  if (metricKey === 'heat_risk_score' || metricKey === 'heat_risk') return 'Heat Risk';
+  if (metricKey === 'visitor_activity' || metricKey === 'crowd_density') return 'Visitor Activity';
   return metricKey
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
-}
-
-function translatePolygon(
-  points: [number, number][],
-  deltaLng: number,
-  deltaLat: number,
-): [number, number][] {
-  return points.map(([lng, lat]) => [lng + deltaLng, lat + deltaLat]);
 }
 
 const Heatmap: React.FC<HeatmapProps> = ({
@@ -364,19 +182,21 @@ const Heatmap: React.FC<HeatmapProps> = ({
   selectedCity,
   setSelectedCity,
   cityPOIAreas,
+  displayedHeatmapPoints,
   metricGridsByCity,
-  showAllCityHeatmaps = false,
+  selectedDate,
+  setSelectedDate,
+  setBaselineSelectedDate,
+  isLoading = false,
+  isRunning = false,
   mapContainerRef,
   mapRef,
   mapSyncFrameRef,
+  fullscreenTargetRef,
   tooltip,
   setTooltip,
   isFullscreen,
   setIsFullscreen,
-  isDrawing,
-  setIsDrawing,
-  draftPoints,
-  setDraftPoints,
   draftColorHex,
   setDraftColorHex,
   draftName,
@@ -399,40 +219,69 @@ const Heatmap: React.FC<HeatmapProps> = ({
   setEditingAreaId,
   isAreaDragging,
   setIsAreaDragging,
-  onPOIAreaSelect,
-  onMetricPointSelect,
+  placedObjectsControls,
   displayToolbox = false,
+  drawControls
 }) => {
+  // Fallback fullscreen target when the parent doesn't supply one: the root
+  // element of this component.
   const heatmapRootRef = useRef<HTMLDivElement>(null);
-  const blurTimeoutRef = useRef<number | null>(null);
 
-  // Objects placed onto the map from the toolbox. Kept local to the component
-  // since they're a self-contained overlay; lift into props if you need them
-  // shared with the parent (e.g. for persistence).
-  const [placedObjects, setPlacedObjects] = useState<PlacedObject[]>([]);
-  const [hoveredPOIArea, setHoveredPOIArea] = useState<{
-    area: CityPOIArea;
-    x: number;
-    y: number;
-  } | null>(null);
+  // Drawing state lives in the usePolygonDraw hook; aliased here for brevity.
+  const isDrawing = drawControls.isDrawing;
+  const draftPoints = drawControls.draftPoints;
 
-  const dragContextRef = useRef<
-    | {
-        mode: 'draft';
-        start: [number, number];
-        originalDraft: [number, number][];
+  // placedObjectsControls is optional (ExplorePage renders without a toolbox),
+  // so default to an empty list rather than guarding at every use site.
+  const currentPlacedObjects = placedObjectsControls?.placedObjects ?? [];
+  const [isPlacedObjectsLoading, setIsPlacedObjectsLoading] = useState(false);
+  const pendingPlacedObjects = useMemo(
+    () =>
+      placedObjectsControls?.pendingPlacedObject
+        ? [placedObjectsControls.pendingPlacedObject]
+        : [],
+    [placedObjectsControls?.pendingPlacedObject],
+  );
+
+
+
+  // ======================================================
+  // Placed-object handlers
+  // ======================================================
+
+  /** Remove a single placed intervention by id (wired to the layer's X icon). */
+  const removePlacedObject = useCallback((id: string) => {
+    if (placedObjectsControls?.setPlacedObjects) {
+      placedObjectsControls.setPlacedObjects((prev) => prev.filter((o) => o.id !== id));
+    }
+  }, [placedObjectsControls]);
+
+  // ======================================================
+  // Map interaction handlers
+  // ======================================================
+
+  /**
+   * Deck click. Only meaningful in draw mode, where each click appends a
+   * vertex to the in-progress polygon. Ignored otherwise so normal map
+   * clicks (e.g. city markers) are handled by their own layers.
+   */
+  const handleDeckClick = useCallback(
+    (info: any) => {
+      if (!info?.coordinate) return;
+      const [lng, lat] = info.coordinate;
+
+      // Add vertices while drawing
+      if (isDrawing) {
+        drawControls.addDraftPoint(lng, lat);
       }
-    | {
-        mode: 'existing';
-        areaId: string;
-        start: [number, number];
-        originalPolygon: [number, number][];
-      }
-    | null
-  >(null);
+    },
+    [isDrawing, drawControls],
+  );
 
   // Fly the map + shared view state to a location. Pass cityName to also mark a
   // city as selected (so its heatmap points load); omit for generic places.
+  // Both the deck.gl view state and the underlying MapLibre instance are moved
+  // so the basemap and the overlays stay in sync.
   const flyTo = useCallback(
     (lng: number, lat: number, zoom: number, cityName?: string) => {
       const newState: ViewState = { longitude: lng, latitude: lat, zoom, pitch: 0, bearing: 0 };
@@ -446,115 +295,24 @@ const Heatmap: React.FC<HeatmapProps> = ({
     [setViewState, setSelectedCity, mapRef],
   );
 
-  // Local matches against the known host cities (instant, no network).
-  const cityMatches = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return [];
-    return cities.filter((c) => c.name.toLowerCase().includes(q)).slice(0, 5);
-  }, [searchQuery]);
-
-  const parsedCoords = useMemo(() => parseCoordinates(searchQuery), [searchQuery]);
-
-  // Debounced geocoding for free-form destinations (skipped for coords / short
-  // queries). Aborts stale requests so only the latest query resolves.
-  useEffect(() => {
-    const q = searchQuery.trim();
-    if (q.length < 3 || parseCoordinates(q)) {
-      setGeoResults([]);
-      return;
-    }
-
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      try {
-        setIsSearching(true);
-        const results = await geocode(q, controller.signal);
-        setGeoResults(results);
-      } catch {
-        /* aborted or failed — ignore */
-      } finally {
-        setIsSearching(false);
-      }
-    }, 350);
-
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [searchQuery]);
-
-  const selectCity = useCallback(
-    (city: City) => {
-      flyTo(city.longitude, city.latitude, 10, city.name);
-      setSearchQuery(city.name);
-      setShowSuggestions(false);
-    },
-    [flyTo],
-  );
-
-  const selectPlace = useCallback(
-    (place: GeocodeResult) => {
-      flyTo(place.lng, place.lat, 12);
-      setSearchQuery(place.label);
-      setShowSuggestions(false);
-    },
-    [flyTo],
-  );
-
-  // Enter / search-button: resolve in priority order coords -> city -> geocode.
-  const handleSearchSubmit = useCallback(async () => {
-    const q = searchQuery.trim();
-    if (!q) return;
-
-    if (parsedCoords) {
-      flyTo(parsedCoords[0], parsedCoords[1], 12);
-      setShowSuggestions(false);
-      return;
-    }
-    if (cityMatches.length > 0) {
-      selectCity(cityMatches[0]);
-      return;
-    }
-    if (geoResults.length > 0) {
-      selectPlace(geoResults[0]);
-      return;
-    }
-
-    // Nothing cached yet — geocode synchronously on submit.
-    try {
-      setIsSearching(true);
-      const results = await geocode(q);
-      if (results.length > 0) selectPlace(results[0]);
-    } catch {
-      /* ignore */
-    } finally {
-      setIsSearching(false);
-      setShowSuggestions(false);
-    }
-  }, [searchQuery, parsedCoords, cityMatches, geoResults, flyTo, selectCity, selectPlace]);
-
-  const clearSearch = useCallback(() => {
-    setSearchQuery('');
-    setGeoResults([]);
-    setShowSuggestions(false);
-  }, []);
-
+  /**
+   * Click on a city marker: zoom to city level and select it, which triggers
+   * the parent to load that city's heatmap points.
+   */
   const handleCityClick = useCallback(
     (city: City) => {
       // While drawing, map clicks add vertices instead of switching cities.
       if (isDrawing) return;
 
-      const newState = {
+      setViewState({
         longitude: city.longitude,
         latitude: city.latitude,
         zoom: 10,
         pitch: 0,
         bearing: 0,
-      };
-      setViewState(newState);
+      });
       setSelectedCity(city.name);
 
-      // Update map camera
       if (mapRef.current) {
         mapRef.current.flyTo({
           center: [city.longitude, city.latitude],
@@ -566,252 +324,80 @@ const Heatmap: React.FC<HeatmapProps> = ({
     [isDrawing, setViewState, setSelectedCity, mapRef],
   );
 
-  // --- Drawing controls ---
-  const startDrawing = useCallback(() => {
-    if (!selectedCity) return;
-    setDraftPoints([]);
-    setIsDrawing(true);
-  }, [selectedCity]);
+  // ======================================================
+  // Metric selection and derived display data
+  // ======================================================
 
-  const cancelDrawing = useCallback(() => {
-    setDraftPoints([]);
-    setDraftName('');
-    setIsDrawing(false);
-  }, []);
-
-  const undoLastPoint = useCallback(() => {
-    setDraftPoints((prev) => prev.slice(0, -1));
-  }, []);
-
-  const finishArea = useCallback(() => {
-    if (!selectedCity || draftPoints.length < 3) return;
-
-    const rgb = hexToRgb(draftColorHex);
-    const newArea: CityPOIArea = {
-      id: `custom-${Date.now()}-${userPOIAreas.length + 1}`,
-      cityName: selectedCity,
-      name: draftName.trim() || `Custom Area ${userPOIAreas.length + 1}`,
-      polygon: draftPoints,
-      color: [...rgb, 140],
-    } as CityPOIArea;
-
-    setUserPOIAreas((prev) => [...prev, newArea]);
-    // Persist the newly drawn area in the backend copy. We optimistically show
-    // the local polygon immediately, then replace it with the saved backend
-    // version once impacted grid ids come back.
-    void createSimulationPolygon({
-      name: newArea.name,
-      cityName: selectedCity,
-      color: newArea.color,
-      polygon: draftPoints,
-    })
-      .then((savedArea) => {
-        setUserPOIAreas((prev) =>
-          prev.map((area) => (area.id === newArea.id ? { ...area, ...savedArea } : area)),
-        );
-      })
-      .catch((error) => {
-        console.error('Failed to save simulation polygon', error);
-      });
-    setDraftPoints([]);
-    setDraftName('');
-    setIsDrawing(false);
-  }, [selectedCity, draftPoints, draftColorHex, draftName, userPOIAreas.length]);
-
-  const clearMyAreas = useCallback(() => {
-    setUserPOIAreas((prev) => prev.filter((a) => a.cityName !== selectedCity));
-  }, [selectedCity]);
-
-  // --- Toolbox object placement (HTML5 drag from palette -> drop on map) ---
-
-  // Only accept our custom drag payload; lets normal map interaction through.
-  const handleObjectDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    if (e.dataTransfer.types.includes(TOOLBOX_DRAG_MIME)) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
-    }
-  }, []);
-
-  // Convert the drop point (viewport px) into map lng/lat via maplibre and
-  // append a placed object there.
-  const handleObjectDrop = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
-      const type = e.dataTransfer.getData(TOOLBOX_DRAG_MIME);
-      if (!type) return;
-      e.preventDefault();
-
-      const map = mapRef.current;
-      const container = mapContainerRef.current;
-      if (!map || !container) return;
-
-      const rect = container.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      const { lng, lat } = map.unproject([x, y]);
-
-      setPlacedObjects((prev) => [
-        ...prev,
-        {
-          id: `placed-${Date.now()}-${prev.length + 1}`,
-          type,
-          longitude: lng,
-          latitude: lat,
-        },
-      ]);
-    },
-    [mapRef, mapContainerRef],
-  );
-
-  const removePlacedObject = useCallback((id: string) => {
-    setPlacedObjects((prev) => prev.filter((o) => o.id !== id));
-  }, []);
-
-  const clearPlacedObjects = useCallback(() => setPlacedObjects([]), []);
-
-  const applyPlacedObjects = useCallback(() => {
-    if (placedObjects.length === 0) return;
-
-    // If the user has drawn/saved POI areas in this city, scope the simulation
-    // to those impacted grid ids. Otherwise the backend applies the objects to
-    // the current city/state metric set.
-    const impactedGridCellIds = userPOIAreas
-      .filter((area) => !selectedCity || area.cityName === selectedCity)
-      .flatMap((area) => area.impacted_grid_cell_ids ?? []);
-
-    void applySimulation({
-      cityName: selectedCity ?? undefined,
-      impactedGridCellIds: impactedGridCellIds.length > 0 ? impactedGridCellIds : undefined,
-      placedObjects: placedObjects.map((object): SimulationPlacedObject => ({
-        id: object.id,
-        type: object.type,
-        longitude: object.longitude,
-        latitude: object.latitude,
-      })),
-    })
-      .then((result) => {
-        console.info('Simulation applied', result);
-      })
-      .catch((error) => {
-        console.error('Failed to apply simulation', error);
-      });
-  }, [placedObjects, selectedCity, userPOIAreas]);
-
-  // Tournament-style host marker. Kept intentionally quiet at national zoom so
-  // the planning surfaces remain the primary map signal.
-  const cityIconLayer = useMemo(
-    () =>
-      new IconLayer({
-        id: 'city-icon-layer',
-        data: cities,
-        pickable: !isDrawing,
-        getPosition: (d: City) => [d.longitude, d.latitude],
-        getIcon: () => ({
-          url: FOOTBALL_ICON,
-          width: 56,
-          height: 64,
-          anchorX: 28,
-          anchorY: 58,
-          id: 'football',
-        }),
-        getSize: (d: City) => {
-          if (selectedCity === d.name) return 34;
-          if (viewState.zoom < 4.5) return 24;
-          return 28;
-        },
-        sizeUnits: 'pixels',
-        getPixelOffset: [0, -11],
-        onClick: (info: any) => {
-          if (info.object) {
-            handleCityClick(info.object as City);
-          }
-        },
-      }),
-    [handleCityClick, isDrawing, selectedCity, viewState.zoom],
-  );
-
-  // City labels stay attached to markers, but become quieter at national zoom.
-  const cityLabelLayer = useMemo(
-    () =>
-      new TextLayer({
-        id: 'city-label-layer',
-        data: cities,
-        pickable: !isDrawing,
-        characterSet: 'auto',
-        fontFamily: '"Inter", system-ui, sans-serif',
-        fontWeight: 650,
-        getPosition: (d: City) => [d.longitude, d.latitude],
-        getText: (d: City) => d.name,
-        getSize: (d: City) => {
-          if (selectedCity === d.name) return 11;
-          if (viewState.zoom < 4.5) return 8;
-          return 9;
-        },
-        sizeUnits: 'pixels',
-        getPixelOffset: [0, -2],
-        getTextAnchor: 'middle',
-        getAlignmentBaseline: 'top',
-        getColor: (d: City) =>
-          selectedCity === d.name ? [254, 243, 199, 235] : [226, 232, 240, viewState.zoom < 4.5 ? 95 : 130],
-        background: true,
-        getBackgroundColor: (d: City) =>
-          selectedCity === d.name ? [15, 23, 42, 185] : [2, 8, 23, viewState.zoom < 4.5 ? 45 : 75],
-        backgroundPadding: [3, 1, 3, 1],
-        fontSettings: { sdf: true },
-        outlineWidth: 1,
-        outlineColor: [2, 8, 23, 180],
-        updateTriggers: {
-          getSize: [selectedCity, viewState.zoom],
-          getColor: [selectedCity, viewState.zoom],
-          getBackgroundColor: [selectedCity, viewState.zoom],
-        },
-        onClick: (info: any) => {
-          if (info.object) {
-            handleCityClick(info.object as City);
-          }
-        },
-      }),
-    [handleCityClick, isDrawing, selectedCity, viewState.zoom],
-  );
-
-  // City grids currently in view: the selected city's, or every city's when
-  // the all-cities toggle is on. Cities without backend data contribute none,
-  // so nothing renders outside seeded cities.
+  // Interpolated grids in view. Only the selected city's grid is drawn, so
+  // cities the backend has no grid data for simply render no surface.
   const visibleCityGrids = useMemo(() => {
     const entries: [string, CityMetricGrid][] = [];
     for (const [cityName, grid] of Object.entries(metricGridsByCity)) {
-      if (showAllCityHeatmaps || cityName === selectedCity) entries.push([cityName, grid]);
+      if (cityName === selectedCity) entries.push([cityName, grid]);
     }
     return entries;
-  }, [metricGridsByCity, selectedCity, showAllCityHeatmaps]);
+  }, [metricGridsByCity, selectedCity]);
 
-  const availableMetrics = useMemo(() => {
-    const metrics = new Set<string>();
+  /**
+   * Metric layers available for the selected city on the selected date. The
+   * interpolated grid is the source of truth when the backend has one; the
+   * static `availableMetrics` list is the fallback for cities without grids.
+   */
+  const gridMetricLayers = useMemo(() => {
+    const keys = new Set<string>();
     for (const [, grid] of visibleCityGrids) {
-      for (const metricKey of Object.keys(grid.metrics)) metrics.add(metricKey);
+      for (const metricKey of Object.keys(grid.metrics)) keys.add(metricKey);
     }
-    return Array.from(metrics).sort();
+    return Array.from(keys)
+      .sort()
+      .map((key) => ({ [key]: [] as string[] }));
   }, [visibleCityGrids]);
 
+  const availableMetricLayers = useMemo(
+    () =>
+      gridMetricLayers.length > 0
+        ? gridMetricLayers
+        : (availableMetrics as unknown as Record<string, string[]>[]),
+    [gridMetricLayers],
+  );
+
+  // Keep selectedMetric valid as the available layers change (city switch, date
+  // change, simulation run): preserve the current metric if it still exists,
+  // otherwise fall back to the first layer, or null when there's no data.
   useEffect(() => {
-    if (availableMetrics.length === 0) {
+    if (availableMetricLayers.length === 0) {
       setSelectedMetric(null);
       return;
     }
 
-    setSelectedMetric((prev) =>
-      prev && availableMetrics.includes(prev) ? prev : availableMetrics[0],
-    );
-  }, [availableMetrics, setSelectedMetric]);
+    setSelectedMetric((prev) => {
+      if (!prev) return availableMetricLayers[0];
+      const prevKey = Object.keys(prev)[0];
+      if (availableMetricLayers.some((metric) => Object.keys(metric)[0] === prevKey)) {
+        return prev;
+      }
+      
+      return availableMetricLayers[0];
+    });
+  }, [availableMetricLayers, setSelectedMetric]);
 
-  const activeMetricKey =
-    selectedMetric && availableMetrics.includes(selectedMetric)
-      ? selectedMetric
-      : (availableMetrics[0] ?? 'heat_risk');
+  // Presentation derived from the active metric: key, display name, layer
+  // colour ramp and matching legend gradient.
+  const activeMetricKey = selectedMetric
+    ? Object.keys(selectedMetric)[0]
+    : availableMetricLayers[0]
+      ? Object.keys(availableMetricLayers[0])[0]
+      : 'heat_risk_score';
+  const metricLabelText = formatMetricName(activeMetricKey);
+  const activeMetricLegendGradient = useMemo(
+    () => metricLegendGradient(activeMetricKey),
+    [activeMetricKey],
+  );
 
   // One geographically-anchored raster per visible city for the active metric.
   // The image is fixed-resolution and pinned to its lon/lat bounds, so the
   // rendered surface never changes with zoom.
-  const metricRasters = useMemo(
+  const metricRasters: CityMetricRasterEntry[] = useMemo(
     () =>
       visibleCityGrids
         .filter(([, grid]) => grid.metrics[activeMetricKey])
@@ -823,39 +409,22 @@ const Heatmap: React.FC<HeatmapProps> = ({
     [visibleCityGrids, activeMetricKey],
   );
 
-  const heatmapCellCount = useMemo(
-    () => metricRasters.reduce((sum, { grid }) => sum + grid.rows * grid.cols, 0),
-    [metricRasters],
-  );
-  const heatmapCountScopeLabel = showAllCityHeatmaps ? 'All cities' : selectedCity ?? 'Current city';
-  const metricLabelText = formatMetricName(activeMetricKey);
-  const activeMetricLegendGradient = useMemo(
-    () => metricLegendGradient(activeMetricKey),
-    [activeMetricKey],
-  );
-
-  const displayedPOIAreas: CityPOIArea[] = useMemo(() => {
-    if (!selectedCity) return [];
-    return [
-      ...cityPOIAreas.filter((poi) => poi.cityName === selectedCity),
-      ...userPOIAreas.filter((poi) => poi.cityName === selectedCity),
-    ];
-  }, [selectedCity, cityPOIAreas, userPOIAreas]);
-
-  // Sample every metric at a coordinate. Returns a synthesized tooltip point
-  // when the coordinate lands inside a city raster, or null outside all cities
-  // (so places without data never show values).
+  /**
+   * Sample every metric of the grid at a coordinate. Returns a synthesized
+   * reading when the coordinate lands inside a city raster, or null outside all
+   * of them, so places without data never show values.
+   */
   const sampleRasterPoint = useCallback(
-    (lon: number, lat: number): HeatmapMetricValue | null => {
+    (lon: number, lat: number): MetricValue | null => {
       for (const { cityName, grid, raster } of metricRasters) {
         if (!isInsideRaster(raster, lon, lat)) continue;
         const raw = sampleMetricGrid(grid, activeMetricKey, lon, lat);
         if (raw === null) continue;
 
-        const individualMetrics: Record<string, number> = {};
+        const individualMetrics: Record<string, string> = {};
         for (const metricKey of Object.keys(grid.metrics)) {
           const value = sampleMetricGrid(grid, metricKey, lon, lat);
-          if (value !== null) individualMetrics[metricKey] = Number(value.toFixed(1));
+          if (value !== null) individualMetrics[metricKey] = value.toFixed(1);
         }
 
         const { min, max } = grid.metrics[activeMetricKey];
@@ -872,275 +441,195 @@ const Heatmap: React.FC<HeatmapProps> = ({
     [metricRasters, activeMetricKey],
   );
 
-  // Hover anywhere: the tooltip reads the interpolated surface at the exact
-  // cursor coordinate instead of snapping to discrete points.
+  // Load mock placed-object tools for the selected city + date and push them
+  // into placedObjectsControls. Re-runs on city/date change; clears when either
+  // is missing. The ignore flag drops a stale response if the selection changes
+  // mid-fetch.
+  const setPlacedObjects = placedObjectsControls?.setPlacedObjects;
+
+  useEffect(() => {
+    if (!setPlacedObjects) return;
+
+    if (isRunning) {
+      setIsPlacedObjectsLoading(false);
+      return;
+    }
+
+    if (!selectedCity || !selectedDate) {
+      setIsPlacedObjectsLoading(false);
+      setPlacedObjects([]);
+      return;
+    }
+
+    let ignore = false;
+    setIsPlacedObjectsLoading(true);
+
+    fetchPlacedObjects()
+      .then((byDateCity) => {
+        if (ignore) return;
+        const tools = byDateCity[selectedDate]?.[selectedCity] ?? [];
+        setPlacedObjects(tools);
+        setIsPlacedObjectsLoading(false);
+      })
+      .catch((error) => {
+        if (ignore) return;
+        console.error('Failed to load placed objects', error);
+        setPlacedObjects([]);
+        setIsPlacedObjectsLoading(false);
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [isRunning, selectedCity, selectedDate, setPlacedObjects]);
+
+
+  // Mirror the in-progress polygon draft into a pending placed object so it
+  // renders through the same placed-object path and can be named/colored before
+  // commit. While drawing, keep pending metadata alive even with <3 points so
+  // selecting a polygon tool doesn't get immediately wiped on draw start.
+  useEffect(() => {
+    const setPending = placedObjectsControls?.setPendingPlacedObject;
+    if (!setPending) return;
+
+    setPending((prev) => {
+      if (!isDrawing) {
+        // Only clear polygon drafts when drawing ends; keep non-polygon pending
+        // objects (e.g. dragged point tools) untouched.
+        return prev?.geometry?.kind === 'polygon' ? null : prev;
+      }
+
+      return {
+        type: prev?.type ?? 'polygon',
+        name: prev?.name ?? 'polygon',
+        color: prev?.color,
+        params: prev?.params,
+        activeFrom: prev?.activeFrom,
+        activeTo: prev?.activeTo,
+        geometry: { kind: 'polygon', ring: draftPoints } as Geometry,
+      };
+    });
+  }, [draftPoints, isDrawing, placedObjectsControls?.setPendingPlacedObject]);
+
+  // Cycle to the next available metric (drives the Toolbox metric toggle).
+  // Wraps around at the end of the list; no-op when there's nothing to cycle to.
+  const cycleMetric = useCallback(() => {
+    if (availableMetricLayers.length <= 1) return;
+    const selectedMetricKey = selectedMetric ? Object.keys(selectedMetric)[0] : null;
+    const idx = availableMetricLayers.findIndex(
+      (metric) => Object.keys(metric)[0] === selectedMetricKey,
+    );
+    const next =
+      availableMetricLayers[(idx + 1 + availableMetricLayers.length) % availableMetricLayers.length];
+    setSelectedMetric(next);
+  }, [availableMetricLayers, selectedMetric, setSelectedMetric]);
+
+  /** Server-provided POI areas for the city, plus any the user drew themselves. */
+  const displayedPOIAreas: CityPOIArea[] = useMemo(() => {
+    if (!selectedCity) return [];
+    return [...(cityPOIAreas[selectedCity] ?? []), ...userPOIAreas];
+  }, [selectedCity, cityPOIAreas, userPOIAreas]);
+
+  /** Draft polygon colour as an RGB tuple for the deck.gl draft layer. */
+  const draftRgb = useMemo(() => hexToRgb(drawControls.draftColor), [drawControls.draftColor]);
+
+  // All deck.gl layers (city markers, heatmap surface, POI areas, placed
+  // objects, and the in-progress draft) are built in this hook.
+
+  const draftIsSimple = useMemo(() => isPolygonSimple(draftPoints), [draftPoints]);
+
+
+ 
+  const layers = useHeatmapLayers({
+    isDrawing,
+    selectedCity,
+    displayedHeatmapPoints,
+    metricRasters,
+    displayedPOIAreas,
+    userPOIAreas,
+    editingAreaId,
+    placedObjects: currentPlacedObjects,
+    pendingPlacedObjects,
+    draftPoints,
+    draftRgb,
+    onCityClick: handleCityClick,
+    onRemovePlacedObject: removePlacedObject,
+    setEditingAreaId,
+    setIsDrawing: drawControls.cancelDrawing,
+    setIsAreaDragging,
+    setUserPOIAreas,
+    setDraftPoints: drawControls.setDraftPoints,
+  });
+
+  // ======================================================
+  // Hover, cursor and fullscreen
+  // ======================================================
+
+  /**
+   * Hover on the heatmap: sample the metric at the cursor from the *anchor*
+   * data (not the rendered points, which are interpolated and coarser),
+   * classify the basemap surface under the pointer, and publish a tooltip.
+   * Clears the tooltip while drawing or when there's nothing under the cursor.
+   */
   const handleDeckHover = useCallback(
-    (info: any) => {
-      if (isDrawing || isAreaDragging || !info?.coordinate) {
+    (info: {
+      coordinate?: number[];
+      object?: MetricValue | null;
+      x: number;
+      y: number;
+      layer?: { id?: string } | null;
+    }) => {
+      if (isDrawing || !info.coordinate || info.coordinate.length < 2) {
         setHoveringHeatmap(false);
         setTooltip(null);
         return;
       }
 
       const [lon, lat] = info.coordinate as [number, number];
-      const point = sampleRasterPoint(lon, lat);
-      if (!point) {
-        setHoveringHeatmap(false);
-        setTooltip(null);
+
+      const publish = (point: MetricValue) => {
+        setHoveringHeatmap(true);
+        setTooltip({
+          point,
+          metric: activeMetricKey,
+          x: info.x,
+          y: info.y,
+          coordinates: {
+            longitude: point.location_coordinates[0],
+            latitude: point.location_coordinates[1],
+          },
+          surface: mapRef.current
+            ? classifySurface(mapRef.current, info.x, info.y)
+            : { type: 'unknown' as SurfaceType },
+        });
+      };
+
+      // The interpolated surface answers at any coordinate, so the tooltip
+      // reports the value under the exact cursor instead of snapping to the
+      // nearest discrete reading.
+      const sampled = sampleRasterPoint(lon, lat);
+      if (sampled) {
+        publish(sampled);
         return;
       }
 
-      setHoveringHeatmap(true);
-      setTooltip({ point, metric: activeMetricKey, x: info.x, y: info.y });
-    },
-    [isDrawing, isAreaDragging, sampleRasterPoint, activeMetricKey, setHoveringHeatmap, setTooltip],
-  );
-
-  // Adds a draft vertex while drawing; otherwise reports the interpolated
-  // values at the clicked coordinate to the parent page.
-  const handleDeckClick = useCallback(
-    (info: any) => {
-      if (isAreaDragging || editingAreaId || !info?.coordinate) return;
-      const [lng, lat] = info.coordinate;
-
-      if (isDrawing) {
-        setDraftPoints((prev) => [...prev, [lng, lat]]);
+      // Outside every raster: fall back to a picked measured reading, which is
+      // all there is for cities the backend has no grid for.
+      if (info.layer?.id === 'heatmap-point-pick-layer' && info.object) {
+        publish(info.object as MetricValue);
         return;
       }
 
-      const point = sampleRasterPoint(lng, lat);
-      if (point) onMetricPointSelect?.(point, activeMetricKey);
+      setHoveringHeatmap(false);
+      setTooltip(null);
     },
     [
-      isDrawing,
-      isAreaDragging,
-      editingAreaId,
-      setDraftPoints,
-      sampleRasterPoint,
-      onMetricPointSelect,
       activeMetricKey,
-    ],
-  );
-
-  const metricRasterLayers = useMemo(
-    () =>
-      metricRasters.map(
-        ({ cityName, raster }) =>
-          new BitmapLayer({
-            id: `metric-raster-${cityName}`,
-            image: raster.canvas,
-            bounds: raster.bounds,
-            opacity: 0.82,
-            pickable: false,
-          }),
-      ),
-    [metricRasters],
-  );
-
-  // Toolbox objects dropped onto the map. Click a pin to remove it.
-  const placedObjectLayer = useMemo(
-    () =>
-      new IconLayer({
-        id: 'placed-object-layer',
-        data: placedObjects,
-        pickable: !isDrawing,
-        getPosition: (d: PlacedObject) => [d.longitude, d.latitude],
-        getIcon: (d: PlacedObject) => {
-          const def = TOOLBOX_BY_TYPE[d.type];
-          const color = def?.color ?? '#f8fafc';
-          return {
-            url: toolboxMarkerDataUrl(d.type, color),
-            width: 48,
-            height: 60,
-            anchorX: 24,
-            anchorY: 58,
-            id: d.type,
-          };
-        },
-        getSize: 46,
-        sizeUnits: 'pixels',
-        onClick: (info: any) => {
-          if (info.object) removePlacedObject((info.object as PlacedObject).id);
-        },
-      }),
-    [placedObjects, isDrawing, removePlacedObject],
-  );
-
-  const poiAreaLayer = useMemo(
-    () =>
-      new PolygonLayer({
-        id: 'poi-area-layer',
-        data: displayedPOIAreas,
-        pickable: true,
-        stroked: true,
-        filled: true,
-        opacity: 0.55,
-        getPolygon: (d: CityPOIArea) => d.polygon,
-        getFillColor: (d: CityPOIArea) => d.color,
-        getLineColor: (d: CityPOIArea) =>
-          d.id === editingAreaId ? [56, 189, 248, 255] : [255, 255, 255, 255],
-        getLineWidth: (d: CityPOIArea) => (d.id === editingAreaId ? 3 : 1),
-        lineWidthUnits: 'pixels',
-        onHover: (info: any) => {
-          const area = info.object as CityPOIArea | undefined;
-          if (!area) {
-            setHoveredPOIArea(null);
-            return;
-          }
-          setHoveredPOIArea({ area, x: info.x, y: info.y });
-        },
-        onClick: (info: any) => {
-          const area = info.object as CityPOIArea | undefined;
-          if (!area) return;
-          onPOIAreaSelect?.(area);
-
-          if (info.tapCount >= 2) {
-            const isUserArea = userPOIAreas.some((a) => a.id === area.id);
-            if (isUserArea) {
-              setEditingAreaId(area.id);
-              setIsDrawing(false);
-            }
-          }
-        },
-        onDragStart: (info: any) => {
-          const area = info.object as CityPOIArea | undefined;
-          if (!area || !info.coordinate) return;
-          if (editingAreaId !== area.id) return;
-
-          dragContextRef.current = {
-            mode: 'existing',
-            areaId: area.id,
-            start: [info.coordinate[0], info.coordinate[1]],
-            originalPolygon: area.polygon,
-          };
-          setIsAreaDragging(true);
-        },
-        onDrag: (info: any) => {
-          const ctx = dragContextRef.current;
-          if (!ctx || ctx.mode !== 'existing' || !info.coordinate) return;
-
-          const deltaLng = info.coordinate[0] - ctx.start[0];
-          const deltaLat = info.coordinate[1] - ctx.start[1];
-          const translated = translatePolygon(ctx.originalPolygon, deltaLng, deltaLat);
-
-          setUserPOIAreas((prev) =>
-            prev.map((area) =>
-              area.id === ctx.areaId ? { ...area, polygon: translated } : area,
-            ),
-          );
-        },
-        onDragEnd: () => {
-          dragContextRef.current = null;
-          setIsAreaDragging(false);
-        },
-      }),
-    [
-      displayedPOIAreas,
-      editingAreaId,
-      userPOIAreas,
-      setEditingAreaId,
-      setIsDrawing,
-      setIsAreaDragging,
-      setUserPOIAreas,
-      onPOIAreaSelect,
-    ],
-  );
-
-  const hoveredPOIStats = hoveredPOIArea?.area.properties?.statistics;
-
-  // --- Draft (in-progress) drawing layers ---
-  const draftRgb = useMemo(() => hexToRgb(draftColorHex), [draftColorHex]);
-
-  const draftPolygonLayer = useMemo(
-    () =>
-      new PolygonLayer({
-        id: 'draft-polygon-layer',
-        data: draftPoints.length >= 3 ? [{ polygon: draftPoints }] : [],
-        pickable: isDrawing,
-        stroked: true,
-        filled: true,
-        opacity: 0.5,
-        getPolygon: (d: { polygon: [number, number][] }) => d.polygon,
-        getFillColor: [...draftRgb, 120],
-        getLineColor: [...draftRgb, 255],
-        getLineWidth: 2,
-        lineWidthUnits: 'pixels',
-        onDragStart: (info: any) => {
-          if (!isDrawing || draftPoints.length < 3 || !info.coordinate) return;
-          dragContextRef.current = {
-            mode: 'draft',
-            start: [info.coordinate[0], info.coordinate[1]],
-            originalDraft: draftPoints,
-          };
-          setIsAreaDragging(true);
-        },
-        onDrag: (info: any) => {
-          const ctx = dragContextRef.current;
-          if (!ctx || ctx.mode !== 'draft' || !info.coordinate) return;
-
-          const deltaLng = info.coordinate[0] - ctx.start[0];
-          const deltaLat = info.coordinate[1] - ctx.start[1];
-          setDraftPoints(translatePolygon(ctx.originalDraft, deltaLng, deltaLat));
-        },
-        onDragEnd: () => {
-          dragContextRef.current = null;
-          setIsAreaDragging(false);
-        },
-      }),
-    [draftPoints, draftRgb, isDrawing, setDraftPoints, setIsAreaDragging],
-  );
-
-  const draftPathLayer = useMemo(
-    () =>
-      new PathLayer({
-        id: 'draft-path-layer',
-        data: draftPoints.length >= 2 ? [{ path: draftPoints }] : [],
-        pickable: false,
-        getPath: (d: { path: [number, number][] }) => d.path,
-        getColor: [...draftRgb, 255],
-        getWidth: 2,
-        widthUnits: 'pixels',
-      }),
-    [draftPoints, draftRgb],
-  );
-
-  const draftPointsLayer = useMemo(
-    () =>
-      new ScatterplotLayer({
-        id: 'draft-points-layer',
-        data: draftPoints,
-        pickable: false,
-        radiusMinPixels: 5,
-        radiusMaxPixels: 5,
-        getPosition: (d: [number, number]) => d,
-        getFillColor: [...draftRgb, 255],
-        getLineColor: [255, 255, 255, 255],
-        lineWidthMinPixels: 1,
-        stroked: true,
-      }),
-    [draftPoints, draftRgb],
-  );
-
-  const layers = useMemo(
-    () => [
-      ...metricRasterLayers,
-      poiAreaLayer,
-      draftPolygonLayer,
-      draftPathLayer,
-      draftPointsLayer,
-      placedObjectLayer,
-      cityIconLayer,
-      cityLabelLayer,
-    ],
-    [
-      metricRasterLayers,
-      poiAreaLayer,
-      draftPolygonLayer,
-      draftPathLayer,
-      draftPointsLayer,
-      placedObjectLayer,
-      cityIconLayer,
-      cityLabelLayer,
+      isDrawing,
+      mapRef,
+      sampleRasterPoint,
+      setHoveringHeatmap,
+      setTooltip,
     ],
   );
 
@@ -1156,9 +645,13 @@ const Heatmap: React.FC<HeatmapProps> = ({
     [isDrawing, hoveringHeatmap, editingAreaId, isAreaDragging],
   );
 
+  // Mirror the browser's fullscreen state into React. Needed because the user
+  // can leave fullscreen via Esc or the browser chrome, which never goes
+  // through toggleFullscreen below.
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(document.fullscreenElement === heatmapRootRef.current);
+      const target = fullscreenTargetRef?.current ?? heatmapRootRef.current;
+      setIsFullscreen(document.fullscreenElement === target);
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
@@ -1166,32 +659,42 @@ const Heatmap: React.FC<HeatmapProps> = ({
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
-  }, []);
+  }, [setIsFullscreen, fullscreenTargetRef]);
 
+  /**
+   * Enter/exit fullscreen on the parent-supplied target (so the page can
+   * fullscreen the map *and* the stats panel together), falling back to this
+   * component's root. Note isFullscreen is not set here — the
+   * 'fullscreenchange' listener above is the single source of truth.
+   */
   const toggleFullscreen = useCallback(async () => {
-    const root = heatmapRootRef.current;
-    if (!root) return;
+    const target = fullscreenTargetRef?.current ?? heatmapRootRef.current;
+    if (!target) return;
 
     try {
-      if (document.fullscreenElement === root) {
+      if (document.fullscreenElement === target) {
         await document.exitFullscreen();
       } else {
-        await root.requestFullscreen();
+        await target.requestFullscreen();
       }
     } catch (error) {
       console.error('Failed to toggle fullscreen heatmap', error);
     }
-  }, []);
+  }, [fullscreenTargetRef]);
 
+  /**
+   * Keep the MapLibre basemap locked to deck.gl's camera as the user pans/zooms.
+   *
+   * Two guards matter here:
+   *  - The epsilon comparison returns the previous state object when the camera
+   *    hasn't meaningfully moved, so React can bail out of a re-render.
+   *  - The basemap sync is throttled to one rAF frame (cancelling any pending
+   *    one) because deck.gl fires this far more often than the browser paints.
+   * jumpTo (not flyTo) is used so the basemap tracks the drag with no easing lag.
+   */
   const handleViewStateChange = useCallback(
     (e: any) => {
-      const nextState = e.viewState as {
-        longitude: number;
-        latitude: number;
-        zoom: number;
-        pitch: number;
-        bearing: number;
-      };
+      const nextState = e.viewState as ViewState;
       const newState: ViewState = {
         longitude: nextState.longitude,
         latitude: nextState.latitude,
@@ -1232,529 +735,157 @@ const Heatmap: React.FC<HeatmapProps> = ({
     [setViewState, mapRef, mapSyncFrameRef],
   );
 
-  const toolbarButtonStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    padding: '8px 10px',
-    borderRadius: 8,
-    border: '1px solid rgba(148, 163, 184, 0.45)',
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: 'pointer',
-    width: '100%',
-  };
-
-  const hasSuggestions =
-    parsedCoords !== null || cityMatches.length > 0 || geoResults.length > 0;
-
-  // The Create POI Area controls — shared between the standalone panel and the
-  // full toolbox layout.
-  const createPOISection = (
-    <>
-      <div style={{ fontSize: 13, fontWeight: 700 }}>Create POI Area</div>
-
-      {!selectedCity && (
-        <div style={{ fontSize: 12, color: '#fca5a5' }}>
-          Click a city marker first to pick a city.
-        </div>
-      )}
-
-      {selectedCity && (
-        <div style={{ fontSize: 12, color: '#94a3b8' }}>
-          City: <span style={{ color: '#e2e8f0', fontWeight: 600 }}>{selectedCity}</span>
-        </div>
-      )}
-
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
-        Area name
-        <input
-          type="text"
-          value={draftName}
-          onChange={(e) => setDraftName(e.target.value)}
-          placeholder="e.g. Downtown Core"
-          style={{
-            padding: '6px 8px',
-            borderRadius: 6,
-            border: '1px solid rgba(148, 163, 184, 0.45)',
-            backgroundColor: 'rgba(15, 23, 42, 0.9)',
-            color: '#f1f5f9',
-            fontSize: 13,
-          }}
-        />
-      </label>
-
-      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12, color: '#cbd5e1' }}>
-        Area color
-        <input
-          type="color"
-          value={draftColorHex}
-          onChange={(e) => setDraftColorHex(e.target.value)}
-          style={{
-            width: 44,
-            height: 28,
-            border: '1px solid rgba(148, 163, 184, 0.45)',
-            borderRadius: 6,
-            background: 'transparent',
-            cursor: 'pointer',
-          }}
-        />
-      </label>
-
-      {!isDrawing ? (
-        <button
-          type="button"
-          onClick={startDrawing}
-          disabled={!selectedCity}
-          style={{
-            ...toolbarButtonStyle,
-            backgroundColor: selectedCity ? '#2563eb' : 'rgba(71, 85, 105, 0.6)',
-            color: '#f8fafc',
-            cursor: selectedCity ? 'pointer' : 'not-allowed',
-          }}
-        >
-          <Pencil size={15} /> Draw new area
-        </button>
-      ) : (
-        <>
-          <div style={{ fontSize: 12, color: '#cbd5e1' }}>
-            Click the map to add points ({draftPoints.length} placed, need 3+).
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              type="button"
-              onClick={finishArea}
-              disabled={draftPoints.length < 3}
-              style={{
-                ...toolbarButtonStyle,
-                backgroundColor: draftPoints.length >= 3 ? '#16a34a' : 'rgba(71, 85, 105, 0.6)',
-                color: '#f8fafc',
-                cursor: draftPoints.length >= 3 ? 'pointer' : 'not-allowed',
-              }}
-            >
-              <Check size={15} /> Finish
-            </button>
-            <button
-              type="button"
-              onClick={undoLastPoint}
-              disabled={draftPoints.length === 0}
-              style={{
-                ...toolbarButtonStyle,
-                backgroundColor: 'rgba(30, 41, 59, 0.9)',
-                color: '#e2e8f0',
-                cursor: draftPoints.length === 0 ? 'not-allowed' : 'pointer',
-              }}
-            >
-              <Undo2 size={15} /> Undo
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={cancelDrawing}
-            style={{
-              ...toolbarButtonStyle,
-              backgroundColor: 'rgba(30, 41, 59, 0.9)',
-              color: '#fca5a5',
-            }}
-          >
-            <X size={15} /> Cancel
-          </button>
-        </>
-      )}
-
-      {userPOIAreas.some((a) => a.cityName === selectedCity) && (
-        <button
-          type="button"
-          onClick={clearMyAreas}
-          style={{
-            ...toolbarButtonStyle,
-            backgroundColor: 'rgba(30, 41, 59, 0.9)',
-            color: '#fca5a5',
-          }}
-        >
-          <Trash2 size={15} /> Clear my areas
-        </button>
-      )}
-
-      {editingAreaId && (
-        <button
-          type="button"
-          onClick={() => {
-            setEditingAreaId(null);
-            setIsAreaDragging(false);
-          }}
-          style={{
-            ...toolbarButtonStyle,
-            backgroundColor: 'rgba(14, 116, 144, 0.85)',
-            color: '#e0f2fe',
-          }}
-        >
-          <Check size={15} /> Finish Edit
-        </button>
-      )}
-    </>
-  );
-
-  // The draggable object palette — only rendered in the full toolbox layout.
-  const toolboxObjectsSection = (
-    <>
-      <div style={{ fontSize: 13, fontWeight: 700 }}>Toolbox</div>
-      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: -4 }}>
-        Drag an item onto the map to place it. Click a placed pin to remove it.
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        {TOOLBOX_ITEMS.map((item) => {
-          const Icon = item.Icon;
-          return (
-            <div
-              key={item.type}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData(TOOLBOX_DRAG_MIME, item.type);
-                e.dataTransfer.effectAllowed = 'copy';
-              }}
-              title={`Drag to place ${item.label}`}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 6,
-                padding: '10px 6px',
-                borderRadius: 8,
-                border: '1px solid rgba(148, 163, 184, 0.35)',
-                backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                cursor: 'grab',
-                userSelect: 'none',
-                textAlign: 'center',
-              }}
-            >
-              <span
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: 30,
-                  height: 30,
-                  borderRadius: 999,
-                  backgroundColor: `${item.color}22`,
-                  border: `1px solid ${item.color}`,
-                }}
-              >
-                <Icon size={17} color={item.color} />
-              </span>
-              <span style={{ fontSize: 11, lineHeight: 1.2, color: '#e2e8f0' }}>
-                {item.label}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-
-      {placedObjects.length > 0 && (
-        <>
-          <button
-            type="button"
-            onClick={applyPlacedObjects}
-            style={{
-              ...toolbarButtonStyle,
-              backgroundColor: '#16a34a',
-              color: '#f8fafc',
-            }}
-          >
-            <Check size={15} /> Apply simulation
-          </button>
-
-          <button
-            type="button"
-            onClick={clearPlacedObjects}
-            style={{
-              ...toolbarButtonStyle,
-              backgroundColor: 'rgba(30, 41, 59, 0.9)',
-              color: '#fca5a5',
-            }}
-          >
-            <Trash2 size={15} /> Clear objects ({placedObjects.length})
-          </button>
-        </>
-      )}
-
-      <div
-        style={{
-          height: 1,
-          backgroundColor: 'rgba(148, 163, 184, 0.3)',
-          margin: '2px 0',
-        }}
-      />
-    </>
-  );
+  // ======================================================
+  // UI Component
+  // Layered bottom-to-top: MapLibre basemap -> deck.gl overlays ->
+  // SearchBar / Toolbox / fullscreen button / legend -> tooltip.
+  // ======================================================
 
   return (
     <div
       ref={heatmapRootRef}
       style={{ width: '100%', height: '100%', minHeight: '480px', position: 'relative' }}
-      onDragOver={handleObjectDragOver}
-      onDrop={handleObjectDrop}
+      onDragOver={(e) => placedObjectsControls?.handleObjectDragOver?.(e)}
+      onDrop={(e) => placedObjectsControls?.handleObjectDrop?.(e)}
     >
+      {/* MapLibre basemap. Positioned absolutely beneath the deck.gl canvas and
+          kept in sync by handleViewStateChange. */}
       <div
         ref={mapContainerRef}
-        style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}
+        style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, filter: !isRunning && (isLoading || isPlacedObjectsLoading) ? 'blur(4px)' : undefined, transition: 'filter 180ms ease' }}
       />
+
+      {/* deck.gl overlay canvas. dragPan is disabled while an area is being
+          dragged so the map doesn't pan out from under the vertex handle. */}
       <DeckGL
         viewState={viewState}
         onViewStateChange={handleViewStateChange}
         onClick={handleDeckClick}
         onHover={handleDeckHover}
+        pickingRadius={10}
         controller={{ dragPan: !isAreaDragging, scrollZoom: true, touchZoom: true }}
         layers={layers}
         getCursor={getCursor}
-        style={{ position: 'absolute', width: '100%', height: '100%' }}
+        style={{ position: 'absolute', width: '100%', height: '100%', filter: !isRunning && (isLoading || isPlacedObjectsLoading) ? 'blur(4px)' : undefined, transition: 'filter 180ms ease' }}
       />
 
-      {hoveredPOIArea && (
+      {!isRunning && (isLoading || isPlacedObjectsLoading) && (
         <div
+          role="status"
+          aria-live="polite"
+          aria-label="Loading heatmap data"
           style={{
             position: 'absolute',
-            left: hoveredPOIArea.x + 14,
-            top: hoveredPOIArea.y + 14,
-            zIndex: 45,
-            maxWidth: 260,
+            inset: 0,
+            zIndex: 25,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(2, 8, 23, 0.28)',
             pointerEvents: 'none',
-            border: '1px solid rgba(125, 211, 252, 0.45)',
-            backgroundColor: 'rgba(2, 8, 23, 0.94)',
-            borderRadius: 10,
-            padding: '10px 12px',
-            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
-            color: '#f8fafc',
           }}
         >
-          <div style={{ fontSize: 13, fontWeight: 800, lineHeight: 1.25 }}>
-            {hoveredPOIArea.area.name}
-          </div>
-          <div style={{ marginTop: 4, fontSize: 12, color: '#bae6fd' }}>
-            {hoveredPOIArea.area.category ?? 'Unknown category'}
-          </div>
-          <div style={{ marginTop: 8, display: 'grid', gap: 3, fontSize: 11, color: '#cbd5e1' }}>
-            <span>{hoveredPOIStats?.address ?? hoveredPOIArea.area.cityName}</span>
-            <span>
-              {hoveredPOIStats?.city ?? hoveredPOIArea.area.cityName}
-              {hoveredPOIStats?.region || hoveredPOIArea.area.stateName
-                ? `, ${hoveredPOIStats?.region ?? hoveredPOIArea.area.stateName}`
-                : ''}
-            </span>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '12px 16px',
+              border: '1px solid rgba(148, 163, 184, 0.45)',
+              borderRadius: 10,
+              background: 'rgba(2, 8, 23, 0.88)',
+              color: '#f8fafc',
+              fontSize: 14,
+              fontWeight: 600,
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.28)',
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                width: 18,
+                height: 18,
+                border: '2px solid rgba(148, 163, 184, 0.45)',
+                borderTopColor: '#38bdf8',
+                borderRadius: '50%',
+                animation: 'heatmap-loading-spin 0.8s linear infinite',
+              }}
+            />
+            Loading heatmap
           </div>
         </div>
       )}
 
-      {/* --- Search bar (top center) --- */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 20,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          zIndex: 35,
-          width: 360,
-          maxWidth: 'calc(100% - 320px)',
+      <SearchBar
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        geoResults={geoResults}
+        setGeoResults={setGeoResults}
+        isSearching={isSearching}
+        setIsSearching={setIsSearching}
+        showSuggestions={showSuggestions}
+        setShowSuggestions={setShowSuggestions}
+        flyTo={flyTo}
+      />
+
+      <Toolbox
+        displayToolbox={displayToolbox}
+        selectedDate={selectedDate}
+        setSelectedDate={setSelectedDate}
+        setBaselineSelectedDate={setBaselineSelectedDate}
+        availableDates={availableDates}
+        metricLabel={metricLabelText}
+        canToggleMetric={availableMetricLayers.length > 1}
+        onToggleMetric={cycleMetric}
+        placedCount={currentPlacedObjects.length}
+        onClearObjects={() => placedObjectsControls?.setPlacedObjects([])}
+        placedObjectsControls={placedObjectsControls}
+        onSelectPolygonTool={() => {}}
+        selectedCity={selectedCity}
+        draftName={draftName}
+        setDraftName={setDraftName}
+        draftColorHex={draftColorHex}
+        setDraftColorHex={setDraftColorHex}
+        isDrawing={isDrawing}
+        draftPointCount={draftPoints.length}
+        onStartDrawing={() => drawControls.startDrawing()}
+        onCommitDrawing={() => drawControls.commitDrawing()}
+        draftPoints={draftPoints}
+        draftIsSimple={draftIsSimple}
+        // Commit the draft polygon into a saved user POI area. commitDrawing()
+        // returns null when the ring is invalid (fewer than the minimum
+        // vertices), in which case the draft is left untouched. Name defaults
+        // to a numbered "Custom Area" when the input is blank; the stored
+        // colour is the draft RGB plus a fixed 140 alpha for the fill.
+        onSetDraftColor={(color) => drawControls.setDraftColor(color)}
+        onFinishArea={() => {
+          const ring = drawControls.commitDrawing();
+          if (ring && selectedCity) {
+            setUserPOIAreas((prev) => [
+              ...prev,
+              {
+                id: `custom-${Date.now()}-${prev.length + 1}`,
+                name: draftName.trim() || `Custom Area ${prev.length + 1}`,
+                polygon: ring,
+                color: [...hexToRgb(drawControls.draftColor), 140],
+              } as CityPOIArea,
+            ]);
+            setDraftName('');
+          }
         }}
-        onBlur={() => {
-          // Delay so a click on a suggestion still registers before closing.
-          blurTimeoutRef.current = window.setTimeout(() => setShowSuggestions(false), 120);
+        onUndoLastPoint={() => drawControls.undoDraftPoint()}
+        onCancelDrawing={() => drawControls.cancelDrawing()}
+        hasUserAreasInCity={userPOIAreas.length > 0}
+        onClearMyAreas={() => setUserPOIAreas([])}
+        editingAreaId={editingAreaId}
+        // Leave edit mode and drop any in-flight vertex drag.
+        onFinishEdit={() => {
+          setEditingAreaId(null);
+          setIsAreaDragging(false);
         }}
-        onFocus={() => {
-          if (blurTimeoutRef.current) window.clearTimeout(blurTimeoutRef.current);
-          setShowSuggestions(true);
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '8px 12px',
-            borderRadius: 10,
-            border: '1px solid rgba(148, 163, 184, 0.45)',
-            backgroundColor: 'rgba(2, 8, 23, 0.92)',
-            boxShadow: '0 4px 14px rgba(0, 0, 0, 0.35)',
-          }}
-        >
-          {isSearching ? (
-            <Loader2 size={16} color="#94a3b8" style={{ animation: 'spin 1s linear infinite' }} />
-          ) : (
-            <Search size={16} color="#94a3b8" />
-          )}
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setShowSuggestions(true);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSearchSubmit();
-              if (e.key === 'Escape') setShowSuggestions(false);
-            }}
-            placeholder="Search city, place, or lat, lng"
-            style={{
-              flex: 1,
-              border: 'none',
-              outline: 'none',
-              background: 'transparent',
-              color: '#f1f5f9',
-              fontSize: 14,
-            }}
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={clearSearch}
-              aria-label="Clear search"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                background: 'transparent',
-                border: 'none',
-                color: '#94a3b8',
-                cursor: 'pointer',
-                padding: 2,
-              }}
-            >
-              <X size={15} />
-            </button>
-          )}
-        </div>
+      />
 
-        {/* Suggestions dropdown */}
-        {showSuggestions && searchQuery.trim() && hasSuggestions && (
-          <div
-            style={{
-              marginTop: 6,
-              borderRadius: 10,
-              border: '1px solid rgba(148, 163, 184, 0.45)',
-              backgroundColor: 'rgba(2, 8, 23, 0.96)',
-              boxShadow: '0 6px 18px rgba(0, 0, 0, 0.4)',
-              overflow: 'hidden',
-            }}
-          >
-            {parsedCoords && (
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  flyTo(parsedCoords[0], parsedCoords[1], 12);
-                  setShowSuggestions(false);
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  width: '100%',
-                  padding: '10px 12px',
-                  background: 'transparent',
-                  border: 'none',
-                  borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
-                  color: '#f1f5f9',
-                  cursor: 'pointer',
-                  fontSize: 13,
-                  textAlign: 'left',
-                }}
-              >
-                <Crosshair size={15} color="#38bdf8" />
-                Go to {parsedCoords[1].toFixed(4)}, {parsedCoords[0].toFixed(4)}
-              </button>
-            )}
-
-            {cityMatches.map((city) => (
-              <button
-                key={`city-${city.name}`}
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => selectCity(city)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  width: '100%',
-                  padding: '10px 12px',
-                  background: 'transparent',
-                  border: 'none',
-                  borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
-                  color: '#f1f5f9',
-                  cursor: 'pointer',
-                  fontSize: 13,
-                  textAlign: 'left',
-                }}
-              >
-                <MapPin size={15} color="#f87171" />
-                <span>{city.name}</span>
-                <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748b' }}>City</span>
-              </button>
-            ))}
-
-            {geoResults.map((place, i) => (
-              <button
-                key={`geo-${i}`}
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => selectPlace(place)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  width: '100%',
-                  padding: '10px 12px',
-                  background: 'transparent',
-                  border: 'none',
-                  borderBottom: i === geoResults.length - 1 ? 'none' : '1px solid rgba(148, 163, 184, 0.2)',
-                  color: '#cbd5e1',
-                  cursor: 'pointer',
-                  fontSize: 13,
-                  textAlign: 'left',
-                }}
-              >
-                <Search size={14} color="#94a3b8" style={{ flexShrink: 0 }} />
-                <span
-                  style={{
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {place.label}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* --- Left panel: toolbox (objects + Create POI Area) or POI-only --- */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 20,
-          left: 20,
-          zIndex: 30,
-          width: 240,
-          maxHeight: 'calc(100% - 40px)',
-          overflowY: 'auto',
-          border: '1px solid rgba(148, 163, 184, 0.45)',
-          backgroundColor: 'rgba(2, 8, 23, 0.9)',
-          borderRadius: 10,
-          padding: '12px 14px',
-          color: '#f1f5f9',
-          boxShadow: '0 4px 14px rgba(0, 0, 0, 0.35)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
-        }}
-      >
-        {displayToolbox && toolboxObjectsSection}
-        {createPOISection}
-      </div>
-
+      {/* Fullscreen toggle, floating top-right over the map. */}
       <button
         type="button"
         onClick={toggleFullscreen}
@@ -1780,105 +911,11 @@ const Heatmap: React.FC<HeatmapProps> = ({
         {isFullscreen ? <Shrink size={20} /> : <Expand size={20} />}
       </button>
 
-      {availableMetrics.length > 0 && (
-        <button
-          type="button"
-          onClick={() => {
-            if (availableMetrics.length <= 1) return;
-            const idx = availableMetrics.indexOf(activeMetricKey);
-            const next = availableMetrics[(idx + 1 + availableMetrics.length) % availableMetrics.length];
-            setSelectedMetric(next);
-          }}
-          style={{
-            position: 'absolute',
-            top: 68,
-            right: 20,
-            zIndex: 30,
-            border: '1px solid rgba(148, 163, 184, 0.55)',
-            backgroundColor: 'rgba(2, 8, 23, 0.88)',
-            color: '#f8fafc',
-            borderRadius: '8px',
-            padding: '8px 10px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            cursor: availableMetrics.length > 1 ? 'pointer' : 'default',
-            fontSize: 12,
-            fontWeight: 600,
-          }}
-          title="Toggle metric"
-        >
-          <Crosshair size={14} />
-          <span>{metricLabelText}</span>
-        </button>
-      )}
+      {/* Legend. Shares its gradient with the active layer's colour ramp. */}
+      <HeatRiskScale label={metricLabelText} gradient={activeMetricLegendGradient} />
 
-      <div
-        style={{
-          position: 'absolute',
-          right: 16,
-          bottom: 30,
-          zIndex: 25,
-          width: 186,
-          border: '1px solid rgba(148, 163, 184, 0.3)',
-          backgroundColor: 'rgba(2, 8, 23, 0.72)',
-          borderRadius: 8,
-          padding: '7px 8px',
-          color: '#f1f5f9',
-          boxShadow: '0 3px 10px rgba(0, 0, 0, 0.22)',
-          backdropFilter: 'blur(6px)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5 }}>
-          <div style={{ fontSize: 11, fontWeight: 700 }}>{metricLabelText}</div>
-          <div style={{ color: '#94a3b8', fontSize: 9, fontWeight: 700, textTransform: 'uppercase' }}>
-            Scale
-          </div>
-        </div>
-        <div
-          style={{
-            height: 8,
-            width: '100%',
-            borderRadius: 999,
-            background: activeMetricLegendGradient,
-            border: '1px solid rgba(148, 163, 184, 0.25)',
-          }}
-        />
-        <div
-          style={{
-            marginTop: 4,
-            display: 'flex',
-            justifyContent: 'space-between',
-            fontSize: 9,
-            color: '#94a3b8',
-          }}
-        >
-          <span>0</span>
-          <span>100</span>
-        </div>
-        <div
-          style={{
-            marginTop: 6,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 8,
-            border: '1px solid rgba(148, 163, 184, 0.22)',
-            borderRadius: 999,
-            background: 'rgba(15, 23, 42, 0.58)',
-            padding: '4px 7px',
-            fontSize: 10,
-            color: '#94a3b8',
-          }}
-          title={`${heatmapCountScopeLabel}: ${heatmapCellCount.toLocaleString()} grid cells rendered as a continuous interpolated surface`}
-        >
-          <span style={{ color: '#e0f2fe', fontWeight: 800 }}>
-            {heatmapCountScopeLabel}: {heatmapCellCount.toLocaleString()} cells
-          </span>
-          <span>continuous surface</span>
-        </div>
-      </div>
-
+      {/* Hover tooltip, positioned in screen space from the deck.gl pixel
+          coordinates. pointerEvents: none so it never swallows map hovers. */}
       {tooltip && (
         <div
           style={{
@@ -1898,42 +935,82 @@ const Heatmap: React.FC<HeatmapProps> = ({
           }}
         >
           <div style={{ fontWeight: 700, marginBottom: 6, fontSize: '14px', color: '#f1f5f9' }}>
-            {tooltip.point.location_name}
+            Point at {tooltip.coordinates.latitude.toFixed(4)}, {tooltip.coordinates.longitude.toFixed(4)}
           </div>
-          {tooltip.point.is_interpolated && (
-            <div
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                marginBottom: 8,
-                border: '1px solid rgba(56, 189, 248, 0.35)',
-                borderRadius: 999,
-                padding: '2px 7px',
-                background: 'rgba(8, 47, 73, 0.55)',
-                color: '#bae6fd',
-                fontSize: 11,
-                fontWeight: 700,
-                textTransform: 'uppercase',
-              }}
-            >
-              Interpolated
-            </div>
-          )}
 
+          {/* Primary metric value, colour-coded by severity band:
+              >= 85 red, >= 70 orange, otherwise yellow. */}
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: '#cbd5e1' }}>
             <span>{metricLabelText} Score</span>
-            <span style={{ fontWeight: 600, color: tooltip.point.value >= 85 ? '#ef4444' : tooltip.point.value >= 70 ? '#f97316' : '#facc15' }}>
+            <span
+              style={{
+                fontWeight: 600,
+                color:
+                  tooltip.point.value >= 85
+                    ? '#ef4444'
+                    : tooltip.point.value >= 70
+                      ? '#f97316'
+                      : '#facc15',
+              }}
+            >
               {tooltip.point.value}
             </span>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: '#cbd5e1', marginTop: 4 }}>
-            <span>Metric</span>
-            <span style={{ fontWeight: 600, color: '#94a3b8' }}>{formatMetricName(tooltip.metric)}</span>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 16,
+              color: '#cbd5e1',
+              marginTop: 4,
+            }}
+          >
+            <span>Coordinates</span>
+            <span style={{ fontWeight: 600, color: '#e2e8f0' }}>
+              {tooltip.coordinates.latitude.toFixed(6)}, {tooltip.coordinates.longitude.toFixed(6)}
+            </span>
           </div>
 
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 16,
+              color: '#cbd5e1',
+              marginTop: 4,
+            }}
+          >
+            <span>Metric</span>
+            <span style={{ fontWeight: 600, color: '#94a3b8' }}>
+              {formatMetricName(tooltip.metric)}
+            </span>
+          </div>
+
+          {/* Basemap surface under the cursor (e.g. park, building, road),
+              with the classifier's extra detail in parentheses when present. */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 16,
+              color: '#cbd5e1',
+              marginTop: 4,
+            }}
+          >
+            <span>Surface</span>
+            <span style={{ fontWeight: 600, color: '#94a3b8' }}>
+              {tooltip.surface?.detail
+                ? `${tooltip.surface.type} (${tooltip.surface.detail})`
+                : (tooltip.surface?.type ?? 'unknown')}
+            </span>
+          </div>
+
+          {/* Optional breakdown of the sub-metrics behind the headline score. */}
           {tooltip.point.individual_metrics && (
-            <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(148, 163, 184, 0.35)' }}>
+            <div
+              style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(148, 163, 184, 0.35)' }}
+            >
               {Object.entries(tooltip.point.individual_metrics).map(([key, value]) => (
                 <div
                   key={key}
@@ -1947,7 +1024,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
                 >
                   <span>{metricLabel(key)}</span>
                   <span style={{ fontWeight: 600, color: '#e2e8f0' }}>
-                    {value as number}
+                    {value}
                     {metricUnit(key)}
                   </span>
                 </div>

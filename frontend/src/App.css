@@ -1,3 +1,8 @@
+@keyframes heatmap-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .counter {
   font-size: 16px;
   padding: 5px 10px;
