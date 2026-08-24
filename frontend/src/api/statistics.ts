@@ -405,9 +405,15 @@ function buildStatCards(seed: CitySeedData): StatCardInfo[] {
 export async function callMockStatistics(city: string): Promise<CityStatisticsResponse> {
   await new Promise((resolve) => setTimeout(resolve, 300));
 
-  // The backend statistics route now returns the same shape as the original
-  // mock helper. Keep the helper name so the copied frontend needs fewer code
-  // changes, but prefer live FastAPI data whenever the backend responds.
+  // The backend statistics route returns the same shape as the seed data below.
+  // Prefer live FastAPI data, but only when it actually carries rows.
+  //
+  // The route answers 200 with an empty `pois` array whenever its source tables
+  // (grid_cell_metrics, polygon_geometry) are empty - it reports "nothing to
+  // show", not "something went wrong". Keying the fallback on `response.ok`
+  // alone therefore accepted that empty payload and blanked the Key POIs panel,
+  // which is why it disappeared after this branch started calling the backend
+  // at all. Judge the payload's content, not just its status.
   try {
     const query = new URLSearchParams({ city, state: 'Texas' });
     const response = await fetch(`${API_BASE_URL}/heatmap/statistics?${query.toString()}`, {
@@ -415,7 +421,13 @@ export async function callMockStatistics(city: string): Promise<CityStatisticsRe
     });
 
     if (response.ok) {
-      return response.json() as Promise<CityStatisticsResponse>;
+      const live = (await response.json()) as CityStatisticsResponse;
+      if (live?.poiStatistics?.pois?.length) {
+        return live;
+      }
+      console.warn(
+        `Backend statistics for ${city} carried no POIs; showing seed data instead.`,
+      );
     }
   } catch (error) {
     console.warn('Falling back to mock city statistics', error);

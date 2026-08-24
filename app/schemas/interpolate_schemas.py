@@ -105,6 +105,23 @@ class SurfaceRequest(BaseModel):
     boundary_buffer_deg: float = 0.0
 
 
+class MetricLayer(BaseModel):
+    """One secondary metric interpolated onto the surface's lattice.
+
+    Not drawn: these are the extra values the tooltip reports for the exact
+    coordinate under the cursor. Same rows/cols/bounds as the parent surface.
+    """
+
+    # values[row][col], row 0 southernmost, in the metric's own units.
+    values: list[list[float]]
+    min: float
+    max: float
+    source_count: int
+    variogram_model: Optional[str] = None
+    # Display suffix, e.g. " C" or "%". Empty when the metric is unitless.
+    unit: str = ""
+
+
 class SurfaceResponse(BaseModel):
     """A regular value lattice ready to be drawn as one continuous image."""
 
@@ -125,6 +142,12 @@ class SurfaceResponse(BaseModel):
     city: Optional[str] = None
     boundary: Optional[dict[str, Any]] = None
     interpolation_method: str = "ordinary_kriging"
+    # Which variogram model actually fitted, or "constant" for a flat field.
+    # Useful when a surface looks wrong: it says how it was derived.
+    variogram_model: Optional[str] = None
+    # Secondary metrics on the same lattice, keyed by metric name. Interpolated
+    # for the tooltip but never coloured.
+    metrics: dict[str, MetricLayer] = Field(default_factory=dict)
 
 
 class CityBoundaryResponse(BaseModel):

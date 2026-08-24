@@ -4,7 +4,12 @@ import DeckGL from '@deck.gl/react';
 import { type CityPOIArea } from '../api/map';
 import { type City } from '../data/hostCities';
 import { getColor, getSmoothColor, hasSmoothRamp, rampDomain } from '../services/colors';
-import { buildMetricRaster, isInsideRaster, sampleSurface } from '../services/metricRaster';
+import {
+  buildMetricRaster,
+  isInsideRaster,
+  sampleLattice,
+  sampleSurface,
+} from '../services/metricRaster';
 import { useHeatmapLayers } from '../hooks/useHeatmapLayers';
 import SearchBar from './SearchBar';
 import Toolbox from './Toolbox';
@@ -380,8 +385,11 @@ const Heatmap: React.FC<HeatmapProps> = ({
   /**
    * Read the city surfaces at a coordinate. Returns a synthesized reading from
    * whichever city's surface contains it, or null when the coordinate is
-   * outside every city, so places without data never show values. The value is
-   * in the metric's own units.
+   * outside every city, so places without data never show values.
+   *
+   * The tooltip's secondary metrics come from lattices kriged alongside the
+   * drawn one, so every row reports an interpolated value for the exact
+   * coordinate under the cursor rather than the nearest measured reading.
    */
   const sampleRasterPoint = useCallback(
     (lon: number, lat: number): MetricValue | null => {
@@ -391,13 +399,23 @@ const Heatmap: React.FC<HeatmapProps> = ({
         const value = sampleSurface(surface, lon, lat);
         if (value === null) continue;
 
+        const individualMetrics: Record<string, string> = {
+          [surface.metric_key]: `${value.toFixed(1)} \u00b0C`,
+        };
+        for (const [name, layer] of Object.entries(surface.metrics ?? {})) {
+          const layerValue = sampleLattice(surface, layer.values, lon, lat);
+          if (layerValue !== null) {
+            individualMetrics[name] = `${layerValue.toFixed(1)}${layer.unit}`;
+          }
+        }
+
         return {
           value,
           location_name: surface.city
             ? `${surface.city} \u00b7 ${lat.toFixed(4)}, ${lon.toFixed(4)}`
             : `${lat.toFixed(4)}, ${lon.toFixed(4)}`,
           location_coordinates: [lon, lat],
-          individual_metrics: { [surface.metric_key]: `${value.toFixed(1)} \u00b0C` },
+          individual_metrics: individualMetrics,
           is_interpolated: true,
         };
       }

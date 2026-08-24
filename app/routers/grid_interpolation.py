@@ -1,7 +1,9 @@
 """Routes for interpolating metrics onto generated grid cells."""
+import logging
 from datetime import datetime
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -20,9 +22,11 @@ from repository.grid_interpolation_repository import (
 from data.city_boundaries import (
     get_city_boundary,
     get_city_boundary_geojson,
+    get_market_code,
     resolve_city_name,
     supported_cities,
 )
+from repository.heatmap_repository import HeatmapRepository
 from routers.grid_geometry import get_city_grid_cells
 from schemas import interpolate_schemas
 from services.grid_geometry_services import grid_cells_to_geojson
@@ -40,6 +44,8 @@ from services.grid_interpolation_service import (
     krige_city_surfaces,
     krige_surface,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/grid_interpolation", tags=["grid_interpolation"])
 
@@ -208,6 +214,136 @@ async def get_city_boundary_route(city: str):
         "bounds": boundary["bounds"],
         "geometry": get_city_boundary_geojson(city),
     }
+
+
+# Surfaces are derived from a startup-preloaded, immutable reading cache, so the
+# same query always yields the same surface and can be memoized outright. Keyed
+# on everything that changes the result.
+_SURFACE_CACHE: dict[tuple, dict] = {}
+_SURFACE_CACHE_MAX_ENTRIES = 64
+
+
+@router.get("/surface", response_model=interpolate_schemas.SurfaceResponse)
+async def get_city_surface(
+    city: str,
+    date: str,
+    metric_key: str = "average_temperature_c",
+    rows: int = 48,
+    cols: int = 48,
+    additional_metrics: Optional[List[str]] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Build a city's continuous surface entirely server-side.
+
+    The caller names a city, a date and a metric; the readings never leave the
+    backend. They are already resident in the heatmap repository's in-process
+    cache, so this reads them directly, krige them, and returns only the
+    lattice - roughly 44 KB, against the ~740 KB the raw readings would cost in
+    each direction if the client fetched and returned them.
+
+    `additional_metrics` are interpolated onto the same lattice and returned
+    under `metrics`. They are never drawn - they are what the tooltip reports
+    for the coordinate under the cursor - but they go through the same kriging
+    as the drawn metric rather than being snapped to the nearest reading.
+
+    The POST form below still exists for the one case this cannot serve: a
+    running simulation, whose adjusted readings exist only in the browser.
+    """
+    validate_surface_metric(metric_key)
+    validate_surface_city(city)
+
+    extra_names = [
+        stripped
+        for name in dict.fromkeys(additional_metrics or [])
+        if (stripped := str(name).strip()) and stripped != metric_key
+    ]
+
+    resolved_city = resolve_city_name(city)
+    cache_key = (resolved_city, date, metric_key, rows, cols, tuple(extra_names))
+    cached = _SURFACE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    if rows * cols > SURFACE_MAX_RESOLUTION**2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"rows * cols cannot exceed {SURFACE_MAX_RESOLUTION**2}.",
+        )
+
+    repository = HeatmapRepository(db)
+    market_code = get_market_code(city)
+
+    def readings_for(name: str):
+        """Numeric readings for one metric, straight from the in-memory cache.
+
+        One call per metric: asking for a metric by name yields its value as a
+        plain number, whereas `additional_metrics` would return it pre-formatted
+        as a display string that would have to be parsed back before kriging.
+        Each metric also drops its own NULL rows, so the point sets differ - and
+        each is interpolated over exactly the points that have a value.
+        """
+        return [
+            {
+                "longitude": point["location_coordinates"][0],
+                "latitude": point["location_coordinates"][1],
+                "value": point["value"],
+            }
+            for points in repository.getDataPointsForCityDateMetric(
+                weather_date=date, metric=name, market_code=market_code
+            ).values()
+            for point in points
+        ]
+
+    try:
+        readings = readings_for(metric_key)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+
+    if not readings:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No {metric_key} readings for {resolved_city} on {date}.",
+        )
+
+    # An unknown or empty secondary metric costs the tooltip one row; it must
+    # not cost the map its surface.
+    extra_readings = {}
+    for name in extra_names:
+        try:
+            values = readings_for(name)
+        except ValueError:
+            logger.warning("Skipping unknown additional metric %r", name)
+            continue
+        if values:
+            extra_readings[name] = values
+
+    try:
+        surface = krige_surface(
+            readings,
+            rows=rows,
+            cols=cols,
+            city=city,
+            extra_points_by_metric=extra_readings,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+
+    # Reuse the repository's own unit strings so the tooltip reads exactly as it
+    # did when it showed measured values.
+    for name, layer in surface.get("metrics", {}).items():
+        layer["unit"] = repository._unit_for(name)
+
+    response = {"metric_key": metric_key, **surface}
+
+    if len(_SURFACE_CACHE) >= _SURFACE_CACHE_MAX_ENTRIES:
+        _SURFACE_CACHE.pop(next(iter(_SURFACE_CACHE)))
+    _SURFACE_CACHE[cache_key] = response
+
+    return response
 
 
 @router.post("/surface", response_model=interpolate_schemas.SurfaceResponse)

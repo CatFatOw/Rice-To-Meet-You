@@ -61,6 +61,23 @@ export interface BoundaryGeometry {
  * lattice spans exactly that rectangle, so the drawn surface stops at the city
  * edge instead of bleeding across the country.
  */
+/**
+ * A secondary metric interpolated onto the parent surface's lattice.
+ *
+ * Never drawn - these are the extra values the tooltip reports for the exact
+ * coordinate under the cursor. Same rows/cols/bounds as the parent surface, so
+ * the same sampler reads it.
+ */
+export interface MetricLayer {
+  values: number[][];
+  min: number;
+  max: number;
+  source_count: number;
+  variogram_model: string | null;
+  /** Display suffix, e.g. " \u00b0C" or "%". Empty when unitless. */
+  unit: string;
+}
+
 export interface MetricSurface {
   metric_key: string;
   bounds: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
@@ -79,6 +96,10 @@ export interface MetricSurface {
   /** The city rectangle as GeoJSON, for stroking the edge. Null when unscoped. */
   boundary: BoundaryGeometry | null;
   interpolation_method: string;
+  /** Which variogram model fitted, or "constant" for a flat field. */
+  variogram_model?: string | null;
+  /** Secondary metrics on this same lattice, for the tooltip. */
+  metrics?: Record<string, MetricLayer>;
 }
 
 // One metric's readings for a single day.

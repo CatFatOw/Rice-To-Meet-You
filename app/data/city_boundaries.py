@@ -26,20 +26,25 @@ from typing import Any, Optional
 HALF_SPAN_DEGREES = 0.62
 
 
-# (city, state, centre latitude, centre longitude)
-HOST_CITY_GRID_SPECS: tuple[tuple[str, str, float, float], ...] = (
-    ("Atlanta", "Georgia", 33.7490, -84.3880),
-    ("Boston", "Massachusetts", 42.3601, -71.0589),
-    ("Dallas", "Texas", 32.7767, -96.7970),
-    ("Houston", "Texas", 29.7604, -95.3698),
-    ("Kansas City", "Missouri", 39.0997, -94.5786),
-    ("Los Angeles", "California", 34.0522, -118.2437),
-    ("Miami", "Florida", 25.7617, -80.1918),
-    ("New York", "New York", 40.7128, -74.0060),
-    ("New Jersey", "New Jersey", 40.0583, -74.4057),
-    ("Philadelphia", "Pennsylvania", 39.9526, -75.1652),
-    ("Seattle", "Washington", 47.6062, -122.3321),
-    ("San Francisco Bay Area", "California", 37.7749, -122.4194),
+# (city, state, centre latitude, centre longitude, market code)
+#
+# The market code is the key the heatmap repository stores readings under. New
+# York and New Jersey deliberately share one: the source data has a single
+# combined market, and it is each city's rectangle - not the market code - that
+# separates their surfaces.
+HOST_CITY_GRID_SPECS: tuple[tuple[str, str, float, float, str], ...] = (
+    ("Atlanta", "Georgia", 33.7490, -84.3880, "atlanta"),
+    ("Boston", "Massachusetts", 42.3601, -71.0589, "boston"),
+    ("Dallas", "Texas", 32.7767, -96.7970, "dallas"),
+    ("Houston", "Texas", 29.7604, -95.3698, "houston"),
+    ("Kansas City", "Missouri", 39.0997, -94.5786, "kansas_city"),
+    ("Los Angeles", "California", 34.0522, -118.2437, "los_angeles"),
+    ("Miami", "Florida", 25.7617, -80.1918, "miami"),
+    ("New York", "New York", 40.7128, -74.0060, "new_york_nj"),
+    ("New Jersey", "New Jersey", 40.0583, -74.4057, "new_york_nj"),
+    ("Philadelphia", "Pennsylvania", 39.9526, -75.1652, "philadelphia"),
+    ("Seattle", "Washington", 47.6062, -122.3321, "seattle"),
+    ("San Francisco Bay Area", "California", 37.7749, -122.4194, "san_francisco"),
 )
 
 
@@ -79,10 +84,11 @@ def bounds_to_geojson(bounds) -> dict[str, Any]:
 CITY_BOUNDARIES: dict[str, dict[str, Any]] = {
     city: {
         "state": state,
+        "market_code": market_code,
         "center": [center_lon, center_lat],
         "bounds": _rectangle(center_lat, center_lon, HALF_SPAN_DEGREES),
     }
-    for city, state, center_lat, center_lon in HOST_CITY_GRID_SPECS
+    for city, state, center_lat, center_lon, market_code in HOST_CITY_GRID_SPECS
 }
 
 
@@ -155,3 +161,9 @@ def is_inside_city(city: str, longitude: float, latitude: float) -> bool:
 def supported_cities() -> list[str]:
     """Every city with a rectangle, in display order."""
     return sorted(CITY_BOUNDARIES)
+
+
+def get_market_code(city: str) -> Optional[str]:
+    """Return the heatmap market code a city's readings are stored under."""
+    boundary = get_city_boundary(city)
+    return boundary["market_code"] if boundary else None

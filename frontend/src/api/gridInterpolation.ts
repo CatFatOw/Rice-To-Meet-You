@@ -67,6 +67,56 @@ export interface CityBoundary {
  * city's outline and clips the result to it. Returns null when there is no
  * city selected, which is the zoomed-out view where no surface belongs.
  */
+/**
+ * Fetch a city's kriged surface, computed entirely server-side.
+ *
+ * The readings never reach the browser: the backend already holds them in
+ * memory, so it reads, krige and returns only the lattice. This is the path
+ * every non-simulated view should use - it replaces fetching thousands of
+ * points and posting them straight back.
+ */
+export async function fetchCitySurface(
+  metricKey: string,
+  city: string,
+  date: string,
+  options: SurfaceOptions & { additionalMetrics?: string[] } = {},
+): Promise<MetricSurface | null> {
+  if (!isSurfaceMetric(metricKey) || !city || !date) return null;
+
+  const {
+    rows = DEFAULT_RESOLUTION,
+    cols = DEFAULT_RESOLUTION,
+    additionalMetrics,
+    signal,
+  } = options;
+  const query = new URLSearchParams({
+    city,
+    date,
+    metric_key: metricKey,
+    rows: String(rows),
+    cols: String(cols),
+  });
+  // Repeated key per value - that is how FastAPI reads List[str]. These are
+  // interpolated onto the same lattice and surface in the tooltip.
+  additionalMetrics?.forEach((name) => query.append('additional_metrics', name));
+
+  const response = await fetch(
+    `${API_BASE_URL}/grid_interpolation/surface?${query.toString()}`,
+    { headers: { Accept: 'application/json' }, signal },
+  );
+
+  // 404 means no readings for that city/date - an empty result, not a failure.
+  if (response.status === 404) return null;
+
+  if (!response.ok) {
+    throw new Error(
+      `City surface request failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  return response.json() as Promise<MetricSurface>;
+}
+
 export async function fetchInterpolatedSurface(
   metricKey: string,
   city: string | null,

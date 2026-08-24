@@ -795,6 +795,37 @@ SURFACE_DEGENERATE_RATIO = 0.05
 SURFACE_OVERSHOOT_MARGIN = 0.25
 
 
+# Ordinary kriging is cubic in the number of observations: pykrige builds the
+# full O(N^2) pairwise distance matrix when it fits, then by default solves
+# against every observation for every predicted cell. Measured on a 48x48
+# lattice, that is 0.24s at N=1000 but 15.5s and 1.8GB at N=8000.
+#
+# Two bounds keep it interactive, and both were measured against a known field:
+# subsampling to 1000 and using a 32-point local neighbourhood took an 8000
+# point fit from 18.8s to 0.15s while RMSE against the true field moved only
+# 0.087 -> 0.094, and the recovered value range was unchanged.
+SURFACE_MAX_FIT_POINTS = 1000
+SURFACE_KRIGING_NEIGHBOURS = 32
+
+
+def subsample_points(points, max_points: int = SURFACE_MAX_FIT_POINTS, seed: int = 0):
+    """Randomly thin readings to at most `max_points`.
+
+    Random selection, deliberately not averaging into bins: bin-averaging is
+    faster still but smooths the extremes away - on the same test field it
+    flattened a 34.9 degree peak to 33.3 and cost 7x the error. Dropping whole
+    readings at random leaves the surviving values, and so the peaks, intact.
+
+    Seeded so repeated requests for the same data return the same surface.
+    """
+    if len(points) <= max_points:
+        return points
+    rng = np.random.default_rng(seed)
+    keep = rng.choice(len(points), max_points, replace=False)
+    keep.sort()  # preserve input order, which keeps the result easy to compare
+    return [points[i] for i in keep]
+
+
 def _fit_and_execute(x, y, z, target_lons, target_lats, model: str):
     """Run one ordinary-kriging fit; returns (values, variance)."""
     kriging = OrdinaryKriging(
@@ -806,8 +837,15 @@ def _fit_and_execute(x, y, z, target_lons, target_lats, model: str):
         enable_plotting=False,
     )
     # "grid" evaluates the full lat x lon outer product in one call, which is
-    # what makes a dense lattice affordable.
-    values, variance = kriging.execute("grid", target_lons, target_lats)
+    # what makes a dense lattice affordable. n_closest_points restricts each
+    # cell's solve to its nearest observations; it requires the loop backend.
+    values, variance = kriging.execute(
+        "grid",
+        target_lons,
+        target_lats,
+        backend="loop",
+        n_closest_points=min(SURFACE_KRIGING_NEIGHBOURS, len(x)),
+    )
     return np.asarray(values, dtype=float), np.asarray(variance, dtype=float)
 
 
@@ -852,9 +890,15 @@ def points_inside_city(points, city: str, buffer_deg: float = SURFACE_BOUNDARY_B
 def group_points_by_city(points, cities=None, buffer_deg: float = SURFACE_BOUNDARY_BUFFER_DEG):
     """Partition readings by the city rectangle that contains them.
 
-    Cities with no readings are omitted. A reading outside every rectangle is
-    dropped - there is no city surface it belongs to. Rectangles do not overlap
-    for the host cities, but if they ever did a reading would feed both.
+    Cities with no readings are omitted, and a reading outside every rectangle
+    is dropped - there is no city surface it belongs to.
+
+    Some host-city rectangles genuinely overlap (New York and New Jersey share
+    0.84 x 0.59 degrees, and both overlap Philadelphia), so a reading in an
+    overlap feeds every rectangle containing it. That is correct for building
+    each city's surface independently, but it means two surfaces can cover the
+    same ground - callers that draw the result should pass `cities` to name the
+    one city they want rather than rendering all of them on top of each other.
     """
     target_cities = list(cities) if cities else supported_cities()
     grouped = {}
@@ -911,6 +955,62 @@ def krige_city_surfaces(
     return surfaces, skipped
 
 
+def _krige_values(x, y, z, target_lons, target_lats, rows, cols, variogram_model=None):
+    """Krige one value field onto a fixed lattice; returns (values, variance, model).
+
+    Split out of krige_surface so the secondary metrics shown in the tooltip can
+    be interpolated onto exactly the same lattice as the drawn surface, through
+    exactly the same fitting and safeguards.
+    """
+    observed_min = float(np.min(z))
+    observed_max = float(np.max(z))
+    observed_spread = observed_max - observed_min
+
+    # A constant field has no variogram to fit, and pykrige raises on one. It is
+    # also a legitimate input: change_in_temperature is all zeros until an
+    # intervention is placed, and a market-level metric carries one value across
+    # the whole city.
+    if len(z) < 2 or observed_spread == 0:
+        return (
+            np.full((rows, cols), z[0], dtype=float),
+            np.zeros((rows, cols), dtype=float),
+            "constant",
+        )
+
+    candidates = (variogram_model,) if variogram_model else SURFACE_VARIOGRAM_MODELS
+    values = None
+    variance = None
+    model_used = None
+    last_error = None
+
+    for candidate in candidates:
+        try:
+            fitted_values, fitted_variance = _fit_and_execute(
+                x, y, z, target_lons, target_lats, candidate
+            )
+        except Exception as exc:  # noqa: BLE001 - try the next model instead
+            last_error = exc
+            continue
+
+        values, variance, model_used = fitted_values, fitted_variance, candidate
+
+        # Accept the first model whose surface carries real structure.
+        spread = float(np.nanmax(fitted_values) - np.nanmin(fitted_values))
+        if spread >= observed_spread * SURFACE_DEGENERATE_RATIO:
+            break
+
+    if values is None:
+        raise ValueError(f"Kriging failed for every variogram model: {last_error}")
+
+    # Guard against an ill-conditioned fit overshooting the data.
+    margin = observed_spread * SURFACE_OVERSHOOT_MARGIN
+    return (
+        np.clip(values, observed_min - margin, observed_max + margin),
+        variance,
+        model_used,
+    )
+
+
 def krige_surface(
     points,
     rows: int,
@@ -919,6 +1019,7 @@ def krige_surface(
     variogram_model=None,
     city=None,
     buffer_deg: float = SURFACE_BOUNDARY_BUFFER_DEG,
+    extra_points_by_metric=None,
 ):
     """Ordinary-krige observations onto a regular rows x cols lattice.
 
@@ -935,6 +1036,12 @@ def krige_surface(
     Models are tried in order until one produces a surface that actually varies,
     because a variogram that fits badly degenerates into a flat mean rather than
     raising.
+
+    `extra_points_by_metric` maps a metric name to its own readings. Each is
+    kriged onto the *same* lattice and returned under `metrics`. These are the
+    values the tooltip reports alongside the drawn metric: they are never
+    coloured, but they are interpolated rather than snapped to the nearest
+    reading, so the tooltip describes the exact point under the cursor.
     """
     if not points:
         raise ValueError("At least one known point is required.")
@@ -949,6 +1056,10 @@ def krige_surface(
                 f"Only {len(points)} reading(s) fall inside {resolve_city_name(city)}; "
                 f"{SURFACE_MIN_POINTS} are required to fit a variogram."
             )
+
+    # Bound the cost before any fitting happens. A city rectangle can hold many
+    # more readings than a 48x48 lattice can express.
+    points = subsample_points(points)
 
     rows = int(max(SURFACE_MIN_RESOLUTION, min(SURFACE_MAX_RESOLUTION, rows)))
     cols = int(max(SURFACE_MIN_RESOLUTION, min(SURFACE_MAX_RESOLUTION, cols)))
@@ -976,50 +1087,41 @@ def krige_surface(
     y = np.array([float(point["latitude"]) for point in points], dtype=float)
     z = np.array([float(point["value"]) for point in points], dtype=float)
 
-    observed_min = float(np.min(z))
-    observed_max = float(np.max(z))
-    observed_spread = observed_max - observed_min
+    values, variance, model_used = _krige_values(
+        x, y, z, target_lons, target_lats, rows, cols, variogram_model
+    )
 
-    # A constant field has no variogram to fit, and pykrige raises on one. It is
-    # also a legitimate input: change_in_temperature is all zeros until an
-    # intervention is placed.
-    if len(z) < 2 or observed_spread == 0:
-        values = np.full((rows, cols), z[0], dtype=float)
-        variance = np.zeros((rows, cols), dtype=float)
-        model_used = "constant"
-    else:
-        candidates = (
-            (variogram_model,) if variogram_model else SURFACE_VARIOGRAM_MODELS
-        )
-        values = None
-        variance = None
-        model_used = None
-        last_error = None
-
-        for candidate in candidates:
-            try:
-                fitted_values, fitted_variance = _fit_and_execute(
-                    x, y, z, target_lons, target_lats, candidate
-                )
-            except Exception as exc:  # noqa: BLE001 - try the next model instead
-                last_error = exc
-                continue
-
-            values, variance, model_used = fitted_values, fitted_variance, candidate
-
-            # Accept the first model whose surface carries real structure.
-            spread = float(np.nanmax(fitted_values) - np.nanmin(fitted_values))
-            if spread >= observed_spread * SURFACE_DEGENERATE_RATIO:
-                break
-
-        if values is None:
-            raise ValueError(
-                f"Kriging failed for every variogram model: {last_error}"
+    # Secondary metrics: same lattice, same fitting path, own variogram. Each is
+    # filtered and thinned exactly like the primary, and one that cannot be
+    # fitted is skipped rather than failing the whole surface - a missing
+    # tooltip row is a far smaller loss than a missing map.
+    metric_layers = {}
+    for metric_name, metric_points in (extra_points_by_metric or {}).items():
+        if city:
+            metric_points = points_inside_city(metric_points, city, buffer_deg=buffer_deg)
+        metric_points = subsample_points(metric_points)
+        if len(metric_points) < SURFACE_MIN_POINTS:
+            continue
+        try:
+            layer_values, _, layer_model = _krige_values(
+                np.array([float(p["longitude"]) for p in metric_points], dtype=float),
+                np.array([float(p["latitude"]) for p in metric_points], dtype=float),
+                np.array([float(p["value"]) for p in metric_points], dtype=float),
+                target_lons,
+                target_lats,
+                rows,
+                cols,
+                variogram_model,
             )
-
-        # Guard against an ill-conditioned fit overshooting the data.
-        margin = observed_spread * SURFACE_OVERSHOOT_MARGIN
-        values = np.clip(values, observed_min - margin, observed_max + margin)
+        except ValueError:
+            continue
+        metric_layers[metric_name] = {
+            "values": [[float(v) for v in row] for row in layer_values],
+            "min": float(np.nanmin(layer_values)),
+            "max": float(np.nanmax(layer_values)),
+            "source_count": len(metric_points),
+            "variogram_model": layer_model,
+        }
 
     # No clipping step: the lattice spans exactly the city rectangle, so every
     # cell is inside the boundary by construction and carries a real value.
@@ -1039,4 +1141,6 @@ def krige_surface(
         "city": resolved_city,
         # The same rectangle as `bounds`, as GeoJSON, so the map can stroke it.
         "boundary": get_city_boundary_geojson(city) if resolved_city else None,
+        # Secondary metrics on this same lattice, for the tooltip.
+        "metrics": metric_layers,
     }

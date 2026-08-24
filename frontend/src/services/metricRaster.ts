@@ -47,6 +47,22 @@ export function sampleSurface(
   lon: number,
   lat: number,
 ): number | null {
+  return sampleLattice(surface, surface.values, lon, lat);
+}
+
+/**
+ * Bilinear sample of any lattice sharing this surface's geometry.
+ *
+ * The secondary tooltip metrics are kriged onto the same rows/cols/bounds as
+ * the drawn surface, so they are read with exactly the same interpolation - the
+ * tooltip reports interpolated values, not the nearest measured reading.
+ */
+export function sampleLattice(
+  surface: Pick<MetricSurface, 'bounds' | 'rows' | 'cols'>,
+  values: number[][],
+  lon: number,
+  lat: number,
+): number | null {
   const [minLon, minLat, maxLon, maxLat] = surface.bounds;
   if (lon < minLon || lon > maxLon || lat < minLat || lat > maxLat) return null;
 
@@ -65,10 +81,10 @@ export function sampleSurface(
   const tCol = colF - col0;
   const tRow = rowF - row0;
 
-  const v00 = surface.values[row0]?.[col0];
-  const v01 = surface.values[row0]?.[col1];
-  const v10 = surface.values[row1]?.[col0];
-  const v11 = surface.values[row1]?.[col1];
+  const v00 = values[row0]?.[col0];
+  const v01 = values[row0]?.[col1];
+  const v10 = values[row1]?.[col0];
+  const v11 = values[row1]?.[col1];
   // Guards a malformed lattice only; a well-formed surface always has all four.
   if (v00 === undefined || v01 === undefined || v10 === undefined || v11 === undefined) {
     return null;
