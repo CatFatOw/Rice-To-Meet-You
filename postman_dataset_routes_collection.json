@@ -1570,6 +1570,29 @@
           }
         },
         {
+          "name": "Assign Demo Metrics To Existing Rows",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('demo metrics assigned', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('updated existing metrics only', function () { pm.expect(json.metrics_updated).to.be.above(0); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "url": "{{baseUrl}}/grid_metrics/assign_demo?state={{stateName}}"
+          }
+        },
+        {
           "name": "Get All Grid Metrics",
           "request": {
             "auth": {

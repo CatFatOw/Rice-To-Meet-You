@@ -1,3 +1,4 @@
+import type { CityPOIArea } from './heatmap';
 import type { ReactNode } from 'react';
 import type { PlacedObject } from './toolbox';
 
@@ -66,6 +67,8 @@ export interface POIStatisticsProps {
   isRunning?: boolean;
   loadingSimulation?: boolean;
   onSimulate?: () => void;
+  /** POI the user clicked on the map; rendered as an inspection card. */
+  selectedPOI?: CityPOIArea | null;
 }
 
 export interface CityStatisticsResponse {

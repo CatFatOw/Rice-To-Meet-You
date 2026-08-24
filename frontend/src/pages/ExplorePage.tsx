@@ -12,6 +12,8 @@ import {
   type HeatmapMetricValue,
 } from '../api/map';
 import { callMockStatistics } from '../api/statistics';
+import { fetchCitySurface } from '../api/gridInterpolation';
+import type { MetricSurface } from '../types/heatmap';
 import { determineCityView } from '../services/cityViews';
 import type { ViewState } from '../types/viewState';
 import type { GeocodeResult } from '../types/search';
@@ -50,6 +52,9 @@ const ExplorePage: React.FC = () => {
   const [cityPOIAreas, setCityPOIAreas] = useState<CityPOIAreaMap>({});
   const [displayedHeatmapPoints, setDisplayedHeatmapPoints] =
     useState<HeatmapMetricValue[]>([]);
+  // One independently kriged surface per city for the active metric; these
+  // drive the continuous map.
+  const [metricSurfaces, setMetricSurfaces] = useState<MetricSurface[]>([]);
 
   // --- Date and timeline state ---
   // Controls the active date and simulation period.
@@ -74,6 +79,14 @@ const ExplorePage: React.FC = () => {
   // --- Statistics and UI state ---
   // Controls metric selection and statistics panel data.
   const [selectedMetric, setSelectedMetric] = useState<Record<string, string[]> | null>(null);
+
+  // Active metric key on its own; the surface request only needs the key, and
+  // it must be defined before the kriging effect's dependency array reads it.
+  const selectedMetricKeyForSurface = selectedMetric ? Object.keys(selectedMetric)[0] : null;
+  // The extra metrics the tooltip reports. Interpolated onto the surface's
+  // lattice by the backend, never drawn.
+  const selectedAdditionalMetrics = selectedMetric ? Object.values(selectedMetric)[0] : [];
+
   const [containSimulation] = useState(false);
   const [overallStatisticsProps, setOverallStatisticsProps] =
     useState<OverallStatisticsProps>();
@@ -106,6 +119,59 @@ const ExplorePage: React.FC = () => {
       isMounted = false;
     };
   }, []);
+
+  // --- Krige the displayed readings into the surface for the city in view ---
+  // Exactly one surface is requested: the city the map is currently on. Several
+  // host-city rectangles overlap (New York and New Jersey share 0.84 x 0.59
+  // degrees, and both overlap Philadelphia), so asking for every city whose
+  // rectangle contains a reading would stack two surfaces over the same ground
+  // and let whichever drew last win. Fetching only what is in view also means
+  // no kriging is done for cities nobody is looking at.
+  //
+  // The backend reads the readings, kriges them and returns only the lattice.
+  // Explore has no simulation, so nothing here ever needs to send readings up.
+  useEffect(() => {
+    // Zoomed out past any one city, or nothing selected yet: no surface to
+    // build. Say which precondition stopped it - a blank map is otherwise
+    // impossible to tell apart from a broken one.
+    if (!selectedCity || !selectedMetricKeyForSurface || !selectedDate) {
+      console.debug('[ExplorePage] no interpolated surface:', {
+        selectedCity: selectedCity ?? '(none - zoomed out past a city)',
+        metric: selectedMetricKeyForSurface ?? '(none)',
+        date: selectedDate ?? '(none)',
+      });
+      setMetricSurfaces([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    let ignore = false;
+
+    fetchCitySurface(selectedMetricKeyForSurface, selectedCity, selectedDate, {
+      additionalMetrics: selectedAdditionalMetrics,
+      signal: controller.signal,
+    })
+      .then((surface) => {
+        if (ignore) return;
+        console.debug('[ExplorePage] interpolated surface:', {
+          city: selectedCity,
+          date: selectedDate,
+          readings: surface?.source_count ?? 0,
+        });
+        setMetricSurfaces(surface ? [surface] : []);
+      })
+      .catch((error) => {
+        if (ignore || controller.signal.aborted) return;
+        console.error('Failed to interpolate city surface', error);
+        setMetricSurfaces([]);
+      });
+
+    return () => {
+      ignore = true;
+      controller.abort();
+    };
+  }, [selectedCity, selectedDate, selectedMetricKeyForSurface, selectedMetric]);
+
 
   // --- Update heatmap visualization ---
   // Load exactly the active metric slice from the backend.
@@ -226,6 +292,7 @@ const ExplorePage: React.FC = () => {
               setSelectedCity={setSelectedCity}
               cityPOIAreas={cityPOIAreas}
               displayedHeatmapPoints={displayedHeatmapPoints}
+              metricSurfaces={metricSurfaces}
               selectedDate={selectedDate}
               setSelectedDate={setSelectedDate}
               mapContainerRef={mapContainerRef}

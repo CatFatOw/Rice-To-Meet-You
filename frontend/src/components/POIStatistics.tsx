@@ -1,8 +1,10 @@
 import { useRef } from "react";
 import {
   ArrowRight,
+  Building2,
   Expand,
   ExternalLink,
+  MapPin,
   Shrink,
   SlidersHorizontal,
 } from "lucide-react";
@@ -94,6 +96,19 @@ function resolveClassName(className: Column["className"], poi: POI): string {
   return typeof className === "function" ? className(poi) : className;
 }
 
+function formatDetailValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "Unknown";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "number") return Number.isInteger(value) ? value.toString() : value.toFixed(2);
+  return String(value);
+}
+
+function humanizeKey(key: string): string {
+  return key
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 export default function POIStatistics({
   pois = DEFAULT_POIS,
   columns = DEFAULT_COLUMNS,
@@ -112,10 +127,29 @@ export default function POIStatistics({
   onStopSimulation,
   isRunning,
   loadingSimulation,
+  selectedPOI = null,
 }: POIStatisticsProps) {
   const panelRef = useRef<HTMLElement>(null);
   const { isFullscreen, toggleFullscreen } = useFullscreen(panelRef);
   const handleStartSimulation = onStartSimulation ?? onSimulate;
+
+  // Detail rows for the POI the user clicked on the map. Anything the backend
+  // did not send is dropped rather than rendered as an empty row.
+  const selectedStats = selectedPOI?.properties?.statistics ?? {};
+  const selectedDetails: [string, unknown][] = (
+    [
+      ["Category", selectedPOI?.category],
+      ["Address", selectedStats.address],
+      ["City", selectedStats.city ?? selectedPOI?.cityName],
+      ["State", selectedStats.region ?? selectedPOI?.stateName],
+      ["NAICS", selectedStats.naics_code],
+      ["Area sq m", selectedStats.wkt_area_sq_meters],
+      ["Parking lot", selectedStats.includes_parking_lot],
+      ["Enclosed", selectedStats.enclosed],
+      ["Website", selectedStats.website],
+      ["Phone", selectedStats.phone_number],
+    ] as [string, unknown][]
+  ).filter(([, value]) => value !== undefined && value !== null && value !== "");
 
   return (
     <section
@@ -161,6 +195,33 @@ export default function POIStatistics({
               availableDates={availableDates}
             />
           </>
+        )}
+
+        {selectedPOI && (
+          <div className="shrink-0 rounded-lg border border-sky-500/25 bg-sky-950/15 p-3">
+            <div className="flex items-start gap-2">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-sky-400/25 bg-sky-400/10">
+                <Building2 size={16} className="text-sky-200" />
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-sky-100">{selectedPOI.name}</div>
+                <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-400">
+                  <MapPin size={12} />
+                  <span className="truncate">
+                    {formatDetailValue(selectedStats.address ?? selectedPOI.cityName)}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+              {selectedDetails.map(([label, value]) => (
+                <div key={label} className="min-w-0">
+                  <div className="text-slate-500">{humanizeKey(label)}</div>
+                  <div className="truncate font-medium text-slate-200">{formatDetailValue(value)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
         <div className="flex shrink-0 flex-col">

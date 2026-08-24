@@ -10,6 +10,19 @@ export interface CityPOIArea {
 
   polygon: Polygon;
 
+  // Optional fields returned by the backend POI/simulation routes. They are
+  // absent on the built-in demo areas, so every one of them is optional.
+  poi_id?: number;
+  cityName?: string;
+  stateName?: string | null;
+  category?: string | null;
+  properties?: {
+    statistics?: Record<string, string | number | boolean | null>;
+    [key: string]: unknown;
+  } | null;
+  polygon_geometry_id?: number;
+  impacted_count?: number;
+  impacted_grid_cell_ids?: number[];
 }
 
 export type CityPOIAreaMap = Record<string, CityPOIArea[]>;
@@ -18,9 +31,75 @@ export type CityPOIAreaMap = Record<string, CityPOIArea[]>;
 export interface HeatmapMetricValue {
   value: number; // 0–100 weight used for heatmap coloring
   location_coordinates: [number, number]; // [lon, lat]
+  // Set when the reading was sampled off the interpolated raster surface
+  // rather than read from a measured point.
+  location_name?: string;
+  is_interpolated?: boolean;
   // Open bag of human-readable sub-metrics. Any key is allowed; every value is
   // a string so it can carry its own unit (e.g. "97°F", "62%", "88 / 100").
   individual_metrics?: Record<string, string>;
+}
+
+// ---------------------------------------------------------------------------
+// Kriged surfaces (backend POST /grid_interpolation/surface)
+// ---------------------------------------------------------------------------
+
+/** A city's interpolation rectangle, as a closed GeoJSON Polygon ring. */
+export interface BoundaryGeometry {
+  type: 'Polygon';
+  coordinates: number[][][];
+}
+
+/**
+ * A continuous value field produced by ordinary kriging, as a regular lattice
+ * pinned to geographic bounds. values[row][col] holds the interpolated value at
+ * that cell's centroid; row 0 is the southernmost row.
+ *
+ * Values are in the metric's own units (degrees C), not a normalized score.
+ *
+ * A surface is scoped to one city: `bounds` is that city's rectangle, and the
+ * lattice spans exactly that rectangle, so the drawn surface stops at the city
+ * edge instead of bleeding across the country.
+ */
+/**
+ * A secondary metric interpolated onto the parent surface's lattice.
+ *
+ * Never drawn - these are the extra values the tooltip reports for the exact
+ * coordinate under the cursor. Same rows/cols/bounds as the parent surface, so
+ * the same sampler reads it.
+ */
+export interface MetricLayer {
+  values: number[][];
+  min: number;
+  max: number;
+  source_count: number;
+  variogram_model: string | null;
+  /** Display suffix, e.g. " \u00b0C" or "%". Empty when unitless. */
+  unit: string;
+}
+
+export interface MetricSurface {
+  metric_key: string;
+  bounds: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
+  rows: number;
+  cols: number;
+  // values[row][col]; row 0 is the southernmost row. Every cell carries a
+  // value - the lattice and the city rectangle are the same shape.
+  values: number[][];
+  min: number;
+  max: number;
+  variance_mean: number;
+  /** Readings inside the city rectangle that fed this surface's fit. */
+  source_count: number;
+  /** Resolved city name, null when the request carried no city. */
+  city: string | null;
+  /** The city rectangle as GeoJSON, for stroking the edge. Null when unscoped. */
+  boundary: BoundaryGeometry | null;
+  interpolation_method: string;
+  /** Which variogram model fitted, or "constant" for a flat field. */
+  variogram_model?: string | null;
+  /** Secondary metrics on this same lattice, for the tooltip. */
+  metrics?: Record<string, MetricLayer>;
 }
 
 // One metric's readings for a single day.

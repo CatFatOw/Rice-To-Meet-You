@@ -5,8 +5,9 @@ import {
   PathLayer,
   TextLayer,
   IconLayer,
+  BitmapLayer,
+  GeoJsonLayer,
 } from '@deck.gl/layers';
-import { HeatmapLayer } from '@deck.gl/aggregation-layers';
 import { type CityPOIArea, type HeatmapMetricValue } from '../api/map';
 import { cities, type City } from '../data/hostCities';
 import { TOOLBOX_BY_TYPE, toolboxMarkerDataUrl, type PlacedObject } from '../services/toolbox';
@@ -89,10 +90,7 @@ export function useHeatmapLayers({
   isDrawing,
   selectedCity,
   displayedHeatmapPoints,
-  activeMetricColorRange,
-  activeMetricColorDomain,
-  activeMetricWeightOffset,
-  activeMetricKey,
+  metricSurfaceRasters,
   displayedPOIAreas,
   userPOIAreas,
   editingAreaId,
@@ -109,31 +107,6 @@ export function useHeatmapLayers({
   setDraftPoints,
 }: UseHeatmapLayersArgs) {
   const dragContextRef = useRef<DragContext | null>(null);
-
-  const isTemperatureChange =
-    activeMetricKey === 'change_in_temperature';
-
-  const deltaThreshold = 0.05;
-
-    const coolingPoints = useMemo(
-      () =>
-        isTemperatureChange
-          ? displayedHeatmapPoints.filter(
-              (point) => point.value < -deltaThreshold,
-            )
-          : [],
-      [displayedHeatmapPoints, isTemperatureChange],
-    );
-
-    const warmingPoints = useMemo(
-      () =>
-        isTemperatureChange
-          ? displayedHeatmapPoints.filter(
-              (point) => point.value > deltaThreshold,
-            )
-          : [],
-      [displayedHeatmapPoints, isTemperatureChange],
-    );
 
   
   // Committed objects plus any pending (staged) ones, rendered identically.
@@ -209,110 +182,54 @@ export function useHeatmapLayers({
     [onCityClick, isDrawing, selectedCity],
   );
 
-  // Continuous, interpolated density surface (GPU kernel-density estimation).
-  // Larger radius + lower threshold = smoother blending between points. This is
-  // the *visible* layer and stays non-pickable — pointPickLayer below handles
-  // hover so the tooltip reports true point values, not the blended surface.
-  
-  const interpolatedHeatmapLayer = useMemo(
+  // Continuous interpolated surface. The backend ordinary-kriges the readings
+  // into a value lattice; that lattice is rendered once into an off-screen
+  // canvas (see services/metricRaster) and pinned to its lon/lat bounds, so the
+  // surface does not resample as the user zooms.
+  // One image per city, each anchored to its own city's bounds. They are
+  // separate layers rather than one national image because each was kriged
+  // independently from its own city's readings.
+  const visibleMetricLayers = useMemo(
     () =>
-      new HeatmapLayer<HeatmapMetricValue>({
-        id: 'interpolated-heatmap-layer',
-        data: displayedHeatmapPoints,
-
-        getPosition: (d) => d.location_coordinates,
-        getWeight: (d) => d.value + activeMetricWeightOffset,
-
-        // Nearby observations contribute to a weighted average.
-        aggregation: 'MEAN',
-
-        radiusPixels: 60,   // smaller kernel → less spread → thinner halo
-        intensity: 1,
-        threshold: 0.08,    // higher cutoff → trims the faint blue fringe
-
-        // Keep this fixed for the metric so colors do not rescale every day.
-        colorDomain: activeMetricColorDomain,
-        colorRange: activeMetricColorRange,
-
-        pickable: false,
-      }),
-    [
-      displayedHeatmapPoints,
-      activeMetricColorDomain,
-      activeMetricColorRange,
-      activeMetricWeightOffset,
-    ],
+      metricSurfaceRasters.map(
+        ({ surface, raster }) =>
+          new BitmapLayer({
+            id: `metric-surface-raster-${surface.city ?? 'unscoped'}`,
+            image: raster.canvas,
+            bounds: raster.bounds,
+            opacity: 0.82,
+            pickable: false,
+          }),
+      ),
+    [metricSurfaceRasters],
   );
-  const coolingHeatmapLayer = useMemo(
-  () =>
-    new HeatmapLayer<HeatmapMetricValue>({
-      id: 'cooling-heatmap-layer',
-      data: coolingPoints,
 
-      getPosition: (d) => d.location_coordinates,
+  // Outline of each city a surface covers. Drawn on top of the rasters so the
+  // edge of the data is explicit: inside the line the surface is interpolated
+  // from that city's readings, outside it nothing is claimed. Unfilled, since
+  // the rasters below already carry the color.
+  const cityBoundaryLayer = useMemo(() => {
+    const features = metricSurfaceRasters
+      .filter(({ surface }) => surface.boundary)
+      .map(({ surface }) => ({
+        type: 'Feature',
+        geometry: surface.boundary,
+        properties: { city: surface.city },
+      }));
+    if (features.length === 0) return null;
 
-      // Convert negative cooling to positive magnitude.
-      getWeight: (d) => -d.value,
-
-      aggregation: 'MEAN',
-      radiusPixels: 60,
-      intensity: 1,
-      threshold: 0.08,
-
-      colorDomain: [0, 5],
-      colorRange: [
-        [219, 234, 254, 0],   // 0: transparent
-        [147, 197, 253, 100],
-        [96, 165, 250, 160],
-        [59, 130, 246, 210],
-        [30, 64, 175, 240],   // -5°C: strong blue
-      ],
-
+    return new GeoJsonLayer({
+      id: 'city-boundary-layer',
+      data: { type: 'FeatureCollection', features } as never,
       pickable: false,
-    }),
-  [coolingPoints],
-);
-
-const warmingHeatmapLayer = useMemo(
-  () =>
-    new HeatmapLayer<HeatmapMetricValue>({
-      id: 'warming-heatmap-layer',
-      data: warmingPoints,
-
-      getPosition: (d) => d.location_coordinates,
-      getWeight: (d) => d.value,
-
-      aggregation: 'MEAN',
-      radiusPixels: 60,
-      intensity: 1,
-      threshold: 0.08,
-
-      colorDomain: [0, 5],
-      colorRange: [
-        [254, 226, 226, 0],   // 0: transparent
-        [252, 165, 165, 100],
-        [248, 113, 113, 160],
-        [239, 68, 68, 210],
-        [153, 27, 27, 240],   // +5°C: strong red
-      ],
-
-      pickable: false,
-    }),
-  [warmingPoints],
-);
-
-const visibleMetricLayers = useMemo(
-  () =>
-    isTemperatureChange
-      ? [coolingHeatmapLayer, warmingHeatmapLayer]
-      : [interpolatedHeatmapLayer],
-  [
-    isTemperatureChange,
-    interpolatedHeatmapLayer,
-    coolingHeatmapLayer,
-    warmingHeatmapLayer,
-  ],
-);
+      stroked: true,
+      filled: false,
+      getLineColor: [148, 163, 184, 220],
+      getLineWidth: 2,
+      lineWidthUnits: 'pixels',
+      lineWidthMinPixels: 1.5,
+    });
+  }, [metricSurfaceRasters]);
 
   // Transparent, pickable dots sitting exactly on each reading. The heatmap
   // above is the visible surface; this layer exists only so hovering a point
@@ -583,6 +500,7 @@ const visibleMetricLayers = useMemo(
   return useMemo(
     () => [
       ...visibleMetricLayers,
+      ...(cityBoundaryLayer ? [cityBoundaryLayer] : []),
       pointPickLayer,
       poiAreaLayer,
       placedObjectPolygonLayer,
@@ -596,6 +514,7 @@ const visibleMetricLayers = useMemo(
     ],
     [
       visibleMetricLayers,
+      cityBoundaryLayer,
       pointPickLayer,
       poiAreaLayer,
       placedObjectPolygonLayer,

@@ -4,10 +4,18 @@ from typing import Any
 
 # CREATE SCHEMAS
 class PolygonGeometryCreate(BaseModel):
+    name: str | None = None
+    city_name: str | None = None
+    state_name: str | None = None
+    color: list[int] | None = None
     geometry: dict[str, Any]
 
 
 class PolygonGeometryUpdate(BaseModel):
+    name: str | None = None
+    city_name: str | None = None
+    state_name: str | None = None
+    color: list[int] | None = None
     geometry: dict[str, Any]
 
 
@@ -20,6 +28,10 @@ class PolygonImpactGridsCreate(BaseModel):
 # RESPONSE SCHEMAS 
 class PolygonGeometryResponse(BaseModel):
     id: int
+    name: str | None = None
+    city_name: str | None = None
+    state_name: str | None = None
+    color: list[int] | None = None
     geometry: dict[str, Any]
     created_at: datetime
 

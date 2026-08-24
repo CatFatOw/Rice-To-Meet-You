@@ -310,11 +310,3 @@ DATABASE_URL="sqlite:///./local.db" JWT_KEY="dev-secret-key" python3 -c "import 
 |---|---|
 | Detailed backend guide | [app/README.md](app/README.md) |
 | Dataset/model docs | [app/markdown_reference_guides/README.md](app/markdown_reference_guides/README.md) |
-
-## Project Rules
-
-- Keep `main` stable for approved final-demo or submission work.
-- Do active development on personal or feature branches.
-- Prefer small, clear commits with descriptive messages.
-- Keep docs and Postman updated when routes change.
-- Ask the group before destructive Git commands or deleting branches that Git says are not merged.

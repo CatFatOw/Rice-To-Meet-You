@@ -14,6 +14,11 @@ import {
   type HeatmapMetricValue,
 } from '../api/map';
 import { callMockStatistics } from '../api/statistics';
+import {
+  fetchCitySurface,
+  fetchInterpolatedCitySurfaces,
+} from '../api/gridInterpolation';
+import type { MetricSurface } from '../types/heatmap';
 import { determineCityView } from '../services/cityViews';
 import { eachDay } from '../services/simulation';
 import type { ViewState } from '../types/viewState';
@@ -88,6 +93,9 @@ const SimulationPage: React.FC = () => {
   const [isPOIAreasLoading, setIsPOIAreasLoading] = useState(true);
   const [displayedHeatmapPoints, setDisplayedHeatmapPoints] =
     useState<HeatmapMetricValue[]>([]);
+  // One independently kriged surface per city for the active metric; these
+  // drive the continuous map.
+  const [metricSurfaces, setMetricSurfaces] = useState<MetricSurface[]>([]);
   const [isHeatmapPointsLoading, setIsHeatmapPointsLoading] = useState(false);
   const [baselineHeatmapPoints, setBaselineHeatmapPoints] =
     useState<HeatmapMetricValue[]>([]);
@@ -146,6 +154,7 @@ const SimulationPage: React.FC = () => {
   // --- Statistics and UI state ---
   // Controls metric selection and statistics panel data.
   const [selectedMetric, setSelectedMetric] = useState<Record<string, string[]> | null>(null);
+
   const [overallStatisticsProps, setOverallStatisticsProps] =
     useState<OverallStatisticsProps>();
   const [poiStatisticsProps, setPOIStatisticsProps] = useState<POIStatisticsProps>();
@@ -275,6 +284,80 @@ const SimulationPage: React.FC = () => {
       isMounted = false;
     };
   }, []);
+
+  // --- Krige the displayed readings into the surface for the city in view ---
+  // Exactly one surface is requested: the city the map is currently on. Several
+  // host-city rectangles overlap (New York and New Jersey share 0.84 x 0.59
+  // degrees, and both overlap Philadelphia), so asking for every city whose
+  // rectangle contains a reading would stack two surfaces over the same ground
+  // and let whichever drew last win. Fetching only what is in view also means
+  // no kriging is done for cities nobody is looking at.
+  //
+  // The backend reads the readings, kriges them and returns only the lattice,
+  // so thousands of points never travel to the browser and straight back. The
+  // one exception is a running simulation: its adjusted readings exist only
+  // here, so those still have to be posted.
+  useEffect(() => {
+    // Zoomed out past any one city, or nothing selected yet: no surface to
+    // build. Say which precondition stopped it - a blank map is otherwise
+    // impossible to tell apart from a broken one.
+    if (!selectedCity || !selectedMetricKey || !selectedDate) {
+      console.debug('[SimulationPage] no interpolated surface:', {
+        selectedCity: selectedCity ?? '(none - zoomed out past a city)',
+        metric: selectedMetricKey ?? '(none)',
+        date: selectedDate ?? '(none)',
+      });
+      setMetricSurfaces([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    let ignore = false;
+
+    // Simulated frames only exist client-side, so they must be posted. Every
+    // other view names the city/date/metric and lets the backend do the work.
+    const request = isRunning
+      ? fetchInterpolatedCitySurfaces(selectedMetricKey, displayedHeatmapPoints, {
+          cities: [selectedCity],
+          signal: controller.signal,
+        }).then((result) => result?.surfaces ?? [])
+      : fetchCitySurface(selectedMetricKey, selectedCity, selectedDate, {
+          additionalMetrics: selectedAdditionalMetrics,
+          signal: controller.signal,
+        }).then((surface) => (surface ? [surface] : []));
+
+    request
+      .then((surfaces) => {
+        if (ignore) return;
+        console.debug('[SimulationPage] interpolated surface:', {
+          city: selectedCity,
+          date: selectedDate,
+          source: isRunning ? 'posted simulated readings' : 'server-side',
+          surfaces: surfaces.map((s) => `${s.city} (${s.source_count} readings)`),
+        });
+        setMetricSurfaces(surfaces);
+      })
+      .catch((error) => {
+        if (ignore || controller.signal.aborted) return;
+        console.error('Failed to interpolate city surface', error);
+        setMetricSurfaces([]);
+      });
+
+    return () => {
+      ignore = true;
+      controller.abort();
+    };
+    // displayedHeatmapPoints only drives this while a simulation is running;
+    // outside a run the backend sources the readings from the date itself.
+  }, [
+    selectedCity,
+    selectedDate,
+    selectedMetricKey,
+    selectedMetric,
+    isRunning,
+    isRunning ? displayedHeatmapPoints : null,
+  ]);
+
 
   // --- Cleanup simulation state on unmount ---
   // Ensure any running simulation timer is cleared when component unmounts
@@ -423,6 +506,7 @@ const SimulationPage: React.FC = () => {
               setSelectedCity={setSelectedCity}
               cityPOIAreas={cityPOIAreas}
               displayedHeatmapPoints={displayedHeatmapPoints}
+              metricSurfaces={metricSurfaces}
               selectedDate={selectedDate}
               setSelectedDate={setSelectedDate}
               setBaselineSelectedDate={setBaselineSelectedDate}

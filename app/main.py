@@ -20,12 +20,16 @@ from routers import (
     heatmap,
     login,
     nws_weather,
+    poi_polygons,
     polygon,
     urban_intervention,
     users,
     final_visitor
 
 )
+# Front-end specific heatmap routes (interpolated grid, statistics, simulation).
+# Shares the /heatmap prefix with routers.heatmap but exposes different paths.
+from routers.front_end_routes import heatmap as front_end_heatmap
 
 
 import logging
@@ -95,11 +99,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+# Allow the local Vite frontend to call the API while you are developing.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://localhost:5174",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -113,7 +121,9 @@ app.include_router(grid_geometry.router)
 app.include_router(grid_metrics.router)
 app.include_router(grid_interpolation.router)
 app.include_router(heatmap.router)
+app.include_router(front_end_heatmap.router)
 app.include_router(core_poi.router)
+app.include_router(poi_polygons.router)
 app.include_router(polygon.router)
 app.include_router(urban_intervention.router)
 

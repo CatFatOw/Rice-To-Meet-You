@@ -1,6 +1,18 @@
 import type React from 'react';
 import type { ViewState } from './viewState';
-import type { HeatmapMetricValue, CityPOIArea, CityPOIAreaMap } from './heatmap';
+import type {
+  HeatmapMetricValue,
+  CityPOIArea,
+  CityPOIAreaMap,
+  MetricSurface,
+} from './heatmap';
+import type { MetricRaster } from '../services/metricRaster';
+
+/** One city's kriged surface plus the raster image rendered from it. */
+export interface MetricSurfaceRaster {
+  surface: MetricSurface;
+  raster: MetricRaster;
+}
 import type { PlacedObject as ToolboxPlacedObject, ToolboxItemDef } from './toolbox';
 import type { SurfaceType } from './map';
 import type { GeocodeResult } from './search';
@@ -156,6 +168,11 @@ export interface HeatmapProps {
   setSelectedCity: React.Dispatch<React.SetStateAction<string | null>>;
   cityPOIAreas: CityPOIAreaMap;
   displayedHeatmapPoints: HeatmapMetricValue[];
+  /**
+   * One independently kriged surface per city for the active metric. Each is
+   * fitted on that city's own readings and clipped to its outline.
+   */
+  metricSurfaces: MetricSurface[];
   selectedDate: string | null;
   setSelectedDate: React.Dispatch<React.SetStateAction<string | null>>;
   setBaselineSelectedDate?: React.Dispatch<React.SetStateAction<string | null>>;
@@ -221,10 +238,8 @@ export interface UseHeatmapLayersArgs {
   selectedCity: string | null;
 
   displayedHeatmapPoints: HeatmapMetricValue[];
-  activeMetricColorRange: [number, number, number, number][];
-  activeMetricColorDomain: [number, number];
-  activeMetricWeightOffset: number;
-  activeMetricKey: string;
+  /** One rendered surface per city; empty while none are loaded. */
+  metricSurfaceRasters: MetricSurfaceRaster[];
 
   displayedPOIAreas: CityPOIArea[];
   userPOIAreas: CityPOIArea[];

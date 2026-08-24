@@ -35,6 +35,22 @@ export type {
   LocationReading,
 };
 
+// Centralizing the base URL makes it easy to point a build at a deployed API
+// via VITE_API_BASE_URL without touching call sites.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
+
+async function fetchBackendJson<T>(path: string): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: { Accept: 'application/json' },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Backend request failed: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
 // ============================================================================
 // Houston POIs
 // ============================================================================
@@ -258,3 +274,124 @@ const generateAvailableDates = (): string[] => {
 };
 
 export const availableDates = generateAvailableDates();
+
+// ============================================================================
+// POI import + simulation writes
+// ============================================================================
+
+export interface SimulationPlacedObject {
+  id: string;
+  type: string;
+  longitude: number;
+  latitude: number;
+}
+
+export interface SimulationPolygonCreateRequest {
+  name?: string;
+  cityName: string;
+  stateName?: string | null;
+  color?: [number, number, number, number];
+  polygon: Polygon;
+}
+
+export interface SimulationApplyRequest {
+  cityName?: string;
+  stateName?: string | null;
+  polygonGeometryId?: number;
+  impactedGridCellIds?: number[];
+  placedObjects: SimulationPlacedObject[];
+  timestamp?: string;
+}
+
+export interface SimulationApplyResponse {
+  timestamp: string;
+  objects_applied: number;
+  adjustments: Record<string, number>;
+  metrics_created: number;
+  impacted_count: number;
+  impacted_grid_cell_ids: number[];
+}
+
+export interface CorePOIImportResponse {
+  filename: string;
+  imported_count: number;
+  skipped_count: number;
+  total_rows: number;
+  errors: string[];
+}
+
+/** Saved POI polygons for the map. Falls back to the legacy route, then none. */
+export async function callCorePOIAreas(): Promise<CityPOIArea[]> {
+  try {
+    const backendPOIs = await fetchBackendJson<CityPOIArea[]>('/heatmap/core-pois?limit=500');
+    if (backendPOIs.length > 0) return backendPOIs;
+  } catch (error) {
+    console.warn('Falling back to saved location POIs', error);
+  }
+
+  try {
+    return await fetchBackendJson<CityPOIArea[]>('/heatmap/location-pois');
+  } catch {
+    return [];
+  }
+}
+
+export async function importCorePOIFile(file: File): Promise<CorePOIImportResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_BASE_URL}/core_poi_polygons/import`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Core POI import failed: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json() as Promise<CorePOIImportResponse>;
+}
+
+export async function createSimulationPolygon(
+  payload: SimulationPolygonCreateRequest,
+): Promise<CityPOIArea> {
+  // Save the drawn polygon and let the backend compute impacted grid cells. The
+  // response extends CityPOIArea with polygon_geometry_id and impacted ids so
+  // later simulation apply calls can target the same grid subset.
+  const response = await fetch(`${API_BASE_URL}/heatmap/simulation/polygon`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Create simulation polygon failed: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json() as Promise<CityPOIArea>;
+}
+
+export async function applySimulation(
+  payload: SimulationApplyRequest,
+): Promise<SimulationApplyResponse> {
+  // Apply the placed toolbox interventions to the affected metrics. The backend
+  // writes a new timestamped metric snapshot rather than mutating the previous
+  // one, which keeps before/after comparison possible.
+  const response = await fetch(`${API_BASE_URL}/heatmap/simulation/apply`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Apply simulation failed: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json() as Promise<SimulationApplyResponse>;
+}
