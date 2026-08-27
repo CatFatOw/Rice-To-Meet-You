@@ -159,7 +159,7 @@ $$
 
 $$
 f_{thermal} =
-\operatorname{clamp}\left(\frac{T - 20}{38 - 20}, 0, 1\right)
+\mathrm{clamp}\left(\frac{T - 20}{38 - 20}, 0, 1\right)
 $$
 
 $$
@@ -218,7 +218,7 @@ When multiple interventions overlap, the simulation prevents unrealistic stackin
 $$
 Impact =
 1 - \prod_i \left[
-1 - \operatorname{clamp}\left(\frac{c_i \times F}{C}, 0, 1\right)
+1 - \mathrm{clamp}\left(\frac{c_i \times F}{C}, 0, 1\right)
 \right]
 $$
 
