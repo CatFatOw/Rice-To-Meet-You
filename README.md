@@ -69,22 +69,12 @@ $$
 \sum_{i=1}^{n} \lambda_i = 1
 $$
 
-The kriging weights are calculated by solving:
+The kriging weights and Lagrange multiplier are calculated by solving, for each known point $s_i$:
 
 $$
-\begin{bmatrix}
-\gamma(s_i-s_j) & 1 \\
-1^T & 0
-\end{bmatrix}
-\begin{bmatrix}
-\lambda \\
-\mu
-\end{bmatrix}
-=
-\begin{bmatrix}
-\gamma(s_i-s_0) \\
-1
-\end{bmatrix}
+\sum_{j=1}^{n} \lambda_j\,\gamma(s_i-s_j) + \mu
+= \gamma(s_i-s_0),
+\qquad i = 1, \ldots, n
 $$
 
 The platform uses a linear variogram:
