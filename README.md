@@ -1,320 +1,253 @@
-# Rice-To-Meet-You: FIFA HeatSafe AI
+# Rice-To-Meet-You: UrbanTwin
 
-2026 Rice University FIFA Summer Hackathon project.
+## Simulating Public-Health Interventions for Mega-Events
 
-Rice-To-Meet-You is a FIFA HeatSafe AI prototype: a backend-first decision-support tool for mapping heat, weather, crowd, infrastructure, and intervention risk across host-city grids.
+## Inspiration
 
-## Start Here
+The 2026 FIFA World Cup tested cities’ ability to keep visitors and fans safe through extreme heat, crowd density, and transportation disruptions. On June 22, severe weather during Match 41 required NJ TRANSIT to activate contingency measures; across the tournament, the agency moved more than 370,000 event-related passengers through eight matches. [NJ TRANSIT source](https://www.njtransit.com/press-releases/new-jersey-interagency-transportation-after-action-report-aar-njny-stadium-fifa)
 
-| Need | Go To |
-|---|---|
-| Use the dev container | [Dev Container Setup](#dev-container-setup) |
-| Run the backend locally | [Run Locally](#run-locally) |
-| Understand the backend architecture | [Backend Architecture](#backend-architecture) |
-| Test requests in Postman | [Postman Workflow](#postman-workflow) |
-| See route groups | [API Map](#api-map) |
-| Learn the simulation flow | [Simulation Workflow](#simulation-workflow) |
-| Read detailed app docs | [App README](app/README.md) |
+In Mexico City, four fans died following post-match celebrations, after which officials tightened crowd-capacity and security measures. [AP News source](https://apnews.com/article/mexico-world-cup-angel-zocalo-deaths-security-precautions-fe1887cada69f55d8764c96d08c59bbb)
 
-## Project Mission
+These events highlight the need for a tool that allows city planners and officials to model weather conditions, visitor surges, and heat risk before a major event. Rice-To-Meet-You provides a map-based planning environment for evaluating a potential host city and testing interventions that improve visitor safety.
 
-The goal is to help visitors and city planners understand where heat risk, dehydration risk, crowd activity, weather conditions, and infrastructure pressure overlap.
+## What It Does
 
-The prototype turns city/state geometry and heat-safety signals into:
+UrbanTwin is an interactive, map-based planning and simulation platform for major events. It combines environmental data, spatial visualization, and mathematical cooling models to support urban planners.
 
-| Feature | Purpose |
-|---|---|
-| Grid generation | Split a city/state into simulation cells. |
-| Grid metrics | Store heat, crowd, population, cooling-center, and infrastructure signals per cell. |
-| Polygon impact regions | Save drawn simulation polygons and mark the grid cells inside them. |
-| Interpolation | Fill metric values across grid centroids for map rendering and simulation. |
-| NWS weather | Attach National Weather Service weather baselines to grid cells. |
-| Postman collection | Provide repeatable API testing flows for teammates. |
+When first loaded, the planner sees two core options: **Explore** and **Simulation**.
 
-## Dev Container Setup
+### Explore Mode
 
-For the easiest team setup, use the repository dev container.
+In Explore mode, planners can select host cities and inspect interpolated heat-map layers for metrics such as visitor density and heat risk. They can also view key points of interest. This creates an interactive view of baseline conditions and provides context for later intervention scenarios.
 
-Install and open:
+### Simulation Mode
 
-| Tool | Link |
-|---|---|
-| Docker Desktop | <https://www.docker.com/products/docker-desktop/> |
-| VS Code Dev Containers extension | <https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers> |
+In Simulation mode, planners can explore city-level heat risk and key points of interest, select a time period, draw target areas, and place potential interventions directly on the map.
 
-Windows users should also set up WSL 2:
+The platform models four heat-mitigation approaches:
 
-```text
-https://learn.microsoft.com/en-us/windows/wsl/setup/environment
-```
+- **Vegetation**, such as street trees, parks, green roofs, and rain gardens.
+- **High-albedo surfaces**, such as cool roofs and reflective pavement.
+- **Shade structures**, such as canopies, awnings, shade sails, and bus shelters.
+- **Evaporative cooling**, such as fountains, splash pads, and misting systems.
 
-After cloning the repository, VS Code should offer to reopen the workspace in a container. Accept that prompt, or run:
+Planners can drag and drop interventions onto target locations, define their area of impact, and set active dates. The platform applies weather-aware cooling models and displays resulting changes through an updated heat map and timeline. This allows planners to compare scenarios, identify high-risk areas, and prioritize practical investments that improve heat safety during future mega-events.
 
-```text
-Dev Containers: Rebuild and Reopen in Container
-```
+Together, Explore and Simulation modes allow planners to select a host city, interact with its metrics, test interventions, and understand how those interventions work within the city’s environmental conditions. The goal is to help officials identify priority areas, make data-informed investments, and prepare safer, more resilient host cities before visitors arrive.
 
-Dependencies should install automatically inside the container.
+## How We Built It
 
-## Frontend APIs
+### Frontend
 
-### 1. Get Location POIs
+<span style="color:red"><strong>NEED teammate to add:</strong> Describe the React, TypeScript, MapLibre, deck.gl, and visualization implementation.</span>
 
-**Purpose:** Retrieve polygon boundaries for points of interest (POIs) to display on the map.
+### Backend
 
-**Request**
+We use a FastAPI and SQLAlchemy Python-based backend organized around routers, services, and repositories. Business logic lives in service files, database querying lives in repository files, and API endpoints live in router files. The platform is backed by a live Neon-hosted PostgreSQL database.
 
-```http
+To keep the platform responsive with large datasets and to support future multi-user scale, we combine Redis caching and preloading with Celery background workers for asynchronous processing and concurrent weather-data retrieval. This reduces repeated API calls and helps keep maps and simulations responsive.
 
-GET /heatmap/location-pois
+### Machine Learning and Statistics
 
-```
+<span style="color:red"><strong>NEED teammate to add:</strong> Describe the machine-learning models, statistical methods, source datasets, validation, and how predictions are used in the platform.</span>
 
-**Expected Response**
+Rice-To-Meet-You simulates how urban cooling interventions change pedestrian-level temperature across a date-indexed heat map. A planner draws or places an intervention, selects when it is active, and the model recalculates map points inside its footprint, or within its cooling radius for water-based interventions.
 
-```ts
+### Ordinary Kriging Interpolation
 
-interface CityPOIArea {
+To display continuous metric values across city grid cells, we use **Ordinary Kriging** with a linear variogram. Known metric readings estimate values at unsampled grid-cell centroids.
 
-  id: string;
+The predicted value at an unsampled location is:
 
-  name: string;
+$$
+\hat{z}(s_0) = \sum_{i=1}^{n} \lambda_i z(s_i)
+$$
 
-  cityName: string;
+subject to the unbiasedness constraint:
 
-  color: [number, number, number, number]; // RGBA
+$$
+\sum_{i=1}^{n} \lambda_i = 1
+$$
 
-  polygon: [number, number][];
+The kriging weights and Lagrange multiplier are calculated by solving, for each known point $s_i$:
 
-}
+$$
+\sum_{j=1}^{n} \lambda_j\,\gamma(s_i-s_j) + \mu
+= \gamma(s_i-s_0),
+\qquad i = 1, \ldots, n
+$$
 
-type Response = CityPOIArea[];
+The platform uses a linear variogram:
 
-```
+$$
+\gamma(h) = \text{slope} \cdot h + \text{nugget}
+$$
 
----
+Where:
 
-### 2. Get Heatmap Metric Points
+- $\hat{z}(s_0)$ is the predicted metric value at target centroid $s_0$.
+- $z(s_i)$ is the observed value at known point $i$.
+- $\lambda_i$ is the weight assigned to known point $i$.
+- $\gamma(h)$ is semivariance at distance $h$.
+- $\mu$ is a Lagrange multiplier enforcing unbiased interpolation.
 
-**Purpose:** Retrieve weighted heatmap points for each city.
+Known grid cells keep their exact observed values; Ordinary Kriging predicts only unsampled grid-cell centroids, creating the continuous heat-map layer.
 
-**Request**
+### Weather Conditions
 
-```http
+The model calculates saturation vapor pressure:
 
-GET /heatmap/metrics/points
+$$
+e_s(T) = 0.6108 \times e^{\frac{17.27 \times T}{T + 237.3}}
+$$
 
-```
+It then calculates vapor-pressure deficit:
 
-**Expected Response**
+$$
+VPD = e_s(T) \times \left(1 - \frac{RH}{100}\right)
+$$
 
-```ts
+Where **T** is temperature in degrees Celsius and **RH** is relative humidity percentage.
 
-interface HeatmapMetricPoint {
+### Vegetation Cooling
 
-  metric: string;
+Vegetation combines cooling from shade and evapotranspiration.
 
-  value: number;
+$$
+\Delta T_{\max} = 5 \times f_{VPD} \times f_{solar} \times f_{wind}
+$$
 
-  location_name: string;
+$$
+f_{VPD} = \min\left(\frac{VPD}{4.5}, 1\right)
+$$
 
-  location_coordinates: [number, number]; // [longitude, latitude]
+The leaf-area effect uses a saturating Beer–Lambert relationship:
 
-}
+$$
+f_{LAI} = 1 - e^{-0.5 \times LAI}
+$$
 
-type Response = Record<string, HeatmapMetricPoint[]>;
+$$
+I_{vegetation} =
+0.4 \times (C \times f_{LAI} \times W)
++ 0.6 \times (C \times K \times f_{LAI} \times (0.8 + 0.2 \times W))
+$$
 
-```
+$$
+\Delta T = \Delta T_{\max} \times I_{vegetation}
+$$
 
-## App Guide
+Where **C** is vegetation coverage, **K** is canopy fraction, **LAI** is leaf-area index, and **W** is irrigation or water availability.
 
-## Run Locally
+### High-Albedo Surface Cooling
 
-If you are not using the dev container, install dependencies from the repo root:
+Reflective surfaces reduce absorbed solar energy.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
+$$
+\Delta T_{\max} = 4 \times f_{thermal} \times f_{solar}
+$$
 
-Set environment variables:
+$$
+f_{thermal} =
+\mathrm{clamp}\left(\frac{T - 20}{38 - 20}, 0, 1\right)
+$$
 
-```bash
-export DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
-export JWT_KEY="dev-secret-key"
-export REDIS_URL="redis://localhost:6379/0"
-```
+$$
+I_{albedo} =
+\min\left(\frac{\Delta \alpha}{0.7}, 1\right) \times A
+$$
 
-If you do not already have Redis running locally, start it before using features that depend on it (for example, on macOS: `brew install redis && brew services start redis`).
+Where **Δα** is albedo improvement and **A** is treated-area coverage.
 
-Run migrations:
+### Shade-Structure Cooling
 
-```bash
-cd app
-alembic upgrade head
-```
+Shade structures reduce direct solar exposure.
 
-Start FastAPI from the `app/` folder:
+$$
+\Delta T_{\max} =
+5 \times f_{thermal} \times f_{solar} \times 0.85
+$$
 
-```bash
-python3 -m uvicorn main:app --reload
-```
+$$
+I_{shade} = O \times A
+$$
 
-Open:
+Where **O** is shade opacity and **A** is shaded-footprint coverage.
 
-```text
-http://127.0.0.1:8000/docs
-```
+### Evaporative Cooling
 
-## Backend Architecture
+Water-based interventions are strongest in hot, dry conditions and diminish with distance.
 
-The backend uses a router/service/repository structure:
+$$
+\Delta T_{\max} = 8 \times f_{VPD} \times f_{wind}
+$$
 
-```text
-request
-  -> routers/       FastAPI endpoints and HTTP errors
-  -> services/      business logic, GeoJSON conversion, interpolation, NWS calls
-  -> repository/    SQLAlchemy database reads/writes
-  -> models/        SQLAlchemy tables
-  -> schemas/       Pydantic payloads/responses
-```
+$$
+P = \left(\frac{Q}{60}\right) \times 2.45 \times 10^6
+$$
 
-Key folders:
+$$
+I_{source} = \min\left(\frac{P}{50,000}, 1\right)
+$$
 
-| Path | Purpose |
-|---|---|
-| [`app/routers/`](app/routers/) | API route definitions. |
-| [`app/services/`](app/services/) | Business logic and external API calls. |
-| [`app/repository/`](app/repository/) | Database query helpers. |
-| [`app/models/`](app/models/) | SQLAlchemy models. |
-| [`app/schemas/`](app/schemas/) | Pydantic schemas. |
-| [`app/alembic/`](app/alembic/) | Migrations. |
-| [`app/README.md`](app/README.md) | Detailed backend guide. |
+$$
+f_{distance} = \max\left(1 - \frac{r}{R}, 0\right)
+$$
 
-## Simulation Workflow
+$$
+\Delta T =
+\Delta T_{\max} \times I_{source} \times D \times f_{distance}
+$$
 
-Recommended backend flow:
+Where **Q** is evaporation rate in liters per minute, **r** is distance from the cooling source, **R** is cooling radius, and **D** is active fraction or duty cycle.
 
-1. Generate a city grid.
-2. Draw or save a polygon impact region.
-3. Compute impacted grids for the polygon.
-4. Assign or run simulation changes against only those impacted grid IDs.
-5. Interpolate metric values.
-6. Render heatmap/mesh GeoJSON in the frontend.
-7. Assign NWS weather as a regional baseline.
-8. Combine weather + grid metrics for local simulation risk.
+### Diminishing-Return Simulation
 
-In Postman, that usually means:
+When multiple interventions overlap, the simulation prevents unrealistic stacking of cooling benefits. It combines intervention effects against the same local cooling ceiling:
 
-```text
-Grid Geometry / Generate N by N City Grid
-Polygon / Create Polygon And Compute Impact Grids
-Grid Metrics / Assign Metrics To All Grid Cells
-Grid Interpolation / Interpolate City Grid
-Grid Interpolation / Get Interpolated Heatmap GeoJSON
-NWS Weather / Assign Weather To State Grid Cells
-```
+$$
+Impact =
+1 - \prod_i \left[
+1 - \mathrm{clamp}\left(\frac{c_i \times F}{C}, 0, 1\right)
+\right]
+$$
 
-## API Map
+$$
+\Delta T_{combined} = C \times Impact
+$$
 
-Detailed routes are documented in [app/README.md](app/README.md). High-level route groups:
+Where **cᵢ** is an individual intervention’s cooling contribution, **C** is the local cooling ceiling, and **F** is a contextual interaction factor.
 
-| Group | Prefix | Purpose |
-|---|---|---|
-| Users | `/users` | User creation, profile, password, deletion. |
-| Login | `/login` | JWT bearer token login. |
-| Datasets | `/dataset` | Protected CRUD for Rice dataset tables. |
-| Grid Geometry | `/grid` | Generate/read state and city grid cells. |
-| Grid Metrics | `/grid_metrics` | Create/read/update/delete simulation metrics. |
-| Grid Interpolation | `/grid_interpolation` | Interpolate metrics and return GeoJSON. |
-| NWS Weather | `/weather` | Fetch and assign National Weather Service observations. |
-| Polygons | `/polygon` | Store drawn impact regions and compute impacted grid cells. |
+For example, vegetation and water-based cooling can reinforce one another, while vegetation and shade structures can have partially redundant benefits because both reduce solar exposure.
 
-### Additional Routes
+## Challenges
 
-- GET
-  - `/get-urban-interventions-by-city-date`
-  - `/get-heatmap-points-by-city-date-metric`
-  - `/get-simulated-points-by-city-date`
-  - `/get-pois-by-city`
-  - `/get-statistics`
-- POST
-  - `/create-poi-by-city`
-  - `/create-urban-interventions-by-city`
+This project was ambitious. Four developers contributed around internship schedules and across Houston, Pittsburgh, and Vietnam. Below are the principal challenges and our responses.
 
-## Postman Workflow
+1. **Time coordination and meetings:** We originally planned at least three meetings per week. As internships intensified and team members returned to university, availability decreased and time conflicts increased. We shifted to asynchronous communication, agile sprints, a clear task list, shared weekly meeting notes, and frequent progress reports to keep the team on track.
 
-Import [`postman_dataset_routes_collection.json`](postman_dataset_routes_collection.json) into Postman.
+2. **Different technical backgrounds:** Team members had different areas of specialization, which sometimes made feature handoffs difficult. We addressed this by teaching the basics of the relevant technology and preparing short, non-technical slide presentations before major implementation discussions.
 
-Important collection variables:
+3. **Distributed development:** Parallel feature work sometimes created over- or under-engineered implementations and merge conflicts caused by overlapping changes or outdated assumptions. We improved this process through stricter testing, including unit tests, property-based tests, and GitHub integration tests, before merging work into the main codebase.
 
-| Variable | Purpose |
-|---|---|
-| `baseUrl` | API URL, usually `http://127.0.0.1:8000`. |
-| `cityName` | City used for city grid/interpolation routes. |
-| `stateName` | State used for grid/metric/weather routes. |
-| `gridSize` | `n` for an `n x n` grid. |
-| `metricTimestamp` | Timestamp for grid metrics. |
-| `interpolationTimestamp` | Timestamp for interpolation; usually match `metricTimestamp`. |
-| `interpolationMetric` | Metric to interpolate, such as `heat_index` or `population`. |
-| `heatmapMetric` | Metric used for heatmap intensity. |
-| `colorMetric` | Metric used for mesh color. |
-| `polygonId` | Saved polygon ID used for impacted-grid reads and recomputation. |
+## Accomplishments That We’re Proud Of
 
-Good first test order:
+- Built an end-to-end interactive planning prototype, combining a React map interface with a FastAPI, PostgreSQL, and Redis-backed data platform that is hosted and deployed live.
+- Turned abstract heat-risk data into an accessible, grid-level visualization that helps planners explore risk at specific locations and points of interest.
+- Created a simulation workspace where users can draw intervention areas and test vegetation, reflective surfaces, shade structures, and evaporative-cooling strategies modeled after environmental research and formulas.
+- Made simulations weather-aware by accounting for temperature, humidity, solar exposure, wind, coverage, and intervention intensity.
+- Designed for real-world scale through live database support, cached data, concurrent weather retrieval, and asynchronous background processing.
+- Delivered a cohesive tool despite a distributed team working across three locations and demanding internship schedules.
 
-1. `Users and Auth / Create User`
-2. `Users and Auth / Login`
-3. `Grid Geometry / Generate N by N City Grid`
-4. `Polygon / Create Polygon And Compute Impact Grids`
-5. `Grid Metrics / Assign Metrics To All Grid Cells`
-6. `Grid Interpolation / Interpolate City Grid`
-7. `Grid Interpolation / Get Interpolated Heatmap GeoJSON`
+## What We Learned
 
-For a full weather refresh, use:
+### Technical Challenges
 
-```text
-NWS Weather / Assign Weather To State Grid Cells
-```
+- Although AI quickly reduced many technical challenges, we soon realized it provided diminishing returns as the codebase grew. As our code increased in size, complexity, and features, we quickly realized that sometimes, it became our bottleneck.
+- For the backend, the biggest challenge was making code that was clean, well-documented, and scalable. Since our database was deployed on NeonDB, an online PostgreSQL provider, every time we called our API and routes, we were billed a small amount. So we had to optimize our routes and data calls and implement a Grafana dashboard to monitor usage and cost.
 
-That request currently uses:
+### Team Challenges
 
-```text
-/weather/assign_state?state={{stateName}}&max_workers=20&skip_existing=false
-```
-
-Weather assignment deduplicates repeated NWS forecast URLs during each run, so many app grid cells can share one NWS forecast request.
-
-## Checks
-
-Run these before pushing backend changes:
-
-```bash
-python3 -m compileall -q app
-```
-
-```bash
-python3 -m json.tool postman_dataset_routes_collection.json >/tmp/postman.json
-```
-
-Optional import smoke test:
-
-```bash
-DATABASE_URL="sqlite:///./local.db" JWT_KEY="dev-secret-key" python3 -c "import sys; sys.path.insert(0, 'app'); import main"
-```
-
-## Reference Docs
-
-| Resource | Link |
-|---|---|
-| Detailed backend guide | [app/README.md](app/README.md) |
-| Dataset/model docs | [app/markdown_reference_guides/README.md](app/markdown_reference_guides/README.md) |
-
-## Project Rules
-
-- Keep `main` stable for approved final-demo or submission work.
-- Do active development on personal or feature branches.
-- Prefer small, clear commits with descriptive messages.
-- Keep docs and Postman updated when routes change.
-- Ask the group before destructive Git commands or deleting branches that Git says are not merged.
+- The hardest part of the hackathon was not only programming or feature development. It was conveying information clearly, managing a four-person team across time zones, and keeping everyone aligned on the same goal.
+- A huge challenge was working around technology constraints: database storage constraints and data-transfer/loading-speed constraints.
+- <span style="color:red"><strong>NEED teammate to add:</strong> Add one or more lessons about the data, simulation design, urban-planning context, or user feedback.</span>
