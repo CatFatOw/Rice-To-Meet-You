@@ -42,6 +42,7 @@ export interface BasePlacedObject {
   category?: string;
   name?: string;
   color?: string;
+  market_code?: string;
   geometry: Geometry;
   params?: PlacedObjectParams;
   // Active window as ISO date strings (e.g. '2025-07-01'). Optional because an
@@ -152,6 +153,10 @@ export function usePlacedObjects<TPlacedObject extends BasePlacedObject = BasePl
     useState<PendingPlacedObject<TPlacedObject> | null>(null);
 
   useEffect(() => {
+    console.log('pendingPlacedObject changed:', pendingPlacedObject);
+  }, [pendingPlacedObject]);
+
+  useEffect(() => {
     onChange?.(placedObjects);
   }, [onChange, placedObjects]);
 
@@ -217,41 +222,119 @@ export function usePlacedObjects<TPlacedObject extends BasePlacedObject = BasePl
   // and clear the pending slot. Reads the latest pending value through the
   // functional setter so it doesn't need pending in its deps. This is the ONLY
   // way a committed object enters placedObjects.
-  const commitPendingPlacedObject = useCallback(async () => {
+const commitPendingPlacedObject = useCallback(async () => {
+  console.groupCollapsed("[commitPendingPlacedObject] Called");
+
+  try {
+    console.log("Pending object:", pendingPlacedObject);
+
     const toCommit = pendingPlacedObject;
-    if (!toCommit) return;
 
+    if (!toCommit) {
+      console.warn("Commit stopped: pendingPlacedObject is null or undefined.");
+      return;
+    }
 
-    const committed = { ...toCommit, id: makePlacedId() } as TPlacedObject;
+    const committed = {
+      ...toCommit,
+      id: makePlacedId(),
+    } as TPlacedObject;
+
+    console.log("Committed object created:", committed);
 
     const pendingMeta = toCommit as {
       intervention?: string;
       type?: string;
       category?: string;
       color?: string;
+      market_code?: string;
       geometry?: Geometry;
     };
-    const interventionKey = pendingMeta.intervention ?? pendingMeta.type;
 
-    // Keep the addPlacedObjects call, but build a valid ToolboxItemDef.
-    if (interventionKey && isArchetypeType(pendingMeta.category)) {
+    console.log("Extracted metadata:", pendingMeta);
+
+    const interventionKey =
+      pendingMeta.intervention ?? pendingMeta.type;
+
+    console.log("Resolved intervention key:", interventionKey);
+    console.log(
+      "Is valid archetype category:",
+      isArchetypeType(pendingMeta.category),
+    );
+
+    if (!interventionKey) {
+      console.warn(
+        "addPlacedObjects skipped: no intervention or type was provided.",
+      );
+    } else if (!isArchetypeType(pendingMeta.category)) {
+      console.warn(
+        "addPlacedObjects skipped: invalid archetype category.",
+        pendingMeta.category,
+      );
+    } else {
+      console.log(
+        "Available toolbox items:",
+        TOOLBOX_ITEMS[pendingMeta.category],
+      );
+
       const baseItem = TOOLBOX_ITEMS[pendingMeta.category].find(
         (item) => item.intervention === interventionKey,
       );
-      if (baseItem) {
+
+      console.log("Matching base toolbox item:", baseItem);
+
+      if (!baseItem) {
+        console.warn(
+          "addPlacedObjects skipped: no matching toolbox item.",
+          {
+            category: pendingMeta.category,
+            interventionKey,
+          },
+        );
+      } else {
         const payload: ToolboxItemDef = {
           ...baseItem,
           color: pendingMeta.color ?? baseItem.color,
-          kind: pendingMeta.geometry?.kind === 'point' ? 'point' : 'polygon',
+          market_code: pendingMeta.market_code,
+          geometry: pendingMeta.geometry,
+          params: toCommit.params ?? baseItem.params,
+          activeFrom: toCommit.activeFrom,
+          activeTo: toCommit.activeTo,
+          kind:
+            pendingMeta.geometry?.kind === "point"
+              ? "point"
+              : "polygon",
         };
+
+        console.log("Calling addPlacedObjects with payload:", payload);
+
         await addPlacedObjects(payload);
+
+        console.log("addPlacedObjects completed successfully.");
       }
     }
 
-    // Drop it into the flat list as-is.
-    setPlacedObjects((prev) => [...prev, committed]);
+    setPlacedObjects((prev) => {
+      const updated = [...prev, committed];
+
+      console.log("Previous placed objects:", prev);
+      console.log("Updated placed objects:", updated);
+
+      return updated;
+    });
+
     setPendingPlacedObject(null);
-  }, [pendingPlacedObject]);
+    console.log("Pending placed object cleared.");
+  } catch (error) {
+    console.error(
+      "[commitPendingPlacedObject] Failed to commit object:",
+      error,
+    );
+    throw error;
+  } finally {
+    console.groupEnd();
+  }
+}, [pendingPlacedObject, addPlacedObjects]);
 
   // Discard the staged object without persisting. Cancel counterpart to commit.
   const clearPendingPlacedObject = useCallback(() => {

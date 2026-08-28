@@ -125,8 +125,8 @@ export interface SimulateButtonProps {
 // HeatRiskScale props
 // ---------------------------------------------------------------------------
 export interface HeatRiskScaleProps {
-  // Display name of the active metric, e.g. "Heat Risk".
-  label: string;
+  // Active metric key, e.g. "heat_risk_score".
+  metricKey: string;
   // CSS `linear-gradient(...)` string for the active metric's color ramp.
   gradient: string;
 }

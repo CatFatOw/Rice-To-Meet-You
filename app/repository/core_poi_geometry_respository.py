@@ -78,6 +78,8 @@ from sqlalchemy import Column, MetaData, Table, event, func, insert, inspect, se
 from sqlalchemy.exc import NoSuchTableError
 from sqlalchemy.orm import Session
 
+from .heatmap_repository import HeatmapRepository
+
 __all__ = ["CorePoiGeometryRepository"]
 
 

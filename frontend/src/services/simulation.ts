@@ -111,6 +111,70 @@ export function clamp(n: number, lo = 0, hi = 100): number {
   return Math.max(lo, Math.min(hi, n));
 }
 
+function toNumber(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function getToolAnchor(tool: PlacedObject): [number, number] {
+  const g = tool.geometry;
+  if (g.kind === 'point') return [g.longitude, g.latitude];
+  if (g.kind === 'line') {
+    const first = g.coordinates[0];
+    return first ?? [0, 0];
+  }
+
+  // Polygon: quick centroid by average vertex position.
+  if (!g.ring.length) return [0, 0];
+  const [sumLon, sumLat] = g.ring.reduce(
+    ([lon, lat], [x, y]) => [lon + x, lat + y],
+    [0, 0],
+  );
+  return [sumLon / g.ring.length, sumLat / g.ring.length];
+}
+
+function getScheduleWindow(tool: PlacedObject): {
+  startHour: number;
+  dutyHours: number;
+} {
+  const schedule = tool.schedule;
+  if (schedule.mode === 'daily' && schedule.windows.length > 0) {
+    const window = schedule.windows[0];
+    const dutyHours = Math.max(1, window.endHour - window.startHour);
+    return { startHour: window.startHour, dutyHours };
+  }
+
+  if (schedule.mode === 'adaptive' && schedule.windows && schedule.windows.length > 0) {
+    const window = schedule.windows[0];
+    const dutyHours = Math.max(1, window.endHour - window.startHour);
+    return { startHour: window.startHour, dutyHours };
+  }
+
+  return { startHour: DEFAULT_START_HOUR, dutyHours: DEFAULT_ACTIVE_HOURS };
+}
+
+function bearingDegrees(
+  lon1: number,
+  lat1: number,
+  lon2: number,
+  lat2: number,
+): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const toDeg = (rad: number) => (rad * 180) / Math.PI;
+
+  const phi1 = toRad(lat1);
+  const phi2 = toRad(lat2);
+  const lambda1 = toRad(lon1);
+  const lambda2 = toRad(lon2);
+
+  const y = Math.sin(lambda2 - lambda1) * Math.cos(phi2);
+  const x =
+    Math.cos(phi1) * Math.sin(phi2) -
+    Math.sin(phi1) * Math.cos(phi2) * Math.cos(lambda2 - lambda1);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
 // ---------------------------------------------------------------------------
 // Simulation
 // ---------------------------------------------------------------------------
@@ -133,33 +197,50 @@ function getResultMetric(
     const spec = model[tool.type]?.[metric];
     if (!spec) continue; // this tool doesn't touch this metric
 
-    const activeHours = tool.activeHours ?? DEFAULT_ACTIVE_HOURS;
-    const startHour = tool.startHour ?? DEFAULT_START_HOUR;
+    const { startHour, dutyHours } = getScheduleWindow(tool);
     // Intraday hours into the operating window (not lifetime days). Before the
     // tool switches on this is <= 0, and the temporal kernel handles that.
     const elapsedHours = evalHour - startHour;
 
-    const dist = haversine(
-      tool.longitude,
-      tool.latitude,
-      ...p.location_coordinates,
-    );
+    const [toolLon, toolLat] = getToolAnchor(tool);
+    const [pointLon, pointLat] = p.location_coordinates;
+
+    const dist = haversine(toolLon, toolLat, pointLon, pointLat);
+    const bearing = bearingDegrees(toolLon, toolLat, pointLon, pointLat);
+    const env = {
+      hourOfDay: evalHour,
+      airTemp_C: toNumber(p.individual_metrics?.average_temperature_c, p.value),
+      relativeHumidity_pct: toNumber(
+        p.individual_metrics?.average_relative_humidity_pct,
+        50,
+      ),
+      windSpeed_m_s: toNumber(p.individual_metrics?.wind_speed_mps, 1),
+      windDirection_deg: 0,
+    };
 
     const gate = spec.kernels.reduce(
       (acc, k) =>
         acc *
         k({
-          dist,
+          dist_m: dist,
+          bearing_deg: bearing,
           elapsedHours,
-          activeHours,
+          dutyHours,
           baseValue: p.value,
           metrics: p.individual_metrics,
           metric,
+          param: tool.param as never,
+          env,
         }),
       1,
     );
 
-    totalEffect += spec.intensity * gate; // sum across tools
+    const intensity =
+      typeof spec.intensity === 'function'
+        ? spec.intensity({ param: tool.param as never, env, metric })
+        : spec.intensity;
+
+    totalEffect += intensity * gate; // sum across tools
 
     // Track the most restrictive floor among tools that define one.
     if (spec.floor !== undefined) {
@@ -222,25 +303,4 @@ export function runSimulation(
   return out;
 }
 
-
-
-// heatmapMetricSimulation.ts
-//
-// Mock cooling simulation that takes a list of HeatmapMetricPoint and produces
-// one cooled list per day, keyed by date — ready to feed into
-// useSimulationRunner's runTimeline() as `framesByDate`.
-//
-// Here TFrame = HeatmapMetricPoint[] (each frame is the whole cooled list).
-//
-// Cooling schedule (each day compounds on the PREVIOUS day's values):
-//   day 1: -2%   day 2: -4%   day 3: -6%   day 4: -8%   ...
-//   i.e. the per-day decrease grows by 2 percentage points each day.
-
-// NOTE: assumed shape — swap in your real type if it differs. The only field
-// the simulation touches is `temperature`.
-export interface HeatmapMetricPoint {
-  x: number;
-  y: number;
-  temperature: number;
-}
 

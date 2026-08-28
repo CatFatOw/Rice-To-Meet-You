@@ -13,15 +13,25 @@ import {
   type CityPOIAreaMap,
   type HeatmapMetricValue,
 } from '../api/map';
-import { callMockStatistics } from '../api/statistics';
+import {
+  callMockStatistics,
+  fetchTopDestinations,
+  getStatsInfo,
+} from '../api/statistics';
 import { determineCityView } from '../services/cityViews';
 import { eachDay } from '../services/simulation';
 import type { ViewState } from '../types/viewState';
 import type { GeocodeResult } from '../types/search';
 import type { TooltipState } from '../types/components';
-import type { OverallStatisticsProps, POIStatisticsProps } from '../types/statistics';
+import type {
+  DistributionBucket,
+  POIStatisticsProps,
+  StatCardInfo,
+  TopDestination,
+} from '../types/statistics';
 import useSimulationRunner from '../hooks/useSimulationRunner';
 import { getSimulatedPointsByDate } from '../api/simulation';
+import { fetchVisitorPOIs } from '../api/statistics';
 
 
 
@@ -32,7 +42,8 @@ import usePlacedObjects, {
   type PlacedObjectCategory,
 } from '../hooks/usePlacedObjects';
 
-import { getHeatmapPointsByCityDateMetric } from '../api/map';
+import { getHeatmapPointsByCityDateMetric, getHeatRiskDataByCityDate, getVisitorDataByCityDate, getLocalTemperatureCByCityDate, getLocalTemperatureFByCityDate } from '../api/map';
+import { getRiskDistributionByCityDate } from '../api/statistics';
 import { fetchPlacedObjectsForCity } from '../api/tool';
 
 function isPlacedObjectCategory(value: string): value is PlacedObjectCategory {
@@ -145,10 +156,18 @@ const SimulationPage: React.FC = () => {
 
   // --- Statistics and UI state ---
   // Controls metric selection and statistics panel data.
-  const [selectedMetric, setSelectedMetric] = useState<Record<string, string[]> | null>(null);
-  const [overallStatisticsProps, setOverallStatisticsProps] =
-    useState<OverallStatisticsProps>();
-  const [poiStatisticsProps, setPOIStatisticsProps] = useState<POIStatisticsProps>();
+  const [selectedMetric, setSelectedMetric] = useState<Record<string, string[]> | null>(  {
+    avg_daily_visits: [
+      "avg_daily_visits",
+      "heat_risk_score",
+    ],
+  });
+  const [summaryHeader, setSummaryHeader] =
+    useState<{ title?: string; donutLabel?: string }>();
+  const [topDestinations, setTopDestinations] = useState<TopDestination[]>();
+  const [distribution, setDistribution] = useState<DistributionBucket[]>();
+  const [statCardsInfo, setStatCardsInfo] = useState<StatCardInfo[]>();
+  const [poiStatisticsProps, setPOIStatisticsProps] = useState<POIStatisticsProps>({ pois: [] });
 
   const { runTimeline, stop, isRunning } = useSimulationRunner({intervalMs: 3000});
 
@@ -287,50 +306,81 @@ const SimulationPage: React.FC = () => {
     };
   }, []);
 
-  // --- Update heatmap visualization ---
-  // Load the current city/date/metric slice from the backend.
-  useEffect(() => {
-    if (!selectedCity || !selectedMetricKey || !selectedDate) {
-      setIsHeatmapPointsLoading(false);
+// --- Update heatmap visualization ---
+// Load the current city/date/metric slice from the backend.
+useEffect(() => {
+  if (!selectedCity || !selectedMetricKey || !selectedDate) {
+    setIsHeatmapPointsLoading(false);
+    setBaselineHeatmapPoints([]);
+    setDisplayedHeatmapPoints([]);
+    return;
+  }
+
+  const controller = new AbortController();
+  let ignore = false;
+
+  setIsHeatmapPointsLoading(true);
+
+  const request =
+    selectedMetricKey === "heat_risk_score"
+      ? getHeatRiskDataByCityDate(
+          selectedCity,
+          selectedDate,
+        ).then((points) => ({ points }))
+      : selectedMetricKey === "avg_daily_visits"
+        ? getVisitorDataByCityDate(
+            selectedCity,
+            selectedDate,
+          ).then((points) => ({ points }))
+        : selectedMetricKey === "local_temperature_c"
+          ? getLocalTemperatureCByCityDate(selectedCity, selectedDate, {
+              signal: controller.signal,
+            }).then((points) => ({ points }))
+          : selectedMetricKey === "local_temperature_f"
+            ? getLocalTemperatureFByCityDate(selectedCity, selectedDate, {
+                metric: "average_temperature_f",
+                signal: controller.signal,
+              }).then((points) => ({ points }))
+            : getHeatmapPointsByCityDateMetric(
+                selectedCity,
+                selectedDate,
+                selectedMetricKey,
+                {
+                  additionalMetrics: selectedAdditionalMetrics,
+                  signal: controller.signal,
+                },
+              );
+
+  request
+    .then(({ points }) => {
+      if (ignore) return;
+
+      setBaselineHeatmapPoints(points);
+      setDisplayedHeatmapPoints(points);
+    })
+    .catch((error) => {
+      if (ignore || controller.signal.aborted) return;
+
+      console.error("Failed to load baseline heatmap points", error);
       setBaselineHeatmapPoints([]);
       setDisplayedHeatmapPoints([]);
-      return;
-    }
-
-    const controller = new AbortController();
-    let ignore = false;
-    setIsHeatmapPointsLoading(true);
-
-    getHeatmapPointsByCityDateMetric(
-      selectedCity,
-      selectedDate,
-      selectedMetricKey,
-      {
-        additionalMetrics: selectedAdditionalMetrics,
-        signal: controller.signal,
-      },
-    )
-      .then(({ points}) => {
-        if (ignore) return;
-        
-        setBaselineHeatmapPoints(points);
+    })
+    .finally(() => {
+      if (!ignore) {
         setIsHeatmapPointsLoading(false);
-      })
-      .catch((error) => {
-        if (ignore || controller.signal.aborted) return;
-        console.error('Failed to load baseline heatmap point', error);
-        setBaselineHeatmapPoints([]);
-        setDisplayedHeatmapPoints([]);
-        setIsHeatmapPointsLoading(false);
-      });
+      }
+    });
 
-    return () => {
-      ignore = true;
-      controller.abort();
-    };
-  }, [selectedAdditionalMetrics, selectedCity, baselineSelectedDate, selectedMetricKey]);
-
-
+  return () => {
+    ignore = true;
+    controller.abort();
+  };
+}, [
+  selectedAdditionalMetrics,
+  selectedCity,
+  selectedDate,
+  selectedMetricKey,
+]);
   useEffect(() => {
     if (isRunning) return;
     setDisplayedHeatmapPoints(baselineHeatmapPoints);
@@ -379,12 +429,46 @@ const SimulationPage: React.FC = () => {
       try {
         const cityQuery = selectedCity ?? 'Nationally';
         const statistics = await callMockStatistics(cityQuery);
+        
+        
         if (isMounted) {
-          setOverallStatisticsProps(statistics.overallStatistics);
-          setPOIStatisticsProps(statistics.poiStatistics);
+          setSummaryHeader({
+            title: statistics.overallStatistics.title,
+            donutLabel: statistics.overallStatistics.donutLabel,
+          });
+
+          const liveTopDestinations = selectedCity && selectedDate
+            ? await fetchTopDestinations(selectedCity, selectedDate)
+            : statistics.overallStatistics.topDestinations;
+
+          setTopDestinations(
+            liveTopDestinations.length > 0
+              ? liveTopDestinations
+              : statistics.overallStatistics.topDestinations,
+          );
+
+          setPOIStatisticsProps({ ...statistics.poiStatistics, pois: [] });
+
+          if (selectedCity && selectedDate) {
+            const visitorPOIs = await fetchVisitorPOIs(selectedCity, selectedDate);
+            if (isMounted) {
+              setPOIStatisticsProps((prev) => ({
+                ...prev,
+                pois: visitorPOIs.map((poi) => ({
+                  name: poi.name,
+                  type: poi.streetAddress,
+                  heatRisk: poi.heatRisk ?? 0,
+                  visitors: poi.visitors,
+                })),
+              }));
+            }
+          }
         }
       } catch (error) {
         console.error('Failed to load city statistics', error);
+        if (isMounted) {
+          setPOIStatisticsProps((prev) => ({ ...prev, pois: [] }));
+        }
       }
     };
 
@@ -393,7 +477,59 @@ const SimulationPage: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [selectedCity]);
+  }, [selectedCity, selectedDate]);
+
+  // --- Load live summary cards ---
+  // Keep card values tied to the selected city and date.
+  useEffect(() => {
+    if (!selectedCity || !selectedDate) {
+      setStatCardsInfo(undefined);
+      return;
+    }
+
+    const controller = new AbortController();
+    let isMounted = true;
+
+    getStatsInfo(selectedCity, selectedDate, controller.signal)
+      .then((statsInfo) => {
+        if (isMounted) setStatCardsInfo(statsInfo);
+      })
+      .catch((error) => {
+        if (isMounted && !controller.signal.aborted) {
+          console.error('Failed to load summary statistics', error);
+          setStatCardsInfo(undefined);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
+  }, [selectedCity, selectedDate]);
+
+  // --- Load heat-risk distribution ---
+  // Keep the donut distribution tied to the selected city and date.
+  useEffect(() => {
+    if (!selectedCity || !selectedDate) {
+      setDistribution(undefined);
+      return;
+    }
+
+    let isMounted = true;
+
+    getRiskDistributionByCityDate(selectedCity, selectedDate)
+      .then((riskDistribution) => {
+        if (isMounted) setDistribution(riskDistribution);
+      })
+      .catch((error) => {
+        console.error('Failed to load heat-risk distribution', error);
+        if (isMounted) setDistribution(undefined);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedCity, selectedDate]);
 
   // --- Reset POI area editing state ---
   // Clear any active POI area edits when user switches cities
@@ -485,7 +621,12 @@ const SimulationPage: React.FC = () => {
           </div>
 
           <section className="col-span-2 min-h-0 overflow-auto">
-            <OverallStatistics {...overallStatisticsProps} />
+            <OverallStatistics
+              {...summaryHeader}
+              topDestinations={topDestinations}
+              distribution={distribution}
+              statCardsInfo={statCardsInfo}
+            />
           </section>
         </div>
       </main>

@@ -70,3 +70,43 @@ def get_heatmap_points_by_city_date_metric(
         )
 
     return result
+
+
+@router.get(
+    "/get-local-temperature-by-city-date",
+    status_code=status.HTTP_200_OK,
+)
+def get_local_temperature_by_city_date(
+    city: str,
+    date: str,
+    metric: Optional[str] = None,
+    additional_metrics: Optional[List[str]] = Query(default=None),
+    temperature_unit: str = "f",
+):
+    """Return per-point local temperatures for a city and date."""
+
+    db = SessionLocal()
+    repository = HeatmapRepository(db)
+    try:
+        result = repository.getLocalTemperatureByCityDate(
+            weather_date=date,
+            metric=metric,
+            market_code=city,
+            additional_metrics=additional_metrics,
+            temperature_unit=temperature_unit,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="NO LOCAL TEMPERATURE POINTS FOUND",
+        )
+
+    return result
+
+

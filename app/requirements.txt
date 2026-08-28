@@ -2,6 +2,7 @@ fastapi
 uvicorn[standard]
 orjson
 sqlalchemy
+GeoAlchemy2
 alembic
 psycopg2-binary
 geopy

@@ -198,6 +198,8 @@ function toMarketCode(city: string): string {
   return aliases[normalized] ?? normalized.replace(/\s+/g, '_');
 }
 
+
+
 export async function getHeatmapPointsByCityDateMetric(
   city: string,
   date: string, // "YYYY-MM-DD"
@@ -235,13 +237,156 @@ export async function getHeatmapPointsByCityDateMetric(
   return { points: raw[date] ?? [], raw };
 }
 
+async function getFinalVisitorPointsByCityDate(
+  path: string,
+  city: string,
+  date: string,
+): Promise<HeatmapMetricValue[]> {
+  const cityVariants = Array.from(new Set([city, toMarketCode(city)]));
+
+  for (const cityVariant of cityVariants) {
+    const params = new URLSearchParams({ city: cityVariant, date });
+    const response = await fetch(`${BASE_URL}${path}?${params}`);
+
+    if (response.status === 404) {
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to load final visitor data: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    const raw = (await response.json()) as HeatmapPointsByDate;
+    const points = raw[date] ?? [];
+    if (points.length > 0) {
+      return points;
+    }
+  }
+
+  return [];
+}
+
+export async function getVisitorDataByCityDate(
+  city: string,
+  date: string,
+): Promise<HeatmapMetricValue[]> {
+  return getFinalVisitorPointsByCityDate(
+    "/final_visitor/get-visitor-by-city-date",
+    city,
+    date,
+  );
+}
+
+export async function getHeatRiskDataByCityDate(
+  city: string,
+  date: string,
+): Promise<HeatmapMetricValue[]> {
+  return getFinalVisitorPointsByCityDate(
+    "/final_visitor/get-heat-risk-score-by-city-date",
+    city,
+    date,
+  );
+}
+
 export const availableMetrics = [
   {
-  "average_temperature_c": ["maximum_temperature_c", "minimum_temperature_c", "average_relative_humidity_pct", "average_wind_speed_knots", "precipitation_3d_sum_mm", "average_temperature_c"]
+    average_temperature_c: [
+      "maximum_temperature_c",
+      "minimum_temperature_c",
+      "average_relative_humidity_pct",
+      "average_wind_speed_knots",
+      "precipitation_3d_sum_mm",
+      "average_temperature_c",
+    ],
   },
   {
-  "change_in_temperature": ["maximum_temperature_c", "minimum_temperature_c", "average_relative_humidity_pct", "average_wind_speed_knots", "precipitation_3d_sum_mm", "average_temperature_c"]
-  }
+    average_temperature_f: [
+      "maximum_temperature_c",
+      "minimum_temperature_c",
+      "average_relative_humidity_pct",
+      "average_wind_speed_knots",
+      "precipitation_3d_sum_mm",
+      "average_temperature_f",
+    ],
+  },
+  {
+    heat_index_f: [
+      "average_temperature_f",
+      "average_relative_humidity_pct",
+      "heat_index_f",
+    ],
+  },
+  {
+    heat_index_c: [
+      "average_temperature_c",
+      "average_relative_humidity_pct",
+      "heat_index_c",
+    ],
+  },
+  {
+    average_relative_humidity_pct: [
+      "average_temperature_c",
+      "average_temperature_f",
+      "average_dew_point_f",
+      "dew_point_depression_c",
+      "average_relative_humidity_pct",
+    ],
+  },
+  {
+    change_in_temperature: [
+      "maximum_temperature_c",
+      "minimum_temperature_c",
+      "average_relative_humidity_pct",
+      "average_wind_speed_knots",
+      "precipitation_3d_sum_mm",
+      "average_temperature_c",
+    ],
+  },
+  {
+    avg_daily_visits: [
+      "avg_daily_visits",
+      "heat_risk_score",
+    ],
+  },
+  {
+    heat_risk_score: [
+      "heat_risk_score",
+      "avg_daily_visits",
+    ],
+  },
+  {
+
+    local_temperature_c: [
+
+      "local_temperature_c",
+
+      "local_temperature_f",
+
+      "average_temperature_c",
+
+      "average_relative_humidity_pct",
+
+    ],
+
+  },
+
+  {
+
+    local_temperature_f: [
+
+      "local_temperature_f",
+
+      "local_temperature_c",
+
+      "average_temperature_f",
+
+      "average_relative_humidity_pct",
+
+    ],
+
+  },
 ];
 
 const generateAvailableDates = (): string[] => {
@@ -258,3 +403,78 @@ const generateAvailableDates = (): string[] => {
 };
 
 export const availableDates = generateAvailableDates();
+
+
+export interface LocalTemperatureOptions {
+  /** Temperature column the backend reads from. Defaults to `average_temperature_c`. */
+  metric?: string;
+  /** Humidity column the backend reads from. Defaults to `average_relative_humidity_pct`. */
+  humidityMetric?: string;
+  signal?: AbortSignal;
+}
+
+async function getLocalTemperaturePointsByCityDate(
+  path: string,
+  city: string,
+  date: string, // "YYYY-MM-DD"
+  options: LocalTemperatureOptions = {},
+): Promise<HeatmapMetricValue[]> {
+  const {
+    metric = "average_temperature_c",
+    humidityMetric = "average_relative_humidity_pct",
+    signal,
+  } = options;
+
+  const params = new URLSearchParams({
+    city: toMarketCode(city),
+    date,
+    metric,
+    humidity_metric: humidityMetric,
+  });
+
+  const response = await fetch(`${BASE_URL}${path}?${params}`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    signal,
+  });
+
+  // 404 means no rows matched, which is an empty result rather than a failure.
+  if (response.status === 404) {
+    return [];
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Local temperature request failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const raw = (await response.json()) as HeatmapPointsByDate;
+  return raw[date] ?? [];
+}
+
+export async function getLocalTemperatureCByCityDate(
+  city: string,
+  date: string,
+  options: LocalTemperatureOptions = {},
+): Promise<HeatmapMetricValue[]> {
+  return getLocalTemperaturePointsByCityDate(
+    "/heatmap/get-heat-index-c-by-city-date",
+    city,
+    date,
+    options,
+  );
+}
+
+export async function getLocalTemperatureFByCityDate(
+  city: string,
+  date: string,
+  options: LocalTemperatureOptions = {},
+): Promise<HeatmapMetricValue[]> {
+  return getLocalTemperaturePointsByCityDate(
+    "/heatmap/get-heat-index-f-by-city-date",
+    city,
+    date,
+    options,
+  );
+}

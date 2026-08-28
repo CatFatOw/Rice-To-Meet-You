@@ -118,6 +118,7 @@ class ArchetypeCreate(TypedDict):
 class UrbanInterventionCreateBase(TypedDict):
     market_code: str
     name: str
+    color: str
     archetype_code: str
     geometry: Geometry
 

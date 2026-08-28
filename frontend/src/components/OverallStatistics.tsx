@@ -74,6 +74,7 @@ export default function OverallStatistics({
   statCardsInfo = DEFAULT_STAT_CARDS,
 }: OverallStatisticsProps) {
   const total = distribution.reduce((sum, item) => sum + item.value, 0);
+  const topRiskHeading = title === "National Summary" ? "Top Risk Cities" : "Top Risk POIs";
 
   const donut = `conic-gradient(${distribution
     .map((item, index) => {
@@ -99,11 +100,11 @@ export default function OverallStatistics({
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-          <h3 className="mb-3 text-sm font-semibold">Top Risk Cities</h3>
+          <h3 className="mb-3 text-sm font-semibold">{topRiskHeading}</h3>
           <div className="space-y-3">
             {topDestinations.map((city, index) => (
               <div
-                key={city.name}
+                key={`${city.name}-${index}`}
                 className="grid grid-cols-[24px_100px_1fr_36px] items-center gap-4"
               >
                 <span className="text-slate-400">{index + 1}</span>

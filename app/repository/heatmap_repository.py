@@ -27,6 +27,13 @@ instead of roughly 400 MB.
 NULL handling: `array('d')` cannot hold None, so numeric columns use NaN as the
 null sentinel and readers test `value != value`. Non-numeric columns fall back
 to a plain list and keep None as-is.
+
+Schema vs. cache: reflected `Table` objects tell you which columns EXIST;
+`_weather_index` / `_heat_metric_names` tell you which columns are RESIDENT in
+the cache. The two diverge before the preload finishes, so column *validation*
+always resolves against the reflected tables and only value *lookups* use the
+cache indexes -- re-read immediately after the cache accessor, since a loader
+rebinds those class attributes to fresh objects.
 """
 
 from __future__ import annotations
@@ -121,6 +128,18 @@ class HeatmapRepository:
     HEAT_INDEX_TABLE = "urban_heat_index_updated"
     SYNTHETIC_METRICS = {"change_in_temperature"}
 
+    # -- urban heat island model -------------------------------------------
+
+    MIN_UHI = 1.0
+    MAX_UHI = 11.0
+    MEAN_UHI = 5.266180261630485
+
+    # Assumed temperature difference between UHI 1 and UHI 11.
+    ASSUMED_SPREAD_F = 7.0
+    # A *difference* in Fahrenheit converts to Celsius with the ratio alone --
+    # no 32-degree offset.
+    ASSUMED_SPREAD_C = ASSUMED_SPREAD_F * 5.0 / 9.0
+
     # -- schema cache -------------------------------------------------------
     # Reflected schema objects are shared by every repository instance in this
     # Python process. Sessions remain request-scoped and are never shared.
@@ -173,8 +192,39 @@ class HeatmapRepository:
     LONGITUDE_CANDIDATES = ("longitude", "lon", "lng", "long")
     LATITUDE_CANDIDATES = ("latitude", "lat")
 
+    # Urban heat index column on the heat-index table, in priority order.
+    UHI_CANDIDATES: Tuple[str, ...] = (
+        "urban_heat_index",
+        "uhi",
+        "urban_heat_index_value",
+        "heat_index",
+    )
+
+    # Fallback average-temperature columns on the weather table, per unit.
+    # Used only when the caller does not name one explicitly.
+    AVG_TEMP_CANDIDATES: ClassVar[Dict[str, Tuple[str, ...]]] = {
+        "f": (
+            "average_temperature_f",
+            "avg_temperature_f",
+            "avg_temp_f",
+            "temperature_f",
+            "temp_f",
+        ),
+        "c": (
+            "average_temperature_c",
+            "avg_temperature_c",
+            "avg_temp_c",
+            "temperature_c",
+            "temp_c",
+        ),
+    }
+
     # Suffix appended to a numeric metric based on its column name. First match wins.
+    # The two local_temperature_* entries must stay above "heat_index"/"_index"/
+    # "temp", all of which would otherwise swallow them and stamp the wrong unit.
     UNIT_HINTS: Sequence[Tuple[str, str]] = (
+        ("local_temperature_f", "\u00b0F"),
+        ("local_temperature_c", "\u00b0C"),
         ("humidity", "%"),
         ("cloud_cover", "%"),
         ("precip", " in"),
@@ -191,6 +241,21 @@ class HeatmapRepository:
         ("temp", "\u00b0C"),
         ("feels_like", "\u00b0C"),
         ("dew_point", "\u00b0C"),
+    )
+    DERIVED_METRICS: ClassVar[Tuple[str, ...]] = (
+        "local_temperature_f",
+        "local_temperature_c",
+    )
+ 
+    # How per-point (heat-index) columns collapse to a single value.
+    AGGREGATES: ClassVar[Tuple[str, ...]] = (
+        "mean",
+        "median",
+        "min",
+        "max",
+        "sum",
+        "count",
+        "first",
     )
 
     def __init__(self, session: Session) -> None:
@@ -313,6 +378,25 @@ class HeatmapRepository:
         return isinstance(column.type, (Numeric, Float, Integer))
 
     @classmethod
+    def _heat_column_plan(cls, table: Table) -> Tuple[str, str, Tuple[str, ...], Dict[str, bool]]:
+        """(lon_name, lat_name, metric_names, numeric-by-column) for the heat table.
+
+        Shared by the bulk preload and the single-market fallback so both build
+        blocks with identical column sets.
+        """
+        lon_name = cls._resolve_column(table, cls.LONGITUDE_CANDIDATES)
+        lat_name = cls._resolve_column(table, cls.LATITUDE_CANDIDATES)
+
+        metric_names = tuple(
+            c.name
+            for c in table.columns
+            if c.name not in cls.EXCLUDED_METRIC_COLUMNS
+            and c.name not in (lon_name, lat_name)
+        )
+        numeric = {c.name: cls._is_numeric(c) for c in table.columns}
+        return lon_name, lat_name, metric_names, numeric
+
+    @classmethod
     def _load_weather(cls, bind: Any) -> None:
         table = cls._weather_table
         started = perf_counter()
@@ -349,8 +433,10 @@ class HeatmapRepository:
                     continue
                 cache[key] = tuple(row[2:])
 
-        cls._weather_cache = cache
+        # Publish the index before the rows: a reader that sees a populated
+        # cache must never find a stale index alongside it.
         cls._weather_index = index
+        cls._weather_cache = cache
         cls._weather_loaded = True
 
         logger.info(
@@ -366,16 +452,7 @@ class HeatmapRepository:
         table = cls._heat_index_table
         started = perf_counter()
 
-        lon_name = cls._resolve_column(table, cls.LONGITUDE_CANDIDATES)
-        lat_name = cls._resolve_column(table, cls.LATITUDE_CANDIDATES)
-
-        metric_names = tuple(
-            c.name
-            for c in table.columns
-            if c.name not in cls.EXCLUDED_METRIC_COLUMNS
-            and c.name not in (lon_name, lat_name)
-        )
-        numeric = {c.name: cls._is_numeric(c) for c in table.columns}
+        lon_name, lat_name, metric_names, numeric = cls._heat_column_plan(table)
 
         target_markets = list(markets or cls.SUPPORTED_MARKET_CODES)
         cache: Dict[HeatCacheKey, HeatBlock] = dict(cls._heat_cache)
@@ -437,8 +514,8 @@ class HeatmapRepository:
 
                 logger.info("Preloaded %s points for %s", f"{market_rows:,}", market)
 
-        cls._heat_cache = cache
         cls._heat_metric_names = metric_names
+        cls._heat_cache = cache
         # A partial (per-market) load must not mark the whole table as resident.
         cls._heat_loaded = markets is None
 
@@ -449,6 +526,55 @@ class HeatmapRepository:
             perf_counter() - started,
             sum(block.nbytes() for block in cache.values()) / 1_048_576,
         )
+
+    @classmethod
+    def _build_block(
+        cls, bind: Any, market: str, target_date: dt.date
+    ) -> Optional[HeatBlock]:
+        """Load one market's heat-index rows WITHOUT touching the shared cache.
+
+        Used when the preload holds the data lock: this request gets its data
+        from the database and throws the block away rather than queueing behind
+        a multi-minute load.
+        """
+        table = cls._heat_index_table
+        if table is None:
+            return None
+
+        lon_name, lat_name, metric_names, numeric = cls._heat_column_plan(table)
+
+        select_columns = [table.c[lon_name], table.c[lat_name]]
+        select_columns += [table.c[name] for name in metric_names]
+
+        stmt = (
+            select(*select_columns)
+            .where(table.c.market_code == market)
+            .where(table.c[lon_name].isnot(None))
+            .where(table.c[lat_name].isnot(None))
+        )
+        if cls._heat_partitioned:
+            stmt = stmt.where(table.c.weather_date == target_date)
+
+        block = HeatBlock(metric_names, numeric)
+
+        with cls._connect(bind) as connection:
+            result = connection.execution_options(
+                stream_results=True, yield_per=cls.PRELOAD_CHUNK
+            ).execute(stmt)
+
+            for row in result:
+                block.append(float(row[0]), float(row[1]), row[2:], metric_names)
+
+        # Column names are derived deterministically from the reflected schema,
+        # so publishing them early is safe and lets readers that key off
+        # _heat_metric_names work before the preload finishes.
+        if not cls._heat_metric_names:
+            cls._heat_metric_names = metric_names
+
+        logger.debug(
+            "Built an uncached block of %s points for %s", f"{block.count:,}", market
+        )
+        return block if block.count else None
 
     # -- cache accessors ----------------------------------------------------
 
@@ -479,7 +605,12 @@ class HeatmapRepository:
     def _weather_values(
         self, market: str, target_date: dt.date
     ) -> Optional[Tuple[Any, ...]]:
-        """Cached weather row, falling back to a single-row query."""
+        """Cached weather row, falling back to a single-row query.
+
+        Callers must re-read `_weather_index` after this returns: a fallback
+        load rebinds it to a new dict, and positions in the returned tuple are
+        only meaningful against the current index.
+        """
         cls = type(self)
         values = cls._weather_cache.get((market, target_date))
         if values is not None or cls._weather_loaded:
@@ -491,6 +622,44 @@ class HeatmapRepository:
                 cls._load_weather(self.session.get_bind())
                 values = cls._weather_cache.get((market, target_date))
         return values
+
+    # -- urban heat island maths --------------------------------------------
+
+    @classmethod
+    def _clamp_urban_heat_index(cls, urban_heat_index: float) -> float:
+        return max(cls.MIN_UHI, min(cls.MAX_UHI, urban_heat_index))
+
+    @classmethod
+    def _calculate_local_temperature_f(
+        cls,
+        average_temperature_f: float,
+        urban_heat_index: float,
+    ) -> float:
+        uhi = cls._clamp_urban_heat_index(urban_heat_index)
+
+        adjustment_f = (
+            (uhi - cls.MEAN_UHI)
+            * cls.ASSUMED_SPREAD_F
+            / (cls.MAX_UHI - cls.MIN_UHI)
+        )
+
+        return average_temperature_f + adjustment_f
+
+    @classmethod
+    def _calculate_local_temperature_c(
+        cls,
+        average_temperature_c: float,
+        urban_heat_index: float,
+    ) -> float:
+        uhi = cls._clamp_urban_heat_index(urban_heat_index)
+
+        adjustment_c = (
+            (uhi - cls.MEAN_UHI)
+            * cls.ASSUMED_SPREAD_C
+            / (cls.MAX_UHI - cls.MIN_UHI)
+        )
+
+        return average_temperature_c + adjustment_c
 
     # -- public API ---------------------------------------------------------
 
@@ -548,8 +717,6 @@ class HeatmapRepository:
         print_timing("Load cached table metadata")
 
         cls = type(self)
-        weather_index = cls._weather_index
-        heat_names = cls._heat_metric_names
         format_value = self._format_value
 
         date_key = target_date.isoformat()
@@ -575,6 +742,9 @@ class HeatmapRepository:
                 markets_skipped += 1
                 continue  # no weather for this market: the old join dropped it
 
+            # Re-read after the accessor: a fallback load rebinds the index.
+            weather_index = cls._weather_index
+
             lookup_start = perf_counter()
             block = self._heat_block(market, target_date)
             block_seconds += perf_counter() - lookup_start
@@ -584,6 +754,10 @@ class HeatmapRepository:
                 continue
 
             markets_served += 1
+
+            heat_names = [
+                name for name in cls._heat_metric_names if name in block.metrics
+            ]
 
             # Formatted once per market, reused for every point.
             weather_metrics = {
@@ -648,6 +822,7 @@ class HeatmapRepository:
         )
 
         return results
+
     def getDataPointsForCityDateMetric(
         self,
         weather_date: DateLike,
@@ -703,7 +878,6 @@ class HeatmapRepository:
         )
 
         cls = type(self)
-        weather_index = cls._weather_index
         to_weight = self._to_weight
         format_value = self._format_value
 
@@ -721,6 +895,9 @@ class HeatmapRepository:
                 weather_values = self._weather_values(market, target_date)
                 if weather_values is None:
                     continue  # no weather for this market/date
+
+                # Re-read after the accessor: a fallback load rebinds the index.
+                weather_index = cls._weather_index
 
                 if metric_on_weather:
                     market_weight = to_weight(
@@ -810,6 +987,363 @@ class HeatmapRepository:
         if not points:
             return {}
         return {target_date.isoformat(): points}
+
+    def getLocalTemperatureByCityDate(
+        self,
+        weather_date: DateLike,
+        metric: Optional[str] = None,
+        market_code: Optional[Union[str, Iterable[str]]] = None,
+        additional_metrics: Optional[Iterable[str]] = None,
+        temperature_unit: str = "f",
+    ) -> HeatmapPointsByDate:
+        """Per-point local temperature: one weather row + every heat-index point.
+
+        For each market the weather table supplies a single average temperature
+        for the date; each urban-heat-index point for that market is then offset
+        from it by its UHI, via _calculate_local_temperature_f/_c.
+
+        Args:
+            weather_date: the day to pull.
+            metric: name of the weather column holding the average temperature.
+                Defaults to the first AVG_TEMP_CANDIDATES entry that exists.
+                Must match `temperature_unit` -- passing a Celsius column with
+                unit "f" silently produces nonsense.
+            market_code: a single market code or an iterable. Defaults to all.
+            additional_metrics: extra columns to render into individual_metrics.
+            temperature_unit: "f" or "c". Selects both the default source column
+                and the calculation.
+
+        Returns:
+            HeatmapPointsByDate, `value` being the local temperature.
+        """
+        total_start = perf_counter()
+
+        target_date = self._coerce_date(weather_date)
+        markets = self._resolve_markets(market_code)
+        if not markets:
+            return {}
+
+        unit = str(temperature_unit or "f").strip().lower()
+        if unit not in ("f", "c"):
+            raise ValueError(
+                "temperature_unit must be 'f' or 'c', got %r" % temperature_unit
+            )
+
+        weather = self._get_table(self.WEATHER_TABLE)
+        heat_index = self._get_table(self.HEAT_INDEX_TABLE)
+
+        cls = type(self)
+
+        # --- resolve the two driving columns -------------------------------
+        # Validated against the reflected schema, not the cache indexes: those
+        # are empty until the preload runs and would reject valid names.
+        temp_name = str(metric).strip() if metric else ""
+        if temp_name:
+            if (
+                temp_name not in weather.columns
+                or temp_name in self.EXCLUDED_METRIC_COLUMNS
+            ):
+                raise ValueError(
+                    "Average-temperature metric '%s' is not an available column "
+                    "on %s. Available: %s"
+                    % (
+                        temp_name,
+                        self.WEATHER_TABLE,
+                        sorted(
+                            c.name
+                            for c in weather.columns
+                            if c.name not in self.EXCLUDED_METRIC_COLUMNS
+                        ),
+                    )
+                )
+        else:
+            temp_name = next(
+                (n for n in self.AVG_TEMP_CANDIDATES[unit] if n in weather.columns),
+                "",
+            )
+            if not temp_name:
+                raise ValueError(
+                    "No average-temperature column for unit '%s' on %s. Pass one "
+                    "explicitly as `metric`. Tried: %s"
+                    % (unit, self.WEATHER_TABLE, list(self.AVG_TEMP_CANDIDATES[unit]))
+                )
+
+        uhi_name = next(
+            (n for n in self.UHI_CANDIDATES if n in heat_index.columns), ""
+        )
+        if not uhi_name:
+            raise ValueError(
+                "No urban-heat-index column on %s. Tried: %s"
+                % (self.HEAT_INDEX_TABLE, list(self.UHI_CANDIDATES))
+            )
+
+        calculate = (
+            cls._calculate_local_temperature_f
+            if unit == "f"
+            else cls._calculate_local_temperature_c
+        )
+        output_name = "local_temperature_%s" % unit
+
+        # --- additional_metrics plan, mirroring getDataPointsForCityDateMetric
+        requested_names: List[str] = []
+        if additional_metrics:
+            requested_names = list(
+                dict.fromkeys(
+                    name
+                    for raw_name in additional_metrics
+                    if (name := str(raw_name).strip())
+                )
+            )
+
+        plan: List[Tuple[str, str]] = []
+        for name in requested_names:
+            column, _ = self._resolve_metric_column(name, weather, heat_index)
+            source = (
+                "s" if name in self.SYNTHETIC_METRICS
+                else "w" if column.table is weather
+                else "h"
+            )
+            plan.append((source, name))
+
+        heat_names = [name for source, name in plan if source == "h"]
+        format_value = self._format_value
+        to_weight = self._to_weight
+
+        points: List[HeatmapMetricValue] = []
+
+        for market in markets:
+            # The one exact weather row for this market/date.
+            weather_values = self._weather_values(market, target_date)
+            if weather_values is None:
+                continue
+
+            # Re-read after the accessor: a fallback load rebinds the index,
+            # and tuple positions are only valid against the current one.
+            weather_index = cls._weather_index
+            if temp_name not in weather_index:
+                continue  # column exists but isn't resident in the cache
+
+            average_temperature = to_weight(weather_values[weather_index[temp_name]])
+            if average_temperature is None:
+                continue  # no baseline, so every point here is unresolvable
+
+            weather_metrics: Dict[str, str] = {}
+            for source, name in plan:
+                if source != "w" or name not in weather_index:
+                    continue
+                raw = weather_values[weather_index[name]]
+                if raw is not None:
+                    weather_metrics[name] = format_value(name, raw)
+
+            # Every heat-index row for this market (all dates, when the table
+            # isn't partitioned by weather_date).
+            block = self._heat_block(market, target_date)
+            if block is None or block.count == 0:
+                continue
+
+            uhi_column = block.metrics.get(uhi_name)
+            if uhi_column is None:
+                continue  # UHI not resident in this block
+
+            longitudes = block.longitude
+            latitudes = block.latitude
+            resident_heat = [name for name in heat_names if name in block.metrics]
+            heat_columns = [block.metrics[name] for name in resident_heat]
+            memos: List[Dict[Any, str]] = [{} for _ in resident_heat]
+            # UHI values repeat heavily across a city, so memo the arithmetic.
+            temp_memo: Dict[float, float] = {}
+
+            for i in range(block.count):
+                uhi = uhi_column[i]
+                if uhi is None or uhi != uhi:  # None or the NaN sentinel
+                    continue
+
+                value = temp_memo.get(uhi)
+                if value is None:
+                    value = calculate(average_temperature, uhi)
+                    temp_memo[uhi] = value
+
+                point: HeatmapMetricValue = {
+                    "value": value,
+                    "location_coordinates": [longitudes[i], latitudes[i]],
+                }
+
+                metrics = dict(weather_metrics)
+                for name, column, memo in zip(resident_heat, heat_columns, memos):
+                    raw = column[i]
+                    if raw is None or raw != raw:
+                        continue
+                    rendered = memo.get(raw)
+                    if rendered is None:
+                        rendered = format_value(name, raw)
+                        memo[raw] = rendered
+                    metrics[name] = rendered
+
+                # Requested order first, then the computed temperature.
+                point["individual_metrics"] = {
+                    **{name: metrics[name] for _, name in plan if name in metrics},
+                    output_name: format_value(output_name, value),
+                }
+
+                points.append(point)
+
+        logger.debug(
+            "Served %s local-temperature points in %.4fs",
+            f"{len(points):,}",
+            perf_counter() - total_start,
+        )
+
+        if not points:
+            return {}
+        return {target_date.isoformat(): points}
+    def getMetricByCityDate(
+        self,
+        metrics: Iterable[str],
+        city: str,
+        weather_date: DateLike,
+        aggregate: str = "mean",
+        formatted: bool = False,
+    ) -> Dict[str, Any]:
+        """Resolve several metrics to one value each for a single market/date.
+ 
+        Weather metrics are already scalar: the weather table holds exactly one
+        row per (market, date), so the stored value is returned as-is and
+        `aggregate` does not apply to them.
+ 
+        Heat-index metrics are not. There is one value per point -- often tens
+        of thousands for a city -- so `aggregate` collapses the column. Note
+        that when the heat-index table is NOT partitioned by weather_date, its
+        cache block covers every date, and these values are therefore
+        date-independent.
+ 
+        Args:
+            metrics: metric names. Weather columns, heat-index columns,
+                SYNTHETIC_METRICS, and DERIVED_METRICS are all accepted.
+            city: a single market code from SUPPORTED_MARKET_CODES.
+            weather_date: the day to pull.
+            aggregate: how to collapse per-point columns. One of AGGREGATES.
+                Non-numeric columns ignore it and return their first value.
+            formatted: return display strings via _format_value (with units)
+                instead of raw values.
+ 
+        Returns:
+            {metric_name: value}, in the order requested. None where the
+            column exists but has no data for this market/date.
+ 
+        Raises:
+            ValueError: unknown market code, unknown aggregate, or a metric
+                name that exists on neither table.
+        """
+        total_start = perf_counter()
+ 
+        names = list(
+            dict.fromkeys(
+                name for raw_name in (metrics or ()) if (name := str(raw_name).strip())
+            )
+        )
+        if not names:
+            return {}
+ 
+        markets = self._resolve_markets(city)
+        if not markets:
+            raise ValueError(
+                "Unknown market code %r. Supported: %s"
+                % (city, list(self.SUPPORTED_MARKET_CODES))
+            )
+        market = markets[0]
+ 
+        how = str(aggregate or "mean").strip().lower()
+        if how not in self.AGGREGATES:
+            raise ValueError(
+                "aggregate must be one of %s, got %r"
+                % (list(self.AGGREGATES), aggregate)
+            )
+ 
+        target_date = self._coerce_date(weather_date)
+ 
+        weather = self._get_table(self.WEATHER_TABLE)
+        heat_index = self._get_table(self.HEAT_INDEX_TABLE)
+ 
+        cls = type(self)
+ 
+        # --- classify each metric ------------------------------------------
+        # Resolved against the reflected schema, not the cache indexes: those
+        # are empty until the preload runs and would reject valid names.
+        plan: List[Tuple[str, str]] = []
+        for name in names:
+            if name in self.SYNTHETIC_METRICS:
+                plan.append(("s", name))
+            elif name in self.DERIVED_METRICS:
+                plan.append(("d", name))
+            else:
+                column, _ = self._resolve_metric_column(name, weather, heat_index)
+                plan.append(("w" if column.table is weather else "h", name))
+ 
+        sources = {source for source, _ in plan}
+        needs_weather = bool(sources & {"w", "d"})
+        needs_block = bool(sources & {"h", "d"})
+ 
+        # --- fetch at most one weather row and one block --------------------
+        weather_values: Optional[Tuple[Any, ...]] = None
+        weather_index: Dict[str, int] = {}
+        if needs_weather:
+            weather_values = self._weather_values(market, target_date)
+            # Re-read after the accessor: a fallback load rebinds the index,
+            # and tuple positions are only valid against the current one.
+            weather_index = cls._weather_index
+ 
+        block = self._heat_block(market, target_date) if needs_block else None
+        if block is not None and block.count == 0:
+            block = None
+ 
+        # --- resolve values -------------------------------------------------
+        results: Dict[str, Any] = {}
+ 
+        for source, name in plan:
+            value: Any = None
+ 
+            if source == "s":
+                # Synthetic metrics are reported as zero, matching
+                # getDataPointsForCityDateMetric.
+                value = 0
+ 
+            elif source == "w":
+                if weather_values is not None and name in weather_index:
+                    value = weather_values[weather_index[name]]
+ 
+            elif source == "h":
+                if block is not None:
+                    column = block.metrics.get(name)
+                    if column is not None:  # else: exists but not resident
+                        value = self._aggregate_values(
+                            self._column_values(column), how
+                        )
+ 
+            else:  # "d"
+                value = self._aggregate_local_temperature(
+                    weather=weather,
+                    heat_index=heat_index,
+                    weather_values=weather_values,
+                    weather_index=weather_index,
+                    block=block,
+                    unit=name.rsplit("_", 1)[1],
+                    how=how,
+                )
+ 
+            if formatted and value is not None:
+                value = self._format_value(name, value)
+ 
+            results[name] = value
+ 
+        logger.debug(
+            "Resolved %s metrics for %s on %s in %.4fs",
+            len(results),
+            market,
+            target_date.isoformat(),
+            perf_counter() - total_start,
+        )
+ 
+        return results
 
     # -- schema helpers -----------------------------------------------------
 
@@ -958,4 +1492,115 @@ class HeatmapRepository:
         if value:
             return str(value)[:10]
         return fallback.isoformat()
+    
+ 
+    @staticmethod
+    def _column_values(column: Any) -> List[Any]:
+        """Strip nulls from a cached column.
+ 
+        Numeric columns are array('d') and carry NaN as the null sentinel;
+        everything else is a list holding real Nones.
+        """
+        if isinstance(column, array):
+            return [value for value in column if value == value]
+        return [value for value in column if value is not None]
+ 
+    @classmethod
+    def _aggregate_values(cls, values: Sequence[Any], how: str) -> Optional[Any]:
+        """Collapse a null-free column to one value.
+ 
+        Non-numeric columns (text bands, booleans-as-labels) have no meaningful
+        mean, so anything other than count/first falls back to the first value.
+        """
+        if not values:
+            return None
+        if how == "count":
+            return len(values)
+        if how == "first":
+            return values[0]
+ 
+        numbers: List[float] = []
+        for value in values:
+            number = cls._to_weight(value)
+            if number is not None:
+                numbers.append(number)
+ 
+        if not numbers:
+            return values[0]
+ 
+        if how == "sum":
+            return sum(numbers)
+        if how == "mean":
+            return sum(numbers) / len(numbers)
+        if how == "min":
+            return min(numbers)
+        if how == "max":
+            return max(numbers)
+ 
+        ordered = sorted(numbers)
+        middle = len(ordered) // 2
+        if len(ordered) % 2:
+            return ordered[middle]
+        return (ordered[middle - 1] + ordered[middle]) / 2.0
+ 
+    def _aggregate_local_temperature(
+        self,
+        *,
+        weather: Table,
+        heat_index: Table,
+        weather_values: Optional[Tuple[Any, ...]],
+        weather_index: Dict[str, int],
+        block: Optional[HeatBlock],
+        unit: str,
+        how: str,
+    ) -> Optional[float]:
+        """Aggregate of the per-point local temperature for one market/date.
+ 
+        Computed the same way getLocalTemperatureByCityDate does -- baseline
+        weather temperature offset by each point's UHI -- then collapsed.
+        Aggregating the UHI column first and offsetting once would be cheaper
+        but wrong for `mean`, since _clamp_urban_heat_index makes the
+        transform non-linear at the ends of the range.
+        """
+        if weather_values is None or block is None:
+            return None
+ 
+        cls = type(self)
+ 
+        temp_name = next(
+            (n for n in self.AVG_TEMP_CANDIDATES[unit] if n in weather.columns), ""
+        )
+        if not temp_name or temp_name not in weather_index:
+            return None
+ 
+        average_temperature = self._to_weight(weather_values[weather_index[temp_name]])
+        if average_temperature is None:
+            return None
+ 
+        uhi_name = next(
+            (n for n in self.UHI_CANDIDATES if n in heat_index.columns), ""
+        )
+        uhi_column = block.metrics.get(uhi_name) if uhi_name else None
+        if uhi_column is None:
+            return None
+ 
+        calculate = (
+            cls._calculate_local_temperature_f
+            if unit == "f"
+            else cls._calculate_local_temperature_c
+        )
+ 
+        # UHI values repeat heavily across a city, so memo the arithmetic.
+        memo: Dict[float, float] = {}
+        values: List[float] = []
+        for uhi in uhi_column:
+            if uhi is None or uhi != uhi:  # None or the NaN sentinel
+                continue
+            value = memo.get(uhi)
+            if value is None:
+                value = calculate(average_temperature, uhi)
+                memo[uhi] = value
+            values.append(value)
+ 
+        return self._aggregate_values(values, how)
 

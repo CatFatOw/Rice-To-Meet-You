@@ -1,21 +1,11 @@
 import React from 'react';
+import { formatMetricName } from '../services/map';
 import type { HeatRiskScaleProps } from '../types/components';
+import { getScaleLabels } from '../services/colors';
 
-const HeatRiskScale: React.FC<HeatRiskScaleProps> = ({ label, gradient }) => {
-  const key = label.trim().toLowerCase();
-  const isTemperature = key === 'temperature';
-  const isChangeInTemperature =
-    key === 'change in temperature' || key === 'change_in_temperature';
-
-  const tickLabels = isTemperature
-    ? ['10', '20', '30', '40', '50']
-    : isChangeInTemperature
-      ? ['-5', '-2.5', '0', '+2.5', '+5']
-      : ['0', '25', '50', '75', '100'];
-
-  const [lowLabel, highLabel] = isChangeInTemperature
-    ? ['Cooling', 'Warming']
-    : ['Low', 'High'];
+const HeatRiskScale: React.FC<HeatRiskScaleProps> = ({ metricKey, gradient }) => {
+  const label = formatMetricName(metricKey);
+  const { tickLabels, lowLabel, highLabel } = getScaleLabels(metricKey);
 
   return (
     <div

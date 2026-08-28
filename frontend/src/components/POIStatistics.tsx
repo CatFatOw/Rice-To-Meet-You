@@ -20,36 +20,7 @@ export function riskColor(score: number) {
 }
 
 const DEFAULT_POIS: POI[] = [
-  {
-    name: "NRG Stadium",
-    type: "Stadium (711310)",
-    heatRisk: 95,
-    visitors: "72,000",
-  },
-  {
-    name: "George R. Brown Conv. Center",
-    type: "Convention (561920)",
-    heatRisk: 83,
-    visitors: "18,000",
-  },
-  {
-    name: "Discovery Green",
-    type: "Park (811210)",
-    heatRisk: 62,
-    visitors: "9,500",
-  },
-  {
-    name: "The Galleria",
-    type: "Shopping Center (531120)",
-    heatRisk: 78,
-    visitors: "35,000",
-  },
-  {
-    name: "Houston Methodist Hospital",
-    type: "Hospital (622110)",
-    heatRisk: 70,
-    visitors: "6,200",
-  },
+
 ];
 
 const DEFAULT_COLUMNS: Column[] = [
@@ -59,7 +30,7 @@ const DEFAULT_COLUMNS: Column[] = [
     className: "font-medium text-slate-200",
   },
   {
-    header: "Type (NAICS)",
+    header: "Street Address",
     cell: (poi) => poi.type,
     className: "text-slate-400",
   },

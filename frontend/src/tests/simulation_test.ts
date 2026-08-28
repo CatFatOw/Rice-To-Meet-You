@@ -15,7 +15,7 @@
 
 // ⚠️ Adjust these two paths to wherever the files live in your tree.
 import { getSimulatedPointsByDate } from '../api/simulation';
-import { callHeatmapPointByDateHouston } from '../api/map';
+import { getHeatmapPointsByCityDateMetric } from '../api/map';
 
 import type { HeatmapPointsByDate, HeatmapMetricValue } from '../types/heatmap';
 import type {
@@ -153,12 +153,27 @@ const HOUSTON_TOOLS: BasePlacedObject[] = [
 function groupByCategory(tools: BasePlacedObject[]): BasePlacedObjectCategorized {
   const grouped: Record<string, BasePlacedObject[]> = {};
   for (const tool of tools) {
+    if (!tool.category) continue;
     (grouped[tool.category] ??= []).push(tool);
   }
   return grouped as unknown as BasePlacedObjectCategorized;
 }
 
 const PLACED_OBJECTS = groupByCategory(HOUSTON_TOOLS);
+
+async function callHeatmapPointByDateHouston(
+  metric: string,
+): Promise<HeatmapPointsByDate> {
+  const dates = ['2026-07-05', '2026-07-06', '2026-07-07', '2026-07-08'];
+  const byDate: HeatmapPointsByDate = {};
+
+  for (const date of dates) {
+    const { points } = await getHeatmapPointsByCityDateMetric('Houston', date, metric);
+    byDate[date] = points;
+  }
+
+  return byDate;
+}
 
 // =============================================================================
 // ── DIFFING ──────────────────────────────────────────────────────────────────

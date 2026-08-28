@@ -53,6 +53,7 @@ _COLUMNS: Final[str] = """
     id,
     market_code,
     name,
+    color,
     archetype_code,
     intervention_type,
     geometry_kind,
@@ -79,6 +80,7 @@ class UrbanInterventionRecord:
     id: UUID
     market_code: str
     name: str
+    color: str
     archetype_code: str
     intervention_type: InterventionType
     geometry_kind: GeometryKind
@@ -244,6 +246,7 @@ class UrbanInterventionRepository:
         columns: list[str] = [
             "market_code",
             "name",
+            "color",
             "archetype_code",
             "intervention_type",
             "geometry_kind",
@@ -253,6 +256,7 @@ class UrbanInterventionRepository:
         placeholders: list[str] = [
             ":market_code",
             ":name",
+            ":color",
             ":archetype_code",
             ":intervention_type",
             ":geometry_kind",
@@ -262,6 +266,7 @@ class UrbanInterventionRepository:
         bindings: dict[str, Any] = {
             "market_code": data["market_code"],
             "name": data["name"],
+            "color": data["color"],
             "archetype_code": data["archetype_code"],
             "intervention_type": intervention_type,
             "geometry_kind": geometry_kind,
@@ -305,6 +310,7 @@ class UrbanInterventionRepository:
             id=row["id"],
             market_code=row["market_code"],
             name=row["name"],
+            color=row["color"],
             archetype_code=row["archetype_code"],
             intervention_type=row["intervention_type"],
             geometry_kind=row["geometry_kind"],

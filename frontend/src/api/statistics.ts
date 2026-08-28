@@ -2,6 +2,8 @@ import type {
   StatCardInfo,
   CityStatisticsResponse,
   CitySeedData,
+  DistributionBucket,
+  TopDestination
 } from '../types/statistics';
 export type { CityStatisticsResponse };
 
@@ -428,6 +430,8 @@ export async function callMockStatistics(city: string): Promise<CityStatisticsRe
 
 
 
+
+
 // Simulated network latency so callers can exercise their loading states.
 const MOCK_LATENCY_MS = 150;
 
@@ -449,4 +453,423 @@ export async function createPOIArea(
   void color;
   void coordinates;
   // returns empty for now
+}
+
+// ---------------------------------------------------------------------------
+// GET /final_visitor/query-visitor-rows-with-geometry-by-city-date
+// ---------------------------------------------------------------------------
+
+const API_BASE_URL = 'http://localhost:8000';
+
+export interface VisitorPOI {
+  name: string;
+  streetAddress: string;
+  heatRisk: number | null;
+  visitors: string;
+}
+
+/** Shape of a single row coming back from the endpoint. */
+interface VisitorRow {
+  city?: string | null;
+  location_name?: string | null;
+  street_address?: string | null;
+  avg_daily_visits?: number | null;
+  heat_risk_score?: number | null;
+  core_poi_geometry_city?: string | null;
+  core_poi_geometry_location_name?: string | null;
+  core_poi_geometry_street_address?: string | null;
+  core_poi_geometry_sub_category?: string | null;
+  core_poi_geometry_top_category?: string | null;
+  core_poi_geometry_naics_code?: number | null;
+  core_poi_geometry_naics_code_2022?: number | null;
+}
+
+function toVisitorPOI(row: VisitorRow): VisitorPOI {
+  const name = row.location_name ?? row.core_poi_geometry_location_name ?? 'Unknown';
+  const city = row.city ?? row.core_poi_geometry_city ?? null;
+
+  const category = row.core_poi_geometry_sub_category ?? row.core_poi_geometry_top_category ?? null;
+  const naics = row.core_poi_geometry_naics_code_2022 ?? row.core_poi_geometry_naics_code ?? null;
+
+  let streetAddress: string;
+  if (category && naics != null) {
+    streetAddress = `${category} (${naics})`;
+  } else if (category) {
+    streetAddress = category;
+  } else {
+    streetAddress = row.street_address ?? row.core_poi_geometry_street_address ?? '';
+  }
+
+  const visits = row.avg_daily_visits;
+
+  return {
+    name: city ? `${name} — ${city}` : name,
+    streetAddress,
+    heatRisk: row.heat_risk_score != null ? Math.round(row.heat_risk_score) : null,
+    visitors: visits != null ? Math.round(visits).toLocaleString('en-US') : '',
+  };
+}
+
+/**
+ * Maps a row into the ranked-list shape. Returns null for rows this list can't
+ * represent, which the caller filters out.
+ */
+function toTopDestination(row: VisitorRow): TopDestination | null {
+  const name = row.location_name ?? row.core_poi_geometry_location_name ?? null;
+  const score = row.heat_risk_score;
+
+  // score is non-nullable on TopDestination, so unscored rows are dropped
+  // rather than coerced to 0 — an unscored POI isn't a zero-risk one.
+  if (name == null || score == null || !Number.isFinite(score)) return null;
+
+  return { name, score: Math.round(score) };
+}
+
+/**
+ * Shared request for the visitor-rows endpoint. Both fetchVisitorPOIs and
+ * fetchTopDestinations hit this and differ only in how they map the rows.
+ */
+async function fetchVisitorRows(
+  city: string,
+  date: string,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<VisitorRow[]> {
+  const params = new URLSearchParams({
+    city,
+    date,
+    sorted: 'true',
+    limit: String(limit),
+  });
+
+  const url = `${API_BASE_URL}/final_visitor/query-visitor-rows-with-geometry-by-city-date?${params}`;
+  const response = await fetch(url, { signal });
+
+  if (!response.ok) {
+    throw new Error(`Visitor rows request failed: ${response.status} ${response.statusText}`);
+  }
+
+  const payload: unknown = await response.json();
+  return Array.isArray(payload)
+    ? (payload as VisitorRow[])
+    : ((payload as { data?: VisitorRow[]; results?: VisitorRow[]; rows?: VisitorRow[] })?.data ??
+       (payload as { results?: VisitorRow[] })?.results ??
+       (payload as { rows?: VisitorRow[] })?.rows ??
+       []);
+}
+
+/**
+ * Fetches the top visitor rows for a city/date, sorted, and maps them into the
+ * POI card shape the statistics panel renders.
+ */
+export async function fetchVisitorPOIs(
+  city: string,
+  date: string,
+  limit = 10,
+  signal?: AbortSignal,
+): Promise<VisitorPOI[]> {
+  const rows = await fetchVisitorRows(city, date, limit, signal);
+  return rows.map(toVisitorPOI);
+}
+
+/**
+ * Same endpoint as fetchVisitorPOIs, mapped into the ranked-list shape the
+ * "Top Destinations" panel renders. Rows arrive sorted, so the returned order
+ * is the ranking.
+ *
+ * Rows without a heat_risk_score are omitted, so the result can be shorter
+ * than `limit` — over-fetch and slice if you need exactly that many.
+ */
+export async function fetchTopDestinations(
+  city: string,
+  date: string,
+  limit = 5,
+  signal?: AbortSignal,
+): Promise<TopDestination[]> {
+  const rows = await fetchVisitorRows(city, date, limit, signal);
+  return rows
+    .map(toTopDestination)
+    .filter((destination): destination is TopDestination => destination !== null);
+}
+
+
+/** Bands in severity order, with the colors the donut renders. */
+const HEAT_RISK_BANDS: readonly { label: string; color: string }[] = [
+  { label: 'Extreme Danger', color: '#c43f52' },
+  { label: 'Danger', color: '#e45b3f' },
+  { label: 'Extreme Caution', color: '#e8aa35' },
+  { label: 'Caution', color: '#83bf4f' },
+  { label: 'Low', color: '#4aa39c' },
+];
+
+/**
+ * GET /final_visitor/get-visitor-percentage-by-heat-risk, mapped into the
+ * donut's bucket shape.
+ *
+ * Always returns all five bands in severity order, zeros included — the chart
+ * legend then stays put across dates instead of reflowing as bands come and
+ * go. Values are percentages summing to 100, not counts like the seed data.
+ *
+ * Returns [] when the backend has nothing to classify for that city/date,
+ * which callers should treat as "no data" rather than "all zero".
+ */
+export async function getRiskDistributionByCityDate(
+  city: string,
+  date: string,
+  signal?: AbortSignal,
+): Promise<DistributionBucket[]> {
+  const params = new URLSearchParams({ city, date });
+  const url = `${API_BASE_URL}/final_visitor/get-visitor-percentage-by-heat-risk?${params}`;
+
+  const response = await fetch(url, { signal });
+
+  if (!response.ok) {
+    throw new Error(
+      `Heat risk distribution request failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const payload: unknown = await response.json();
+
+  // The endpoint returns {} when nothing for that city/date could be
+  // classified -- distinct from every band genuinely sitting at zero.
+  if (payload == null || typeof payload !== 'object' || Array.isArray(payload)) {
+    return [];
+  }
+
+  const percentages = payload as Record<string, unknown>;
+  if (Object.keys(percentages).length === 0) {
+    return [];
+  }
+
+  return HEAT_RISK_BANDS.map(({ label, color }) => {
+    const value = percentages[label];
+    return {
+      label,
+      color,
+      value: typeof value === 'number' && Number.isFinite(value) ? value : 0,
+    };
+  });
+}
+
+
+/**
+ * GET /final_visitor/get-average-heat-risk-score-by-city-date
+ *
+ * Mean heat_risk_score across rows that have one. Null when the city/date
+ * isn't cached or nothing in it is scored — distinct from an average that
+ * genuinely came out at 0, so don't collapse the two at the call site.
+ */
+export async function getAverageHeatRiskScoreByCityDate(
+  city: string,
+  date: string,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  const params = new URLSearchParams({ city, date });
+  const url = `${API_BASE_URL}/final_visitor/get-average-heat-risk-score-by-city-date?${params}`;
+
+  const response = await fetch(url, { signal });
+
+  if (!response.ok) {
+    throw new Error(
+      `Average heat risk request failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const payload: unknown = await response.json();
+
+  // The endpoint returns a bare number (or null). Unwrap a single-key object
+  // too, in case the response later gets wrapped in a model.
+  const value =
+    typeof payload === 'object' && payload !== null && !Array.isArray(payload)
+      ? (payload as { average_heat_risk_score?: unknown; value?: unknown })
+          .average_heat_risk_score ?? (payload as { value?: unknown }).value
+      : payload;
+
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+
+/**
+ * GET /final_visitor/get-visitor-in-unsafe-condition
+ *
+ * Total avg_daily_visits for the city/date, counted only when the heat index
+ * was at or above the unsafe threshold (90°F).
+ *
+ * The backend returns 0 in three different situations: it wasn't hot, there's
+ * no weather row for that market/date, and nothing is cached for that
+ * city/date. A 0 here does not mean "no visitors" — pair it with the total
+ * visits endpoint if you need to tell those apart.
+ */
+export async function getVisitorInUnsafeCondition(
+  city: string,
+  date: string,
+  signal?: AbortSignal,
+): Promise<number> {
+  const params = new URLSearchParams({ city, date });
+  const url = `${API_BASE_URL}/final_visitor/get-visitor-in-unsafe-condition?${params}`;
+
+  const response = await fetch(url, { signal });
+
+  if (!response.ok) {
+    throw new Error(
+      `Unsafe condition visits request failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const payload: unknown = await response.json();
+
+  // Bare number today; unwrap a single-key object in case it gets wrapped later.
+  const value =
+    typeof payload === 'object' && payload !== null && !Array.isArray(payload)
+      ? (payload as { total?: unknown; value?: unknown }).total ??
+        (payload as { value?: unknown }).value
+      : payload;
+
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * GET /final_visitor/get-total-visits-by-city-date
+ *
+ * Total avg_daily_visits for the city/date. The endpoint keys the number by
+ * ISO date ({"2026-08-16": 48213.0}) and returns {} when the total is zero or
+ * nothing is cached, so both cases arrive here as null.
+ *
+ * Passing an empty city totals every cached city for that date into one
+ * number, matching the backend's null-city branch.
+ */
+export async function getTotalVisitsByCityDate(
+  city: string,
+  date: string,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  const params = new URLSearchParams({ city, date });
+  const url = `${API_BASE_URL}/final_visitor/get-total-visits-by-city-date?${params}`;
+
+  const response = await fetch(url, { signal });
+
+  if (!response.ok) {
+    throw new Error(
+      `Total visits request failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const payload: unknown = await response.json();
+
+  if (payload == null || typeof payload !== 'object' || Array.isArray(payload)) {
+    return typeof payload === 'number' && Number.isFinite(payload) ? payload : null;
+  }
+
+  // Read the requested date's key, but fall back to the only value present in
+  // case the backend normalizes the date differently than it was sent.
+  const byDate = payload as Record<string, unknown>;
+  const values = Object.values(byDate);
+  const value = date in byDate ? byDate[date] : values.length === 1 ? values[0] : undefined;
+
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * GET /final_visitor/get-poi-count-in-unsafe-condition
+ *
+ * Number of POI-linked visitor rows for the city/date, counted only when the
+ * heat index was at or above the unsafe threshold (90°F).
+ *
+ * Returns 0 both when it wasn't hot and when there's no weather row for that
+ * market/date, so a 0 here doesn't mean "no POIs" — it means "no POIs counted
+ * as unsafe".
+ */
+export async function getPoiCountInUnsafeCondition(
+  city: string,
+  date: string,
+  signal?: AbortSignal,
+): Promise<number> {
+  const params = new URLSearchParams({ city, date });
+  const url = `${API_BASE_URL}/final_visitor/get-poi-count-in-unsafe-condition?${params}`;
+
+  const response = await fetch(url, { signal });
+
+  if (!response.ok) {
+    throw new Error(
+      `Unsafe POI count request failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const payload: unknown = await response.json();
+
+  // Bare integer today; unwrap a single-key object in case it gets wrapped later.
+  const value =
+    typeof payload === 'object' && payload !== null && !Array.isArray(payload)
+      ? (payload as { count?: unknown; total?: unknown; value?: unknown }).count ??
+        (payload as { total?: unknown }).total ??
+        (payload as { value?: unknown }).value
+      : payload;
+
+  return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : 0;
+}
+
+/** Compact counts for the stat cards: 12480 -> "12.5K", 1950000 -> "1.95M". */
+const compact = new Intl.NumberFormat('en-US', {
+  notation: 'compact',
+  maximumFractionDigits: 2,
+});
+
+/**
+ * Live replacement for buildStatCards(seed) — same four cards, in the same
+ * order, but sourced from the API instead of CITY_STATISTICS_SEED.
+ *
+ * The four requests go out together, so one slow endpoint doesn't serialize
+ * the rest. Any one of them rejecting rejects the whole call; catch at the
+ * call site and fall back to the seed if you'd rather show stale cards than
+ * an error state.
+ *
+ * Missing values render as an em dash rather than 0, since the backend
+ * returns 0/null for "no weather row" as well as for a genuine zero.
+ */
+export async function getStatsInfo(
+  city: string,
+  date: string,
+  signal?: AbortSignal,
+): Promise<StatCardInfo[]> {
+  const results = await Promise.allSettled([
+    getAverageHeatRiskScoreByCityDate(city, date, signal),
+    getTotalVisitsByCityDate(city, date, signal),
+    getVisitorInUnsafeCondition(city, date, signal),
+    getPoiCountInUnsafeCondition(city, date, signal),
+  ]);
+
+  const averageHeatRisk = results[0].status === 'fulfilled' ? results[0].value : null;
+  const totalVisitors = results[1].status === 'fulfilled' ? results[1].value : null;
+  const atRiskPopulation = results[2].status === 'fulfilled' ? results[2].value : 0;
+  const unsafePOIs = results[3].status === 'fulfilled' ? results[3].value : 0;
+
+  return [
+    {
+      icon: 'sun',
+      iconClassName: 'text-red-400',
+      label: 'Average Heat Risk',
+      value: averageHeatRisk != null ? Math.round(averageHeatRisk).toString() : '—',
+      suffix: averageHeatRisk != null ? getRiskLevelLabel(averageHeatRisk) : undefined,
+      suffixClassName: 'text-orange-400',
+    },
+    {
+      icon: 'users',
+      iconClassName: 'text-indigo-400',
+      label: 'Total Visitors (est.)',
+      value: totalVisitors != null ? compact.format(totalVisitors) : '—',
+    },
+    {
+      icon: 'users',
+      iconClassName: 'text-red-400',
+      label: 'At Risk Population',
+      value: compact.format(atRiskPopulation),
+    },
+    {
+      icon: 'wind',
+      iconClassName: 'text-yellow-400',
+      label: 'Unsafe POIs',
+      value: unsafePOIs.toLocaleString('en-US'),
+    },
+  ];
 }

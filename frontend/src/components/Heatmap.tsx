@@ -6,21 +6,22 @@ import {
   type HeatmapMetricValue,
 } from '../api/map';
 import { type City } from '../data/hostCities';
-import { getColor } from '../services/colors';
+import { getColor, metricStops, metricColorDomain, type Metric } from '../services/colors';
 import { useHeatmapLayers } from '../hooks/useHeatmapLayers';
 import SearchBar from './SearchBar';
 import Toolbox from './Toolbox';
 import HeatRiskScale from './Heatriskscale';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { SurfaceType } from '../services/map';
-import { classifySurface } from '../services/map';
+import { classifySurface, formatMetricName } from '../services/map';
 import type { GeocodeResult } from '../types/search';
 import type { HeatmapProps, TooltipState } from '../types/components';
 import type { ViewState } from '../types/viewState';
-import { fetchPlacedObjects } from '../api/tool';
+import { fetchPlacedObjectsByCityDate } from '../api/tool';
 import type { Geometry } from '../types/simulation';
 import { isPolygonSimple } from '../services/polygon';
 import { availableMetrics, availableDates } from '../api/map';
+
 
 
 
@@ -95,9 +96,16 @@ function hexToRgb(hex: string): [number, number, number] {
  * Maps a metric to the palette name `getColor` understands.
  * 'heat_risk_score' has no palette of its own and reuses the temperature ramp.
  */
-function colorMetricKey(metric: string): string {
-  if (metric === 'heat_risk_score') return 'temperature';
-  return metric;
+function colorMetricKey(metric: string): Metric {
+  if (metric === 'heat_risk_score') return 'average_temperature_c';
+  if (metric === 'average_temperature_c') return 'average_temperature_c';
+  if (metric === 'average_temperature_f') return 'average_temperature_f';
+  if (metric === 'heat_index_c') return 'heat_index_c';
+  if (metric === 'heat_index_f') return 'heat_index_f';
+  if (metric === 'average_relative_humidity_pct') return 'average_relative_humidity_pct';
+  if (metric === 'avg_daily_visits') return 'avg_daily_visits';
+  if (metric === 'change_in_temperature') return 'change_in_temperature';
+  return 'heat_risk_score';
 }
 
 /** Format an [r, g, b] tuple plus an alpha as a CSS rgba() string. */
@@ -105,13 +113,6 @@ function rgbaCss(rgb: [number, number, number], alpha: number): string {
   return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
 }
 
-
-function metricColorDomain(metric: string): [number, number] {
-  const colorMetric = colorMetricKey(metric);
-  if (colorMetric === 'average_temperature_c') return [0, 50];
-  if (colorMetric === 'change_in_temperature') return [0, 10]; // shifted from [-5, 5]
-  return [0, 100];
-}
 
 function metricWeightOffset(metric: string): number {
   return colorMetricKey(metric) === 'change_in_temperature' ? 5 : 0;
@@ -122,15 +123,6 @@ function metricWeightOffset(metric: string): number {
  * heatmap colour range and the legend gradient. Temperature is in °C and
  * spans ~10–44; visitor density is a 0–100 index.
  */
-function metricStops(colorMetric: string): number[] {
-  if (colorMetric === 'temperature') {
-    return [12, 16, 20, 23, 25, 27, 29, 31, 33, 35, 37, 39, 44];
-  }
-  if (colorMetric === 'change_in_temperature') {
-    return [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5];
-  }
-  return [0, 20, 40, 60, 80, 100];
-}
 
 /**
  * Build the six-stop RGBA colour ramp deck.gl's heatmap layer expects.
@@ -170,20 +162,6 @@ function metricLegendGradient(metric: string): string {
   });
 
   return `linear-gradient(to right, ${segments.join(', ')})`;
-}
-
-/**
- * Title-cased display name for a top-level metric key, used in the legend,
- * the Toolbox toggle and the tooltip header. Two keys are special-cased;
- * anything else is snake_case -> Title Case.
- */
-function formatMetricName(metricKey: string): string {
-  if (metricKey === 'heat_risk_score') return 'Heat Risk';
-  if (metricKey === 'visitor_activity') return 'Visitor Activity';
-  return metricKey
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
 }
 
 const Heatmap: React.FC<HeatmapProps> = ({
@@ -251,6 +229,10 @@ const Heatmap: React.FC<HeatmapProps> = ({
         : [],
     [placedObjectsControls?.pendingPlacedObject],
   );
+
+  useEffect(() => {
+    console.log('Heatmap placedObjects changed:', currentPlacedObjects);
+  }, [currentPlacedObjects]);
 
 
 
@@ -404,7 +386,7 @@ const hoverablePolygons = useMemo(() => {
     [activeMetricKey],
   );
 
-  // Load mock placed-object tools for the selected city + date and push them
+  // Load placed-object tools for the selected city + date and push them
   // into placedObjectsControls. Re-runs on city/date change; clears when either
   // is missing. The ignore flag drops a stale response if the selection changes
   // mid-fetch.
@@ -426,11 +408,11 @@ const hoverablePolygons = useMemo(() => {
 
     let ignore = false;
     setIsPlacedObjectsLoading(true);
+    const marketCode = selectedCity.trim().toLowerCase().replace(/\s+/g, '_');
 
-    fetchPlacedObjects()
-      .then((byDateCity) => {
+    fetchPlacedObjectsByCityDate(selectedDate, marketCode)
+      .then((tools) => {
         if (ignore) return;
-        const tools = byDateCity[selectedDate]?.[selectedCity] ?? [];
         setPlacedObjects(tools);
         setIsPlacedObjectsLoading(false);
       })
@@ -463,12 +445,9 @@ const hoverablePolygons = useMemo(() => {
       }
 
       return {
+        ...prev,
         type: prev?.type ?? 'polygon',
         name: prev?.name ?? 'polygon',
-        color: prev?.color,
-        params: prev?.params,
-        activeFrom: prev?.activeFrom,
-        activeTo: prev?.activeTo,
         geometry: { kind: 'polygon', ring: draftPoints } as Geometry,
       };
     });
@@ -887,7 +866,7 @@ const hoverablePolygons = useMemo(() => {
       </button>
 
       {/* Legend. Shares its gradient with the active layer's colour ramp. */}
-      <HeatRiskScale label={metricLabelText} gradient={activeMetricLegendGradient} />
+      <HeatRiskScale metricKey={activeMetricKey} gradient={activeMetricLegendGradient} />
 
       {/* Hover tooltip, positioned in screen space from the deck.gl pixel
           coordinates. pointerEvents: none so it never swallows map hovers. */}

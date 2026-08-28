@@ -3,6 +3,7 @@ from sqlalchemy.orm  import Session
 from database import get_db
 from repository import final_visitor_repository
 from datetime import date as Date
+from typing import Optional
 from models.final_visitor_tables import VisitorData
 from schemas.final_visitor_schemas import FinalVisitorDataCreate, FinalVisitorDataResponse
 
@@ -29,6 +30,95 @@ async def get_visitor_data_by_city_date(
     if not result:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="NOTFOUND!")
     return result
+
+
+@router.get("/get-heat-risk-score-by-city-date")
+async def get_heat_risk_score_by_city_date(
+    city: str,
+    date: Date,
+    db: Session = Depends(get_db),
+):
+    repository = visitor_data_class(db)
+    result = repository.getHeatRiskScoreByCityDate(city, date)
+    if not result:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="NOTFOUND!")
+    return result
+
+
+@router.get("/query-visitor-rows-with-geometry-by-city-date")
+async def query_visitor_rows_with_geometry_by_city_date(
+    city: str,
+    date: Date,
+    sorted: bool = False,
+    limit: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    repository = visitor_data_class(db)
+    rows = repository.queryVisitorRowsWithGeometryByCityDate(
+        city, date, sorted=sorted, limit=limit
+    )
+    if not rows:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="NOTFOUND!")
+    return [dict(row._mapping) for row in rows]
+
+@router.get("/get-total-visits-by-city-date")
+async def get_total_visits_by_city_date(
+    date: Date,
+    city: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    repository = visitor_data_class(db)
+    result = repository.getTotalVisitsByCityDate(city, date)
+    if not result:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="NOTFOUND!")
+    return result
+
+
+@router.get("/get-visitor-percentage-by-heat-risk")
+async def get_visitor_percentage_by_heat_risk(
+    date: Date,
+    city: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    repository = visitor_data_class(db)
+    result = repository.getVisitorPercentageByHeatRisk(city, date)
+    if not result:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="NOT FOUND!")
+    return result
+
+
+@router.get("/get-average-heat-risk-score-by-city-date")
+async def get_average_heat_risk_score_by_city_date(
+    city: str,
+    date: Date,
+    db: Session = Depends(get_db),
+):
+    repository = visitor_data_class(db)
+    result = repository.getAverageHeatRiskScoreByCityDate(city, date)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="NOT FOUND!")
+    return result
+
+
+@router.get("/get-visitor-in-unsafe-condition")
+async def get_visitor_in_unsafe_condition(
+    city: str,
+    date: Date,
+    db: Session = Depends(get_db),
+):
+    repository = visitor_data_class(db)
+    return repository.getVisitorInUnsafeCondition(city, date)
+
+
+@router.get("/get-poi-count-in-unsafe-condition")
+async def get_poi_count_in_unsafe_condition(
+    city: str,
+    date: Date,
+    db: Session = Depends(get_db),
+):
+    repository = visitor_data_class(db)
+    return repository.getPoiCountInUnsafeCondition(city, date)
+
 
 # basic crud updates and deletes in case we need them
 @router.post("/upload", response_model=FinalVisitorDataResponse, status_code=status.HTTP_201_CREATED)

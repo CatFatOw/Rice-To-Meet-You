@@ -271,17 +271,29 @@ const Toolbox: React.FC<ToolboxProps> = ({
     });
   }, [isDrawing, isPolygonTool, draftPoints, updatePendingPlacedObject]);
 
+  React.useEffect(() => {
+    if (!selectedCity) {
+      updatePendingPlacedObject?.({ market_code: undefined });
+      return;
+    }
+
+    const marketCode = selectedCity.trim().toLowerCase().replace(/\s+/g, '_');
+    updatePendingPlacedObject?.({ market_code: marketCode });
+  }, [selectedCity, updatePendingPlacedObject]);
+
   // Stage a fresh pending object for the clicked intervention. Dates already
   // entered are carried across so switching interventions doesn't wipe them.
   const handleSelectIntervention = React.useCallback(
     (item: ToolboxItemDef) => {
       if (!citySelected || !selectedArchetype) return;
       setSelectedIntervention(item.intervention);
+      
       setPendingPlacedObject?.({
         intervention: item.intervention,
         category: selectedArchetype,
         name: formatInterventionLabel(item.intervention),
         color: item.color,
+        market_code: selectedCity ? selectedCity.trim().toLowerCase().replace(/\s+/g, '_') : undefined,
         params: { ...item.params },
         activeFrom: pendingPlacedObject?.activeFrom ?? '',
         activeTo: pendingPlacedObject?.activeTo ?? '',
@@ -333,8 +345,7 @@ const handleDrawIntervention = React.useCallback(
   React.useEffect(() => {
     placedObjectsControls?.clearPendingPlacedObject?.();
     onCancelDrawing();
-
-  }, [selectedArchetype, selectedIntervention])
+  }, [selectedArchetype])
 
   // Save gate for the selected intervention: a city, an intervention, both
   // dates, and — for polygons only — a color plus a valid (simple, 3+ point)
