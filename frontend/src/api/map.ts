@@ -18,7 +18,7 @@ import type {
   HeatmapPointsByDate,
 } from '../types/heatmap';
 
-
+import { polygonCenter } from '../services/toolbox';
 
 export type {
   CityPOIArea,
@@ -34,6 +34,8 @@ export type {
   Polygon,
   LocationReading,
 };
+
+const BASE_URL = "http://127.0.0.1:8000";
 
 // ============================================================================
 // Houston POIs
@@ -106,7 +108,7 @@ export async function callMockCityPOIs(
   return cityPOIAreas[cityName] ?? [];
 }
 
-interface CorePOIResponse {
+export interface CorePOIResponse {
   id: number | string;
   location_name: string;
   city: string;
@@ -114,15 +116,117 @@ interface CorePOIResponse {
   polygon_wkt: string;
 }
 
-function parseRGBColor(value: string): [number, number, number, number] {
+// ============================================================================
+// Polygon / Color Parsing
+// ============================================================================
+
+function parseRGBColor(value?: string | null): [number, number, number, number] {
+  if (!value) {
+    return [34, 197, 94, 160];
+  }
   const match = value.match(/^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/i);
-  if (!match) {
-    throw new Error(`Invalid POI color: ${value}`);
+  if (match) {
+    return [Number(match[1]), Number(match[2]), Number(match[3]), 160];
+  }
+  const matchRgba = value.match(/^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)$/i);
+  if (matchRgba) {
+    const a = parseFloat(matchRgba[4]);
+    return [Number(matchRgba[1]), Number(matchRgba[2]), Number(matchRgba[3]), a <= 1 ? Math.round(a * 255) : Number(a)];
+  }
+  if (value.startsWith('#')) {
+    const hex = value.slice(1);
+    const expanded = hex.length === 3 ? hex.split('').map((c) => c + c).join('') : hex;
+    const int = parseInt(expanded, 16);
+    if (!Number.isNaN(int)) {
+      return [(int >> 16) & 255, (int >> 8) & 255, int & 255, 160];
+    }
   }
 
-  return [Number(match[1]), Number(match[2]), Number(match[3]), 160];
+  return [34, 197, 94, 160];
 }
 
+/**
+ * Parses a bare coordinate list — no WKT keyword or parentheses — into a ring.
+ *
+ * Accepts both shapes people actually type:
+ *   "-96.80 32.78, -96.79 32.79, -96.78 32.77"   (space between lng/lat)
+ *   "-96.80,32.78,-96.79,32.79,-96.78,32.77"     (flat comma-separated list)
+ */
+function parsePolygonBody(value: string): Polygon {
+  // Tolerate a caller who wrapped the list in its own parens.
+  const cleaned = value.trim().replace(/^\(+/, '').replace(/\)+$/, '').trim();
+
+  if (!cleaned) {
+    throw new Error('Invalid POI polygon: coordinate list is empty');
+  }
+
+  const chunks = cleaned
+    .split(',')
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+
+  if (chunks.length === 0) {
+    throw new Error('Invalid POI polygon: coordinate list is empty');
+  }
+
+  const ring: Polygon = [];
+
+  // If no chunk holds two numbers, this is a flat list and pairs straddle commas.
+  const isFlatList = chunks.every((chunk) => !/\s/.test(chunk));
+
+  if (isFlatList) {
+    if (chunks.length % 2 !== 0) {
+      throw new Error(
+        `Invalid POI polygon: expected an even number of values, got ${chunks.length}`,
+      );
+    }
+
+    for (let i = 0; i < chunks.length; i += 2) {
+      ring.push(toCoordinate(chunks[i], chunks[i + 1], `${chunks[i]},${chunks[i + 1]}`));
+    }
+  } else {
+    for (const chunk of chunks) {
+      const parts = chunk.split(/\s+/);
+      if (parts.length !== 2) {
+        throw new Error(`Invalid POI polygon coordinate: ${chunk}`);
+      }
+      ring.push(toCoordinate(parts[0], parts[1], chunk));
+    }
+  }
+
+  // A closing vertex is optional on input, so count distinct points.
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  const distinct =
+    ring.length > 1 && first[0] === last[0] && first[1] === last[1]
+      ? ring.length - 1
+      : ring.length;
+
+  if (distinct < 3) {
+    throw new Error(
+      `Invalid POI polygon: a ring needs at least 3 distinct points, got ${distinct}`,
+    );
+  }
+
+  return ring;
+}
+
+function toCoordinate(
+  rawLongitude: string,
+  rawLatitude: string,
+  context: string,
+): [number, number] {
+  const longitude = Number(rawLongitude);
+  const latitude = Number(rawLatitude);
+
+  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+    throw new Error(`Invalid POI polygon coordinate: ${context}`);
+  }
+
+  return [longitude, latitude];
+}
+
+/** Strips the POLYGON/MULTIPOLYGON wrapper, then parses the outer ring. */
 function parsePolygonWKT(value: string): Polygon {
   const trimmed = value.trim();
   const match = trimmed.match(
@@ -134,16 +238,25 @@ function parsePolygonWKT(value: string): Polygon {
     throw new Error(`Invalid POI polygon: ${value}`);
   }
 
-  return body.split(',').map((coordinate) => {
-    const [longitude, latitude] = coordinate
-      .trim()
-      .split(/\s+/)
-      .map(Number);
-    if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
-      throw new Error(`Invalid POI polygon coordinate: ${coordinate}`);
-    }
-    return [longitude, latitude];
-  });
+  return parsePolygonBody(body);
+}
+
+/** Accepts either a WKT string or a bare coordinate list. */
+export function toPolygonRing(value: string): Polygon {
+  return /^\s*(?:MULTI)?POLYGON/i.test(value)
+    ? parsePolygonWKT(value)
+    : parsePolygonBody(value);
+}
+
+/** Serializes a ring as `POLYGON((lng lat, ...))`, closing it if needed. */
+export function toPolygonWKT(ring: Polygon): string {
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  const closed =
+    first[0] === last[0] && first[1] === last[1] ? ring : [...ring, first];
+
+  const body = closed.map(([lng, lat]) => `${lng} ${lat}`).join(', ');
+  return `POLYGON((${body}))`;
 }
 
 export async function callAllCityPOIs(): Promise<CityPOIAreaMap> {
@@ -156,33 +269,24 @@ export async function callAllCityPOIs(): Promise<CityPOIAreaMap> {
     throw new Error(`POI request failed: ${response.status} ${response.statusText}`);
   }
 
-  const rows = (await response.json()) as CorePOIResponse[];
+  const rows = (await response.json()) as (CorePOIResponse & Record<string, any>)[];
   return rows.reduce<CityPOIAreaMap>((areasByCity, row) => {
     const area: CityPOIArea = {
+      ...row,
       id: String(row.id),
       name: row.location_name,
       color: parseRGBColor(row.color),
       polygon: parsePolygonWKT(row.polygon_wkt),
     };
-   
+
     (areasByCity[row.city] ??= []).push(area);
     return areasByCity;
   }, {});
 }
 
-
-
 // ============================================================================
-
-
-const BASE_URL = "http://127.0.0.1:8000";
-
-export interface HeatmapMetricOptions {
-  /** Column names to include in `individual_metrics`. Omit for all of them;
-   *  pass [] for none. The chosen `metric` is always excluded. */
-  additionalMetrics?: string[];
-  signal?: AbortSignal;
-}
+// Market Codes
+// ============================================================================
 
 function toMarketCode(city: string): string {
   const normalized = city.trim().toLowerCase();
@@ -198,7 +302,141 @@ function toMarketCode(city: string): string {
   return aliases[normalized] ?? normalized.replace(/\s+/g, '_');
 }
 
+// ============================================================================
+// POI Creation
+// ============================================================================
 
+const HEX_COLOR = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+/**
+ * "#ff0000" | "#f00" -> "rgb(255, 0, 0)".
+ * Existing rgb()/rgba() strings pass through unchanged.
+ */
+function toRgbColor(color: string): string {
+  const value = color.trim();
+  if (/^rgba?\(/i.test(value)) return value;
+
+  const match = HEX_COLOR.exec(value);
+  if (!match) {
+    throw new Error(`POI color must be a hex or rgb color: ${color}`);
+  }
+
+  const hex =
+    match[1].length === 3 ? match[1].replace(/./g, (c) => c + c) : match[1];
+
+  const int = parseInt(hex, 16);
+  return `rgb(${(int >> 16) & 255}, ${(int >> 8) & 255}, ${int & 255})`;
+}
+
+/** Optional columns the endpoint accepts. Passed through untouched. */
+export interface CreatePOIOptionalFields {
+  brands?: string[];
+  category_tags?: string[];
+  domains?: string[];
+  enclosed?: boolean;
+  naics_code?: number;
+  naics_code_2022?: number;
+  /** "YYYY-MM-DD" */
+  opened_on?: string;
+  /** e.g. { Mon: [["9:00", "17:00"]] } */
+  open_hours?: Record<string, string[][]>;
+  phone_number?: string;
+  postal_code?: string;
+  street_address?: string;
+  sub_category?: string;
+  sub_category_2022?: string;
+  top_category?: string;
+  top_category_2022?: string;
+  website?: string;
+  wkt_area_sq_meters?: number;
+  /** Hex ("#ff0000" or "#f00") or an rgb() string. Sent as "rgb(r, g, b)". */
+  color?: string;
+}
+
+export interface CreatePOIInput extends CreatePOIOptionalFields {
+  /** Display city, e.g. "Kansas City". `market` is derived from this. */
+  city: string;
+  /** "-96.80 32.78, -96.79 32.79, ..." or a full POLYGON/MULTIPOLYGON WKT. */
+  polygon: string;
+  location_name: string;
+  /** Two-letter state/region code. */
+  region: string;
+  includes_parking_lot: boolean;
+  signal?: AbortSignal;
+}
+
+export async function createPOI(
+  input: CreatePOIInput,
+): Promise<CorePOIResponse> {
+  const { city, polygon, region, location_name, signal, color, ...rest } =
+    input;
+
+  const ring = toPolygonRing(polygon);
+  const [longitude, latitude] = polygonCenter(ring);
+
+  if (!Number.isFinite(longitude) || Math.abs(longitude) > 180) {
+    throw new Error(`POI longitude out of range: ${longitude}`);
+  }
+  if (!Number.isFinite(latitude) || Math.abs(latitude) > 90) {
+    throw new Error(`POI latitude out of range: ${latitude}`);
+  }
+
+  const normalizedRegion = region.trim().toUpperCase();
+  if (normalizedRegion.length !== 2) {
+    throw new Error(`POI region must be a two-letter code: ${region}`);
+  }
+
+  const trimmedName = location_name.trim();
+  if (!trimmedName) {
+    throw new Error('POI location_name is required');
+  }
+
+  const payload = {
+    ...rest,
+    ...(color === undefined ? {} : { color: toRgbColor(color) }),
+    location_name: trimmedName,
+    city: city.trim(),
+    market: toMarketCode(city),
+    region: normalizedRegion,
+    polygon_wkt: toPolygonWKT(ring),
+    latitude,
+    longitude,
+  };
+  console.log(payload)
+
+  const response = await fetch(`${BASE_URL}/core_poi/create-poi`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(payload),
+    signal,
+  });
+
+  if (!response.ok) {
+    // FastAPI puts validation errors in `detail`; surface it when present.
+    const detail = await response.text().catch(() => '');
+    throw new Error(
+      `POI creation failed: ${response.status} ${response.statusText}${
+        detail ? ` — ${detail}` : ''
+      }`,
+    );
+  }
+
+  return (await response.json()) as CorePOIResponse;
+}
+
+// ============================================================================
+// Heatmap
+// ============================================================================
+
+export interface HeatmapMetricOptions {
+  /** Column names to include in `individual_metrics`. Omit for all of them;
+   *  pass [] for none. The chosen `metric` is always excluded. */
+  additionalMetrics?: string[];
+  signal?: AbortSignal;
+}
 
 export async function getHeatmapPointsByCityDateMetric(
   city: string,
@@ -215,7 +453,6 @@ export async function getHeatmapPointsByCityDateMetric(
   );
 
   const url = `${BASE_URL}/heatmap/get-heatmap-points-by-city-date-metric?${params}`;
-  console.log(url)
   const res = await fetch(url, {
     method: "GET",
     headers: { Accept: "application/json" },
@@ -357,35 +594,20 @@ export const availableMetrics = [
     ],
   },
   {
-
     local_temperature_c: [
-
       "local_temperature_c",
-
       "local_temperature_f",
-
       "average_temperature_c",
-
       "average_relative_humidity_pct",
-
     ],
-
   },
-
   {
-
     local_temperature_f: [
-
       "local_temperature_f",
-
       "local_temperature_c",
-
       "average_temperature_f",
-
       "average_relative_humidity_pct",
-
     ],
-
   },
 ];
 
@@ -403,7 +625,6 @@ const generateAvailableDates = (): string[] => {
 };
 
 export const availableDates = generateAvailableDates();
-
 
 export interface LocalTemperatureOptions {
   /** Temperature column the backend reads from. Defaults to `average_temperature_c`. */

@@ -77,6 +77,8 @@ export interface ToolboxProps {
     placedObjects: ToolboxPlacedObject[];
     setPlacedObjects: React.Dispatch<React.SetStateAction<ToolboxPlacedObject[]>>;
     pendingPlacedObject?: Omit<ToolboxPlacedObject, 'id'> | null;
+    isPickingPoint?: boolean;
+    setIsPickingPoint?: React.Dispatch<React.SetStateAction<boolean>>;
     setPendingPlacedObject?: React.Dispatch<React.SetStateAction<Omit<ToolboxPlacedObject, 'id'> | null>>;
     updatePendingPlacedObject?: (patch: Partial<Omit<ToolboxPlacedObject, 'id'>>) => void;
     commitPendingPlacedObject?: () => Promise<void>;
@@ -134,9 +136,12 @@ export interface HeatRiskScaleProps {
 // ---------------------------------------------------------------------------
 // TooltipState (used by Heatmap and pages)
 // ---------------------------------------------------------------------------
+import type { PlacedObject } from '../services/toolbox';
 export interface TooltipState {
-  point: HeatmapMetricValue;
-  metric: string;
+  point?: HeatmapMetricValue;
+  metric?: string;
+  object?: PlacedObject;
+  poi?: CityPOIArea;
   x: number;
   y: number;
   coordinates: {
@@ -195,6 +200,8 @@ export interface HeatmapProps {
     placedObjects: ToolboxPlacedObject[];
     setPlacedObjects: React.Dispatch<React.SetStateAction<ToolboxPlacedObject[]>>;
     pendingPlacedObject?: Omit<ToolboxPlacedObject, 'id'> | null;
+    isPickingPoint?: boolean;
+    setIsPickingPoint?: React.Dispatch<React.SetStateAction<boolean>>;
     setPendingPlacedObject?: React.Dispatch<React.SetStateAction<Omit<ToolboxPlacedObject, 'id'> | null>>;
     updatePendingPlacedObject?: (patch: Partial<Omit<ToolboxPlacedObject, 'id'>>) => void;
     commitPendingPlacedObject?: () => Promise<void>;

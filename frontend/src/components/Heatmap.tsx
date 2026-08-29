@@ -14,26 +14,70 @@ import HeatRiskScale from './Heatriskscale';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { SurfaceType } from '../services/map';
 import { classifySurface, formatMetricName } from '../services/map';
-import type { GeocodeResult } from '../types/search';
-import type { HeatmapProps, TooltipState } from '../types/components';
+import type { HeatmapProps } from '../types/components';
 import type { ViewState } from '../types/viewState';
 import { fetchPlacedObjectsByCityDate } from '../api/tool';
 import type { Geometry } from '../types/simulation';
 import { isPolygonSimple } from '../services/polygon';
 import { availableMetrics, availableDates } from '../api/map';
-
-
-
-
-
-// Re-exported so existing imports (`import Heatmap, { type GeocodeResult }`)
-// keep working now that the search UI lives in its own component.
-export type { GeocodeResult, TooltipState };
+import type { PlacedObject } from '../services/toolbox';
 
 // ======================================================
 // Formatting helpers
 // Pure functions: raw metric keys -> human-readable text.
 // ======================================================
+
+function formatPoiFieldKey(key: string): string {
+  const customLabels: Record<string, string> = {
+    location_name: 'Location Name',
+    polygon_wkt: 'Polygon WKT',
+    includes_parking_lot: 'Includes Parking Lot',
+    naics_code: 'NAICS Code',
+    naics_code_2022: 'NAICS Code (2022)',
+    sub_category_2022: 'Sub Category (2022)',
+    top_category_2022: 'Top Category (2022)',
+    wkt_area_sq_meters: 'Area (sq m)',
+    average_uhi: 'Average UHI',
+    matched_uhi_count: 'Matched UHI Count',
+    safegraph_place_id: 'SafeGraph ID',
+    iso_country_code: 'Country Code',
+    is_synthetic: 'Synthetic',
+    geometry_type: 'Geometry Type',
+    polygon_class: 'Polygon Class',
+    open_hours: 'Open Hours',
+    opened_on: 'Opened On',
+    closed_on: 'Closed On',
+    tracking_closed_since: 'Closed Since',
+    street_address: 'Address',
+    postal_code: 'Postal Code',
+    phone_number: 'Phone',
+    market_code: 'Market Code',
+    created_at: 'Created At',
+  };
+
+  if (customLabels[key]) return customLabels[key];
+
+  return key
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function formatPoiFieldValue(value: any): string {
+  if (typeof value === 'boolean') {
+    return value ? 'Yes' : 'No';
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '';
+    return value
+      .map((item) => (typeof item === 'object' && item !== null ? JSON.stringify(item) : String(item)))
+      .join(', ');
+  }
+  if (typeof value === 'object' && value !== null) {
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
 
 /**
  * Short display name for a raw sub-metric key, used in the tooltip's
@@ -280,12 +324,21 @@ const hoverablePolygons = useMemo(() => {
    */
   const handleDeckClick = useCallback(
     (info: any) => {
+      if (placedObjectsControls?.isPickingPoint && info?.coordinate) {
+        const [lng, lat] = info.coordinate;
+        placedObjectsControls.updatePendingPlacedObject?.({
+          geometry: { kind: 'point', longitude: lng, latitude: lat },
+        });
+        placedObjectsControls.setIsPickingPoint?.(false);
+        return;
+      }
+
       // Add vertices while drawing
       if (!isDrawing || !info?.coordinate) return;
       const [lng, lat] = info.coordinate;
       drawControls.addDraftPoint(lng, lat);
     },
-    [isDrawing, drawControls],
+    [isDrawing, drawControls, placedObjectsControls],
   );
 
   // Fly the map + shared view state to a location. Pass cityName to also mark a
@@ -382,7 +435,7 @@ const hoverablePolygons = useMemo(() => {
     [activeMetricKey],
   );
   const activeMetricColorDomain = useMemo(
-    () => metricColorDomain(activeMetricKey),
+    () => metricColorDomain(activeMetricKey as Metric),
     [activeMetricKey],
   );
 
@@ -519,18 +572,48 @@ const hoverablePolygons = useMemo(() => {
   const handleDeckHover = useCallback(
       (info: {
         coordinate?: number[];
-        object?: HeatmapMetricValue | null;
+        object?: HeatmapMetricValue | PlacedObject | null;
         x: number;
         y: number;
       }) => {
-        if (
-          isDrawing ||
-          !selectedCity ||
-          !selectedDate ||
-          displayedHeatmapPoints.length === 0 ||
-          !info.coordinate ||
-          info.coordinate.length < 2
-        ) {
+        if (isDrawing || !info.coordinate || info.coordinate.length < 2) {
+          setHoveringHeatmap(false);
+          setTooltip(null);
+          return;
+        }
+        const pickedLayerId = (info as any).layer?.id;
+
+        if (pickedLayerId?.startsWith('placed-object-') && info.object) {
+          const object = info.object as PlacedObject;
+          setHoveringHeatmap(false);
+          setTooltip({
+            object,
+            x: info.x,
+            y: info.y,
+            coordinates: {
+              longitude: info.coordinate[0],
+              latitude: info.coordinate[1],
+            },
+          });
+          return;
+        }
+
+        if (pickedLayerId === 'poi-area-layer' && info.object) {
+          const poi = info.object as unknown as CityPOIArea;
+          setHoveringHeatmap(false);
+          setTooltip({
+            poi,
+            x: info.x,
+            y: info.y,
+            coordinates: {
+              longitude: info.coordinate[0],
+              latitude: info.coordinate[1],
+            },
+          });
+          return;
+        }
+
+        if (!selectedCity || !selectedDate || displayedHeatmapPoints.length === 0) {
           setHoveringHeatmap(false);
           setTooltip(null);
           return;
@@ -550,7 +633,6 @@ const hoverablePolygons = useMemo(() => {
 
         // Hovering an actual reading (pointPickLayer): report its true,
         // unblended value instead of the interpolated surface sample below.
-        const pickedLayerId = (info as any).layer?.id;
         if (pickedLayerId === 'heatmap-point-pick-layer' && info.object) {
           const point = info.object as HeatmapMetricValue;
           setHoveringHeatmap(true);
@@ -593,10 +675,12 @@ const hoverablePolygons = useMemo(() => {
     ({ isDragging }: { isDragging: boolean }) =>
       isDragging || isAreaDragging
         ? 'grabbing'
-        : isDrawing || hoveringHeatmap || !!editingAreaId
+        : placedObjectsControls?.isPickingPoint || isDrawing || hoveringHeatmap || !!editingAreaId
           ? 'crosshair'
-          : 'grab',
-    [isDrawing, hoveringHeatmap, editingAreaId, isAreaDragging],
+          : tooltip?.poi || tooltip?.object
+            ? 'pointer'
+            : 'grab',
+    [isDrawing, hoveringHeatmap, editingAreaId, isAreaDragging, placedObjectsControls?.isPickingPoint, tooltip?.poi, tooltip?.object],
   );
 
   // Mirror the browser's fullscreen state into React. Needed because the user
@@ -868,9 +952,129 @@ const hoverablePolygons = useMemo(() => {
       {/* Legend. Shares its gradient with the active layer's colour ramp. */}
       <HeatRiskScale metricKey={activeMetricKey} gradient={activeMetricLegendGradient} />
 
+      {/* POI Tooltip: displays any non-null information for the hovered POI */}
+      {tooltip?.poi && (
+        <div
+          style={{
+            position: 'absolute',
+            left: tooltip.x + 14,
+            top: tooltip.y - 14,
+            backgroundColor: 'rgba(2, 8, 23, 0.94)',
+            border: '1px solid rgba(100, 116, 139, 0.6)',
+            borderRadius: '8px',
+            padding: '12px 14px',
+            pointerEvents: 'none',
+            zIndex: 20,
+            minWidth: '240px',
+            maxWidth: '380px',
+            maxHeight: '440px',
+            overflowY: 'auto',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+            color: 'white',
+            fontSize: '13px',
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 8, fontSize: '14px', color: '#f1f5f9' }}>
+            {tooltip.poi.location_name || tooltip.poi.name || 'Point of Interest'}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {Object.entries(tooltip.poi)
+              .filter(([key, val]) => {
+                if (key === 'polygon' || key === 'polygon_geom' || key === 'raw' || key === 'name' || key === 'location_name') return false;
+                if (val === null || val === undefined || val === '') return false;
+                if (Array.isArray(val) && val.length === 0) return false;
+                return true;
+              })
+              .map(([key, val]) => {
+                if (key === 'color' && Array.isArray(val) && val.length >= 3) {
+                  const colorStr = `rgb(${val[0]}, ${val[1]}, ${val[2]})`;
+                  return (
+                    <div key={key} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#cbd5e1' }}>
+                      <span style={{ color: '#94a3b8', flexShrink: 0 }}>Color</span>
+                      <span style={{ fontWeight: 600, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: colorStr, display: 'inline-block', border: '1px solid rgba(255,255,255,0.4)' }} />
+                        {colorStr}
+                      </span>
+                    </div>
+                  );
+                }
+                const formattedVal = formatPoiFieldValue(val);
+                return (
+                  <div key={key} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#cbd5e1', wordBreak: 'break-word' }}>
+                    <span style={{ color: '#94a3b8', flexShrink: 0 }}>{formatPoiFieldKey(key)}</span>
+                    <span style={{ fontWeight: 600, color: '#e2e8f0', textAlign: 'right', maxWidth: '65%' }}>
+                      {formattedVal}
+                    </span>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+
       {/* Hover tooltip, positioned in screen space from the deck.gl pixel
           coordinates. pointerEvents: none so it never swallows map hovers. */}
-      {tooltip && (
+      {tooltip?.object && (
+        <div
+          style={{
+            position: 'absolute',
+            left: tooltip.x + 14,
+            top: tooltip.y - 14,
+            backgroundColor: 'rgba(2, 8, 23, 0.92)',
+            border: '1px solid rgba(100, 116, 139, 0.6)',
+            borderRadius: '8px',
+            padding: '10px 14px',
+            pointerEvents: 'none',
+            zIndex: 20,
+            minWidth: '220px',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+            color: 'white',
+            fontSize: '13px',
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 6, fontSize: '14px', color: '#f1f5f9' }}>
+            {tooltip.object.name || formatMetricName(tooltip.object.intervention ?? tooltip.object.type ?? 'urban intervention')}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: '#cbd5e1' }}>
+            <span>Type</span>
+            <span style={{ fontWeight: 600, color: '#e2e8f0' }}>
+              {formatMetricName(tooltip.object.intervention ?? tooltip.object.type ?? 'unknown')}
+            </span>
+          </div>
+          {tooltip.object.category && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: '#cbd5e1', marginTop: 4 }}>
+              <span>Category</span>
+              <span style={{ fontWeight: 600, color: '#94a3b8' }}>{tooltip.object.category}</span>
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: '#cbd5e1', marginTop: 4 }}>
+            <span>Coordinates</span>
+            <span style={{ fontWeight: 600, color: '#e2e8f0' }}>
+              {tooltip.coordinates.latitude.toFixed(6)}, {tooltip.coordinates.longitude.toFixed(6)}
+            </span>
+          </div>
+          {(tooltip.object.activeFrom || tooltip.object.activeTo) && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: '#cbd5e1', marginTop: 4 }}>
+              <span>Active</span>
+              <span style={{ fontWeight: 600, color: '#94a3b8' }}>
+                {tooltip.object.activeFrom ?? 'Any'} to {tooltip.object.activeTo ?? 'Any'}
+              </span>
+            </div>
+          )}
+          {tooltip.object.params && Object.keys(tooltip.object.params).length > 0 && (
+            <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(148, 163, 184, 0.35)' }}>
+              {Object.entries(tooltip.object.params).map(([key, value]) => (
+                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: '#cbd5e1', marginTop: 4 }}>
+                  <span>{formatMetricName(key)}</span>
+                  <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tooltip && !tooltip.object && tooltip.point && (
         <div
           style={{
             position: 'absolute',
@@ -937,7 +1141,7 @@ const hoverablePolygons = useMemo(() => {
           >
             <span>Metric</span>
             <span style={{ fontWeight: 600, color: '#94a3b8' }}>
-              {formatMetricName(tooltip.metric)}
+              {formatMetricName(tooltip.metric ?? '')}
             </span>
           </div>
 

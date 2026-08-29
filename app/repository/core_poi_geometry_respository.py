@@ -103,7 +103,15 @@ class CorePoiGeometryRepository:
     LATITUDE_ALIASES = ("latitude", "lat", "y")
 
     #: Column names that hold a PostGIS geometry, if the type check misses.
-    GEOMETRY_COLUMN_NAMES = ("geom", "geometry", "the_geom", "shape", "location")
+    GEOMETRY_COLUMN_NAMES = (
+        "geom",
+        "geometry",
+        "the_geom",
+        "shape",
+        "location",
+        "polygon_geom",
+        "point_geom",
+    )
 
     #: Never settable by a caller — the database owns these.
     PROTECTED_COLUMNS = frozenset({"created_at", "updated_at", "inserted_at"})
@@ -584,22 +592,31 @@ class CorePoiGeometryRepository:
         payload = self._apply_coordinate_aliases(payload, column_names)
         geometry_column = self._geometry_column()
 
-        # Coordinates -> geometry, when the table wants a geometry and the
+        # Coordinates / WKT -> geometry, when the table wants a geometry and the
         # caller did not supply one directly.
         lon, lat = payload.pop("__lon__", None), payload.pop("__lat__", None)
+        polygon_wkt = payload.get("polygon_wkt")
         if geometry_column is not None and geometry_column.name not in payload:
-            if lon is not None and lat is not None:
+            if polygon_wkt:
+                payload[geometry_column.name] = self._make_polygon(polygon_wkt)
+            elif lon is not None and lat is not None and "polygon" not in geometry_column.name.lower():
                 payload[geometry_column.name] = self._make_point(lon, lat)
             elif not geometry_column.nullable:
                 raise ValueError(
                     f"'{geometry_column.name}' is required: supply it directly or "
-                    "provide longitude and latitude."
+                    "provide polygon_wkt or coordinates."
                 )
 
         # Derived keys are read-only: they come from the join, not the table.
         for key in (self.AVERAGE_UHI_KEY, self.MATCHED_UHI_COUNT_KEY):
             if key in payload and key not in column_names:
                 payload.pop(key)
+
+        # Synchronize market / market_code if one is provided but the table expects the other.
+        if "market_code" in column_names and "market_code" not in payload and "market" in payload:
+            payload["market_code"] = payload["market"]
+        if "market" in column_names and "market" not in payload and "market_code" in payload:
+            payload["market"] = payload["market_code"]
 
         unknown = sorted(set(payload) - column_names)
         if unknown:
@@ -648,6 +665,14 @@ class CorePoiGeometryRepository:
         if not self._is_postgres:
             return f"POINT({lon} {lat})"  # SQLite/tests: store as WKT text
         return func.ST_SetSRID(func.ST_MakePoint(lon, lat), self.DEFAULT_SRID)
+
+    def _make_polygon(self, wkt: str) -> Any:
+        """Build a SRID-tagged MultiPolygon expression from WKT."""
+        if not self._is_postgres:
+            return wkt  # SQLite/tests: store as WKT text
+        return func.ST_Multi(
+            func.ST_SetSRID(func.ST_GeomFromText(wkt), self.DEFAULT_SRID)
+        )
 
     # ================================================================== #
     #                                                                    #

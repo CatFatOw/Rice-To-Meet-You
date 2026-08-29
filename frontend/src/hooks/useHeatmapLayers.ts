@@ -347,7 +347,7 @@ const visibleMetricLayers = useMemo(
       new IconLayer({
         id: 'placed-object-point-layer',
         data: allPlacedObjects.filter((o) => o.geometry.kind !== 'polygon'),
-        pickable: false,
+        pickable: !isDrawing,
         getPosition: (d: PlacedObject) => geometryAnchor(d.geometry),
         getIcon: (d: PlacedObject) => {
           const toolKey = d.type ?? d.intervention ?? 'unknown';
@@ -379,7 +379,7 @@ const visibleMetricLayers = useMemo(
       new PolygonLayer({
         id: 'placed-object-polygon-layer',
         data: allPlacedObjects.filter((o) => o.geometry.kind === 'polygon'),
-        pickable: false,
+        pickable: !isDrawing,
         stroked: true,
         filled: true,
         opacity: 0.55,
@@ -414,7 +414,7 @@ const visibleMetricLayers = useMemo(
         data: allPlacedObjects.filter(
           (o) => o.geometry.kind === 'polygon' && o.geometry.ring.length >= 3,
         ),
-        pickable: false,
+        pickable: !isDrawing,
         getPosition: (d: PlacedObject) =>
           d.geometry.kind === 'polygon' ? polygonCenter(d.geometry.ring) : [0, 0],
         getIcon: (d: PlacedObject) => {
@@ -444,7 +444,7 @@ const visibleMetricLayers = useMemo(
       new PolygonLayer({
         id: 'poi-area-layer',
         data: displayedPOIAreas,
-        pickable: false,
+        pickable: true,
         stroked: true,
         filled: true,
         opacity: 0.55,

@@ -455,6 +455,45 @@ export async function createPOIArea(
   // returns empty for now
 }
 
+export interface CreateCorePoiInput {
+  polygon_wkt: string;
+  city: string;
+  location_name: string;
+  region: string;
+  includes_parking_lot: boolean;
+  market: string;
+  brands?: string;
+  category_tags?: string;
+  domains?: string;
+  enclosed?: boolean;
+  naics_code?: number;
+  naics_code_2022?: number;
+  opened_on?: string;
+  open_hours?: string;
+  phone_number?: string;
+  postal_code?: string;
+  street_address?: string;
+  sub_category?: string;
+  top_category?: string;
+  website?: string;
+  wkt_area_sq_meters?: number;
+}
+
+export async function createCorePoi(input: CreateCorePoiInput): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/core_poi/create-poi`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(
+      `Create POI failed: ${response.status} ${response.statusText}${detail ? ` - ${detail}` : ''}`,
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // GET /final_visitor/query-visitor-rows-with-geometry-by-city-date
 // ---------------------------------------------------------------------------

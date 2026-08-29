@@ -8,6 +8,8 @@ import type {
   ToolboxItemsByArchetype,
 } from '../types/toolbox';
 
+
+
 // date (ISO day) -> city name -> the tools placed for that city on that day.
 export type PlacedObjectsByDateCity = Record<string, Record<string, BasePlacedObject[]>>;
 
@@ -426,3 +428,5 @@ export async function fetchCustomUrbanInterventions(): Promise<ToolboxItemsByArc
     'Evaporative / water': [],
   };
 }
+
+

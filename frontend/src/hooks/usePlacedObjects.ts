@@ -3,7 +3,7 @@ import type React from 'react';
 import type maplibregl from 'maplibre-gl';
 import { TOOLBOX_DRAG_MIME } from '../services/toolbox';
 import type { Geometry } from '../types/simulation';
-import { addPlacedObjects } from '../api/tool';
+import { addPlacedObjects, fetchPlacedObjectsByCityDate } from '../api/tool';
 import { TOOLBOX_ITEMS } from '../data/toolboxItems';
 import type { ArchetypeType, ToolboxItemDef } from '../types/toolbox';
 
@@ -87,6 +87,8 @@ export interface UsePlacedObjectsReturn<TPlacedObject extends BasePlacedObject> 
   placedObjects: TPlacedObject[];
   setPlacedObjects: React.Dispatch<React.SetStateAction<TPlacedObject[]>>;
   pendingPlacedObject: PendingPlacedObject<TPlacedObject> | null;
+  isPickingPoint: boolean;
+  setIsPickingPoint: React.Dispatch<React.SetStateAction<boolean>>;
   setPendingPlacedObject: React.Dispatch<
     React.SetStateAction<PendingPlacedObject<TPlacedObject> | null>
   >;
@@ -151,6 +153,7 @@ export function usePlacedObjects<TPlacedObject extends BasePlacedObject = BasePl
   const [placedObjects, setPlacedObjects] = useState<TPlacedObject[]>(() => initialObjects ?? []);
   const [pendingPlacedObject, setPendingPlacedObject] =
     useState<PendingPlacedObject<TPlacedObject> | null>(null);
+  const [isPickingPoint, setIsPickingPoint] = useState(false);
 
   useEffect(() => {
     console.log('pendingPlacedObject changed:', pendingPlacedObject);
@@ -311,19 +314,20 @@ const commitPendingPlacedObject = useCallback(async () => {
         await addPlacedObjects(payload);
 
         console.log("addPlacedObjects completed successfully.");
+
+        if (pendingMeta.market_code && toCommit.activeFrom) {
+          const refreshedObjects = await fetchPlacedObjectsByCityDate(
+            toCommit.activeFrom,
+            pendingMeta.market_code,
+          );
+          setPlacedObjects(refreshedObjects as TPlacedObject[]);
+          console.log("Placed objects refreshed from API:", refreshedObjects);
+        }
       }
     }
 
-    setPlacedObjects((prev) => {
-      const updated = [...prev, committed];
-
-      console.log("Previous placed objects:", prev);
-      console.log("Updated placed objects:", updated);
-
-      return updated;
-    });
-
     setPendingPlacedObject(null);
+    setIsPickingPoint(false);
     console.log("Pending placed object cleared.");
   } catch (error) {
     console.error(
@@ -339,6 +343,7 @@ const commitPendingPlacedObject = useCallback(async () => {
   // Discard the staged object without persisting. Cancel counterpart to commit.
   const clearPendingPlacedObject = useCallback(() => {
     setPendingPlacedObject(null);
+    setIsPickingPoint(false);
   }, []);
 
   const handleObjectDragOver = useCallback(
@@ -404,6 +409,8 @@ const commitPendingPlacedObject = useCallback(async () => {
     placedObjects,
     setPlacedObjects,
     pendingPlacedObject,
+    isPickingPoint,
+    setIsPickingPoint,
     setPendingPlacedObject,
     updatePendingPlacedObject,
     updatePendingPlacedObjectParams,

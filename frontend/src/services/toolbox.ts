@@ -74,6 +74,16 @@ export function polygonCenter(ring: Ring): [number, number] {
     return [(ring[0][0] + ring[1][0]) / 2, (ring[0][1] + ring[1][1]) / 2];
   }
 
+  // Compute relative to the first vertex. Lng/lat are large compared with the
+  // span of a typical polygon (a 50 m parcel is ~5e-4 degrees wide at lng
+  // ~-95), so the raw shoelace products cancel almost completely and the
+  // result keeps only a few significant digits. Working in a local frame keeps
+  // every intermediate the same order of magnitude as the polygon itself,
+  // which holds full double precision — far finer than the 1e-6 degrees
+  // (~0.1 m) we need.
+  const ox = ring[0][0];
+  const oy = ring[0][1];
+
   let twiceArea = 0;
   let cx = 0;
   let cy = 0;
@@ -81,25 +91,32 @@ export function polygonCenter(ring: Ring): [number, number] {
   // Shoelace-weighted centroid. Sum over each edge (i -> i+1), wrapping the
   // last vertex back to the first so an open ring is treated as closed.
   for (let i = 0; i < n; i++) {
-    const [x0, y0] = ring[i];
-    const [x1, y1] = ring[(i + 1) % n];
+    const j = (i + 1) % n;
+    const x0 = ring[i][0] - ox;
+    const y0 = ring[i][1] - oy;
+    const x1 = ring[j][0] - ox;
+    const y1 = ring[j][1] - oy;
+
     const cross = x0 * y1 - x1 * y0;
     twiceArea += cross;
     cx += (x0 + x1) * cross;
     cy += (y0 + y1) * cross;
   }
 
-  // Degenerate polygon (no area): fall back to the mean of the vertices.
+  // Degenerate polygon (no area): fall back to the mean of the vertices,
+  // still in the local frame.
   if (twiceArea === 0) {
-    const sum = ring.reduce<[number, number]>(
-      (acc, [x, y]) => [acc[0] + x, acc[1] + y],
-      [0, 0],
-    );
-    return [sum[0] / n, sum[1] / n];
+    let sx = 0;
+    let sy = 0;
+    for (let i = 0; i < n; i++) {
+      sx += ring[i][0] - ox;
+      sy += ring[i][1] - oy;
+    }
+    return [ox + sx / n, oy + sy / n];
   }
 
   const factor = 1 / (3 * twiceArea);
-  return [cx * factor, cy * factor];
+  return [ox + cx * factor, oy + cy * factor];
 }
 
 
@@ -139,4 +156,50 @@ export function isPointInPolygon(
   }
 
   return inside;
+}
+
+
+/**
+ * Serializes a ring as `"lng lat, lng lat, ..."` — the comma-separated form
+ * `createPOI` accepts for its `polygon` field.
+ *
+ * The repeated closing vertex is dropped by default, since the WKT writer on
+ * the other side closes the ring itself. Coordinates are rounded to
+ * `precision` decimals (6 ≈ 0.1 m) and trailing zeros trimmed, which also
+ * keeps float noise like -96.80000000000001 out of the string.
+ */
+export function polygonParseFromRingToComma(
+  ring: Ring,
+  options: { precision?: number; keepClosingVertex?: boolean } = {},
+): string {
+  const { precision = 6, keepClosingVertex = false } = options;
+
+  if (ring.length === 0) {
+    throw new Error('polygonParseFromRingToComma: ring has no points');
+  }
+
+  let points = ring;
+  if (!keepClosingVertex && ring.length > 1) {
+    const first = ring[0];
+    const last = ring[ring.length - 1];
+    if (first[0] === last[0] && first[1] === last[1]) {
+      points = ring.slice(0, -1);
+    }
+  }
+
+  return points
+    .map(([lng, lat], index) => {
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+        throw new Error(
+          `polygonParseFromRingToComma: invalid coordinate at index ${index}`,
+        );
+      }
+      return `${format(lng, precision)} ${format(lat, precision)}`;
+    })
+    .join(', ');
+}
+
+// Number#toFixed pads with zeros; Number() strips them back off.
+function format(value: number, precision: number): string {
+  return String(Number(value.toFixed(precision)));
 }
