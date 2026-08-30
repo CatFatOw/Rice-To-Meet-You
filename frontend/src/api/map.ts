@@ -635,9 +635,9 @@ export interface LocalTemperatureOptions {
 }
 
 async function getLocalTemperaturePointsByCityDate(
-  path: string,
   city: string,
   date: string, // "YYYY-MM-DD"
+  temperatureUnit: 'c' | 'f',
   options: LocalTemperatureOptions = {},
 ): Promise<HeatmapMetricValue[]> {
   const {
@@ -651,9 +651,10 @@ async function getLocalTemperaturePointsByCityDate(
     date,
     metric,
     humidity_metric: humidityMetric,
+    temperature_unit: temperatureUnit,
   });
 
-  const response = await fetch(`${BASE_URL}${path}?${params}`, {
+  const response = await fetch(`${BASE_URL}/heatmap/get-local-temperature-by-city-date?${params}`, {
     method: "GET",
     headers: { Accept: "application/json" },
     signal,
@@ -680,9 +681,9 @@ export async function getLocalTemperatureCByCityDate(
   options: LocalTemperatureOptions = {},
 ): Promise<HeatmapMetricValue[]> {
   return getLocalTemperaturePointsByCityDate(
-    "/heatmap/get-heat-index-c-by-city-date",
     city,
     date,
+    'c',
     options,
   );
 }
@@ -693,9 +694,9 @@ export async function getLocalTemperatureFByCityDate(
   options: LocalTemperatureOptions = {},
 ): Promise<HeatmapMetricValue[]> {
   return getLocalTemperaturePointsByCityDate(
-    "/heatmap/get-heat-index-f-by-city-date",
     city,
     date,
+    'f',
     options,
   );
 }

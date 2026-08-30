@@ -180,7 +180,7 @@ export function useHeatmapLayers({
         data: cities,
         pickable: !isDrawing,
         characterSet: 'auto',
-        fontFamily: '"Inter", system-ui, sans-serif',
+        fontFamily: 'Inter, sans-serif',
         fontWeight: 700,
         getPosition: (d: City) => [d.longitude, d.latitude],
         getText: (d: City) => d.name,

@@ -506,18 +506,15 @@ const hoverablePolygons = useMemo(() => {
     });
   }, [draftPoints, isDrawing, placedObjectsControls?.setPendingPlacedObject]);
 
-  // Cycle to the next available metric (drives the Toolbox metric toggle).
-  // Wraps around at the end of the list; no-op when there's nothing to cycle to.
-  const cycleMetric = useCallback(() => {
-    if (availableMetricLayers.length <= 1) return;
-    const selectedMetricKey = selectedMetric ? Object.keys(selectedMetric)[0] : null;
-    const idx = availableMetricLayers.findIndex(
-      (metric) => Object.keys(metric)[0] === selectedMetricKey,
-    );
-    const next =
-      availableMetricLayers[(idx + 1 + availableMetricLayers.length) % availableMetricLayers.length];
-    setSelectedMetric(next);
-  }, [availableMetricLayers, selectedMetric, setSelectedMetric]);
+  const selectMetric = useCallback(
+    (metricKey: string) => {
+      const metric = availableMetricLayers.find(
+        (candidate) => Object.keys(candidate)[0] === metricKey,
+      );
+      if (metric) setSelectedMetric(metric);
+    },
+    [availableMetricLayers, setSelectedMetric],
+  );
 
   /** Server-provided POI areas for the city, plus any the user drew themselves. */
   const displayedPOIAreas: CityPOIArea[] = useMemo(() => {
@@ -872,9 +869,12 @@ const hoverablePolygons = useMemo(() => {
         setSelectedDate={setSelectedDate}
         setBaselineSelectedDate={setBaselineSelectedDate}
         availableDates={availableDates}
-        metricLabel={metricLabelText}
-        canToggleMetric={availableMetricLayers.length > 1}
-        onToggleMetric={cycleMetric}
+        selectedMetricKey={activeMetricKey}
+        metricOptions={availableMetricLayers.map((metric) => {
+          const metricKey = Object.keys(metric)[0];
+          return { value: metricKey, label: formatMetricName(metricKey) };
+        })}
+        onMetricChange={selectMetric}
         placedCount={currentPlacedObjects.length}
         onClearObjects={() => placedObjectsControls?.setPlacedObjects([])}
         placedObjectsControls={placedObjectsControls}

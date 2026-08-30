@@ -55,19 +55,19 @@ export interface ToolboxProps {
   /**
    * When true, the panel renders the full toolbox: the metric toggle, a palette
    * of placeable objects that can be dragged onto the map, followed by the
-   * Create POI Area section. When false only the metric toggle and Create POI
-   * Area section are shown.
+   * Create POI Area section. When false only the date and metric controls are
+   * shown.
    */
   displayToolbox: boolean;
 
-  // --- Metric toggle ---
+  // --- Metric selection ---
   selectedDate: string | null;
   setSelectedDate: React.Dispatch<React.SetStateAction<string | null>>;
   setBaselineSelectedDate?: React.Dispatch<React.SetStateAction<string | null>>;
   availableDates: string[];
-  metricLabel: string;
-  canToggleMetric: boolean;
-  onToggleMetric: () => void;
+  selectedMetricKey: string;
+  metricOptions: Array<{ value: string; label: string }>;
+  onMetricChange: (metricKey: string) => void;
 
   // --- Placeable objects palette ---
   placedCount: number;
@@ -214,7 +214,7 @@ export interface HeatmapProps {
   };
   /**
    * When true, the left panel renders as a full toolbox. When false (default)
-   * only the metric toggle and Create POI Area are shown.
+   * only the date and metric controls are shown.
    */
   displayToolbox?: boolean;
   drawControls: PolygonDraw;

@@ -42,8 +42,8 @@ export default function Navigationbar() {
 
           {!collapsed && (
             <div className="overflow-hidden whitespace-nowrap">
-              <h1 className="text-xl font-bold">HeatSafe AI</h1>
-              <p className="text-sm text-slate-400">FIFA World Cup 2026</p>
+              <h1 className="text-xl font-bold">UrbanTwin</h1>
+              <p className="text-sm text-slate-400">World Cup 2026</p>
             </div>
           )}
         </div>

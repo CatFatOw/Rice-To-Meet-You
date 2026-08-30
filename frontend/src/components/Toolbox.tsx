@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pencil, Check, Undo2, X, Trash2, Crosshair, MapPin, type LucideIcon } from 'lucide-react';
+import { Pencil, Check, Undo2, X, Trash2, MapPin, type LucideIcon } from 'lucide-react';
 import { TOOLBOX_DRAG_MIME, polygonParseFromRingToComma } from '../services/toolbox';
 import {
   TOOLBOX_ICONS,
@@ -128,9 +128,9 @@ const Toolbox: React.FC<ToolboxProps> = ({
   setSelectedDate,
   setBaselineSelectedDate,
   availableDates,
-  metricLabel,
-  canToggleMetric,
-  onToggleMetric,
+  selectedMetricKey,
+  metricOptions,
+  onMetricChange,
   selectedCity,
   draftName,
   setDraftName,
@@ -613,23 +613,25 @@ const handleDrawIntervention = React.useCallback(
         />
         <div style={dividerStyle} />
 
-        {/* --- Metric toggle (always visible, regardless of selected city) --- */}
+        {/* --- Metric selector --- */}
         <div style={{ fontSize: 13, fontWeight: 700 }}>Metric</div>
-        <button
-          type="button"
-          onClick={onToggleMetric}
-          disabled={!citySelected || !canToggleMetric}
-          title="Toggle metric"
+        <select
+          value={selectedMetricKey}
+          onChange={(event) => onMetricChange(event.target.value)}
+          disabled={!citySelected || metricOptions.length === 0}
           style={{
-            ...toolbarButtonStyle,
+            ...fieldStyle,
             backgroundColor: 'rgba(15, 23, 42, 0.9)',
             color: '#e2e8f0',
-            cursor: citySelected && canToggleMetric ? 'pointer' : 'not-allowed',
+            cursor: citySelected && metricOptions.length > 0 ? 'pointer' : 'not-allowed',
           }}
         >
-          <Crosshair size={14} />
-          <span>{metricLabel}</span>
-        </button>
+          {metricOptions.map((metric) => (
+            <option key={metric.value} value={metric.value}>
+              {metric.label}
+            </option>
+          ))}
+        </select>
         <div style={dividerStyle} />
 
         {/* --- Urban Interventions (full toolbox layout only) --- */}
@@ -781,7 +783,7 @@ const handleDrawIntervention = React.useCallback(
                       border: '1px solid rgba(148, 163, 184, 0.35)',
                       borderRadius: 6,
                       padding: '6px 8px',
-                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                      fontFamily: 'Inter, sans-serif',
                       fontSize: 12,
                     }}
                   >
@@ -979,6 +981,9 @@ const handleDrawIntervention = React.useCallback(
 
             <div style={dividerStyle} />
 
+            {/* Custom interventions are temporarily disabled. */}
+            {false && (
+              <>
             {/* --- Custom interventions --- */}
             <div style={{ fontSize: 13, fontWeight: 700 }}>Custom Interventions</div>
 
@@ -1086,10 +1091,10 @@ const handleDrawIntervention = React.useCallback(
             </label>
 
             {/* Params for the chosen category */}
-            {customCategory && (
+            {customCategory !== '' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <div style={{ fontSize: 12, color: '#cbd5e1' }}>Params</div>
-                {ARCHETYPE_PARAMS[customCategory].map((paramKey) => {
+                {ARCHETYPE_PARAMS[customCategory as CustomCategoryKey].map((paramKey) => {
                   const raw = customParams[paramKey];
                   const isBlank = typeof raw !== 'number' || !Number.isFinite(raw);
                   return (
@@ -1152,9 +1157,13 @@ const handleDrawIntervention = React.useCallback(
             </button>
 
             <div style={dividerStyle} />
+              </>
+            )}
           </>
         )}
 
+        {displayToolbox && (
+          <>
         {/* --- Create POI Area --- */}
         <div style={{ fontSize: 13, fontWeight: 700 }}>Create POI Area</div>
 
@@ -1434,6 +1443,8 @@ const handleDrawIntervention = React.useCallback(
           >
             <Check size={15} /> Finish Edit
           </button>
+        )}
+          </>
         )}
       </div>
 
