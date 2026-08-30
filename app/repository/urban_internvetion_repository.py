@@ -23,6 +23,7 @@ from schemas.urban_intervention import (
     InterventionStatus,
     InterventionType,
     UrbanInterventionCreate,
+    validate_parameters,
 )
 
 SRID: Final[int] = 4326
@@ -30,23 +31,6 @@ SRID: Final[int] = 4326
 # Columns that may be omitted by the caller; the database supplies a default
 # (``status``) or accepts NULL (``active_from`` / ``active_to``).
 _OPTIONAL_COLUMNS: Final[tuple[str, ...]] = ("status", "active_from", "active_to")
-
-_REQUIRED_PARAM_KEYS: Final[Mapping[InterventionType, frozenset[str]]] = {
-    "cool_roof": frozenset({"albedo", "emissivity"}),
-    "misting_station": frozenset(
-        {
-            "nozzleCount",
-            "flowRate_L_per_min",
-            "dropletDiameter_um",
-            "mountHeight_m",
-        }
-    ),
-    "street_tree": frozenset(
-        {"canopyRadius_m", "canopyHeight_m", "lai", "deciduous"}
-    ),
-    "shade_structure": frozenset({"transmissivity", "height_m"}),
-    "cool_pavement": frozenset({"albedo", "width_m"}),
-}
 
 # The projection every read and write shares, so ``_to_record`` can map either.
 _COLUMNS: Final[str] = """
@@ -151,16 +135,9 @@ def _validate_parameters(
     intervention_type: InterventionType,
     parameters: Mapping[str, Any],
 ) -> None:
-    expected = _REQUIRED_PARAM_KEYS.get(intervention_type)
-    if expected is None:
-        raise InvalidParametersError(
-            f"Unknown intervention type: {intervention_type!r}"
-        )
-    missing = expected - parameters.keys()
-    if missing:
-        raise InvalidParametersError(
-            f"{intervention_type!r} is missing parameters: {sorted(missing)}"
-        )
+    problems = validate_parameters(intervention_type, dict(parameters))
+    if problems:
+        raise InvalidParametersError("; ".join(problems))
 
 
 # ---------------------------------------------------------------------------

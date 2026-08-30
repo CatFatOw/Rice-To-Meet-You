@@ -101,9 +101,11 @@ BasePlacedObjectCategorized = dict[str, list[BasePlacedObject]]
 class SimulationRequest(BaseModel):
     """Payload for running a simulated points calculation."""
 
+    from_date: str
+    to_date: str
+    city: str
     metric: str
-    points_by_date: Dict[str, List[Dict[str, Any]]]
-    placed_objects: Dict[str, List[Dict[str, Any]]]
+    additional_metrics: List[str] | None = None
     mode: Literal["standard", "contextual"] = "standard"
 
 

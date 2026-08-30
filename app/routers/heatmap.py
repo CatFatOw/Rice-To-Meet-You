@@ -124,9 +124,11 @@ def get_simulated_point_by_date(
     print("Simulation API Reached")
     try:
         result = repository.get_simulated_points_by_date(
+            from_date=payload.from_date,
+            to_date=payload.to_date,
+            city=payload.city,
             metric=payload.metric,
-            points_by_date=payload.points_by_date,
-            placed_objects=payload.placed_objects,
+            additional_metrics=payload.additional_metrics,
             mode=payload.mode,
         )
         print("Simulation Function Called")

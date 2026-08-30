@@ -18,10 +18,6 @@ import { getSimulatedPointsByDate } from '../api/simulation';
 import { getHeatmapPointsByCityDateMetric } from '../api/map';
 
 import type { HeatmapPointsByDate, HeatmapMetricValue } from '../types/heatmap';
-import type {
-  BasePlacedObject,
-  BasePlacedObjectCategorized,
-} from '../hooks/usePlacedObjects';
 
 // =============================================================================
 // ── TESTER KNOBS ─────────────────────────────────────────────────────────────
@@ -36,130 +32,6 @@ import type {
  * the whole loop, so e.g. 'visitor_density' will always report zero changes.
  */
 const METRIC = 'temperature';
-
-/**
- * Geometry helper — the simulation only looks at `kind` and `ring`.
- * If your codebase already exports one, import that instead and delete this.
- */
-const polygon = (ring: [number, number][]) => ({ kind: 'polygon' as const, ring });
-
-/**
- * The planner's interventions, as a flat list (the shape the toolbox produces).
- *
- * Category strings MUST match the *_CATEGORY constants in the simulation:
- *   'Vegetation' | 'High-albedo surface' | 'Shade structure' | 'Evaporative / water'
- *
- * Geometry:
- *   - Vegetation / albedo / shade need a polygon — any other `kind` is skipped
- *     silently by getObjectPolygon.
- *   - Evaporative takes a point (a polygon/line works too; its centroid becomes
- *     the emitter).
- *
- * activeFrom / activeTo are ISO dates, both optional. The mock readings cover
- * 2026-07-05 … 2026-07-08.
- */
-const HOUSTON_TOOLS: BasePlacedObject[] = [
-  // --- Street trees (vegetation) — Rice University --------------------------
-  {
-    id: 'placed-hou-1',
-    type: 'street_trees',
-    category: 'Vegetation',
-    name: 'Rice University street trees',
-    color: '#22c55e',
-    geometry: polygon([
-      [-95.400412, 29.718285],
-      [-95.400347, 29.718055],
-      [-95.399941, 29.718152],
-      [-95.400023, 29.718413],
-    ]),
-    params: {
-      coverPct: 0.4,   // 0–1  fraction of cell under canopy (scale)
-      lai: 4,          // ~0–6 Leaf Area Index — transpiring surface (intensity)
-      irrigation: 0.6, // 0–1  irrigation level committed to (lever)
-      // canopyFraction omitted → DEFAULT_CANOPY_FRACTION (1) is used
-    },
-    activeFrom: '2026-07-05',
-    activeTo: '2026-07-07', // note: excludes 2026-07-08
-  },
-
-  // --- Cool roof coating (high-albedo surface) — TMC rooftop -----------------
-  {
-    id: 'placed-hou-2',
-    type: 'cool_roof',
-    category: 'High-albedo surface',
-    name: 'TMC cool roof coating',
-    color: '#e2e8f0',
-    geometry: polygon([
-      [-95.39960, 29.70700],
-      [-95.39880, 29.70700],
-      [-95.39880, 29.70640],
-      [-95.39960, 29.70640],
-    ]),
-    params: {
-      deltaAlbedo: 0.6, // 0–1  reflectance gain vs baseline (asphalt ~0.1 → cool coat ~0.7)
-      coverPct: 0.85,   // 0–1  treated fraction of the cell (scale, linear)
-    },
-    activeFrom: '2026-07-05',
-    activeTo: '2026-07-08',
-  },
-
-  // --- Shade sail (shade structure) — Hermann Park plaza ---------------------
-  {
-    id: 'placed-hou-3',
-    type: 'shade_sail',
-    category: 'Shade structure',
-    name: 'Hermann Park shade sail',
-    color: '#a78bfa',
-    geometry: polygon([
-      [-95.39120, 29.71910],
-      [-95.39040, 29.71910],
-      [-95.39040, 29.71850],
-      [-95.39120, 29.71850],
-    ]),
-    params: {
-      opacity: 0.7,           // 0–1  fraction of the direct beam blocked (sail ~0.7)
-      footprintFraction: 0.6, // 0–1  shaded ground as a fraction of the cell (scale, linear)
-    },
-    activeFrom: '2026-07-05',
-    activeTo: '2026-07-08',
-  },
-
-  // --- High-pressure misting (evaporative) — Hermann Park, point source ------
-  {
-    id: 'placed-hou-4',
-    type: 'misting_station',
-    category: 'Evaporative / water',
-    name: 'Hermann Park misting station',
-    color: '#38bdf8',
-    geometry: { kind: 'point', longitude: -95.3889, latitude: 29.7168 },
-    params: {
-      evapRateLpm: 2.5,    // L/min  effective evaporation (high-pressure misting)
-      coverageRadiusM: 25, // m      plume reach — distance-falloff scale
-      activeFraction: 0.8, // 0–1    duty cycle (humidity/temperature gated)
-    },
-    activeFrom: '2026-07-05',
-    activeTo: '2026-07-08',
-  },
-] as unknown as BasePlacedObject[];
-// ^ cast because this literal is hand-written rather than produced by the
-//   usePlacedObjects hook. If it stops compiling, that's a signal the toolbox
-//   shape drifted — worth fixing rather than widening the cast.
-
-/**
- * getSimulatedPointsByDate iterates Object.entries(placedObjects), so it needs
- * the category-keyed shape rather than the flat list. Group on the way in, and
- * keep HOUSTON_TOOLS above as the thing you edit.
- */
-function groupByCategory(tools: BasePlacedObject[]): BasePlacedObjectCategorized {
-  const grouped: Record<string, BasePlacedObject[]> = {};
-  for (const tool of tools) {
-    if (!tool.category) continue;
-    (grouped[tool.category] ??= []).push(tool);
-  }
-  return grouped as unknown as BasePlacedObjectCategorized;
-}
-
-const PLACED_OBJECTS = groupByCategory(HOUSTON_TOOLS);
 
 async function callHeatmapPointByDateHouston(
   metric: string,
@@ -322,7 +194,12 @@ export async function runSimulationTest(): Promise<{
   // callHeatmapPointByDateHouston clones per date, and getSimulatedPointsByDate
   // deep-clones its input, so `baseline` stays pristine and is safe to diff against.
   const baseline = await callHeatmapPointByDateHouston(METRIC);
-  const simulated = await getSimulatedPointsByDate(METRIC, baseline, PLACED_OBJECTS);
+  const simulated = await getSimulatedPointsByDate(
+    METRIC,
+    '2026-07-05',
+    '2026-07-08',
+    'Houston',
+  );
   const changed = changedPointsByDate(baseline, simulated);
 
   printChanged(baseline, changed);

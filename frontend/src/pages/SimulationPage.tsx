@@ -35,55 +35,10 @@ import { fetchVisitorPOIs } from '../api/statistics';
 
 
 
-import usePlacedObjects, {
-  PLACED_OBJECT_CATEGORIES,
-  type BasePlacedObject,
-  type BasePlacedObjectCategorized,
-  type PlacedObjectCategory,
-} from '../hooks/usePlacedObjects';
+import usePlacedObjects from '../hooks/usePlacedObjects';
 
 import { getHeatmapPointsByCityDateMetric, getHeatRiskDataByCityDate, getVisitorDataByCityDate, getLocalTemperatureCByCityDate, getLocalTemperatureFByCityDate } from '../api/map';
 import { getRiskDistributionByCityDate } from '../api/statistics';
-import { fetchPlacedObjectsForCity } from '../api/tool';
-
-function isPlacedObjectCategory(value: string): value is PlacedObjectCategory {
-  return (PLACED_OBJECT_CATEGORIES as readonly string[]).includes(value);
-}
-
-const ARCHETYPE_CODE_TO_CATEGORY: Record<string, PlacedObjectCategory> = {
-  vegetation: 'Vegetation',
-  high_albedo_surface: 'High-albedo surface',
-  shade_structure: 'Shade structure',
-  evaporative_water: 'Evaporative / water',
-};
-
-function normalizeCategory(categoryOrArchetypeCode?: string): PlacedObjectCategory | null {
-  if (!categoryOrArchetypeCode) return null;
-  if (isPlacedObjectCategory(categoryOrArchetypeCode)) {
-    return categoryOrArchetypeCode;
-  }
-  const normalizedCode = categoryOrArchetypeCode.trim().toLowerCase().replace(/[\s-]+/g, '_');
-  return ARCHETYPE_CODE_TO_CATEGORY[normalizedCode] ?? null;
-}
-
-function toCategorizedPlacedObjects(
-  placedObjects: BasePlacedObject[],
-): BasePlacedObjectCategorized {
-  const categorized = Object.fromEntries(
-    PLACED_OBJECT_CATEGORIES.map((category) => [category, [] as BasePlacedObject[]]),
-  ) as BasePlacedObjectCategorized;
-
-  for (const object of placedObjects) {
-    const category = normalizeCategory(object.category);
-    if (!category) continue;
-    categorized[category].push({
-      ...object,
-      category,
-    });
-  }
-
-  return categorized;
-}
 
 
 const SimulationPage: React.FC = () => {
@@ -193,31 +148,14 @@ const SimulationPage: React.FC = () => {
   const selectedMetricKey = selectedMetric ? Object.keys(selectedMetric)[0] : null;
   const selectedAdditionalMetrics = selectedMetric ? Object.values(selectedMetric)[0] : [];
 
-
+  useEffect(() => {
+    console.log(placedObjectsControls.pendingPlacedObject)
+  }, [placedObjectsControls.pendingPlacedObject])
   const onStopSimulation = () => {
     stop();
     setSelectedDate(baselineSelectedDate);
     setDisplayedHeatmapPoints(baselineHeatmapPoints);
   };
-  
-  const getBaselinePointsByDate = async (
-    fromDate: string,
-    toDate: string,
-    city: string,
-    metric: string,
-    selectedAdditionalMetrics: string[],
-  ): Promise<Record<string, HeatmapMetricValue[]>> => {
-    const baselinePointsByDate: Record<string, HeatmapMetricValue[]> = {};
-    const dateList = eachDay(fromDate, toDate);
-    for (const date of dateList){
-      const result = await getHeatmapPointsByCityDateMetric(city, date, metric, {
-        additionalMetrics: selectedAdditionalMetrics
-    });
-      baselinePointsByDate[date] = result.points;
-      
-    }
-    return baselinePointsByDate;
-  }
 
   const onStartSimulation = async () => {
     if (!selectedCity || !fromDate || !toDate) return;
@@ -233,55 +171,18 @@ const SimulationPage: React.FC = () => {
     setLoadingSimulation(true);
     try {
 
-      const baselinePointsByDate = await getBaselinePointsByDate(fromDate, toDate, selectedCity, metric, selectedAdditionalMetrics)
-      const placedObjects = placedObjectsControls.placedObjects.length > 0
-        ? placedObjectsControls.placedObjects
-        : await fetchPlacedObjectsForCity(fromDate, toDate, selectedCity);
-      console.log('[Simulation] placed objects selected', {
-        fromDate,
-        toDate,
-        city: selectedCity,
-        count: placedObjects.length,
-      });
-      console.log(placedObjects)
-      console.log(toCategorizedPlacedObjects(placedObjects))
+     
       const simulatedPointsByDate = await getSimulatedPointsByDate(
         metric,
-        baselinePointsByDate,
-        toCategorizedPlacedObjects(placedObjects),
+        fromDate,
+        toDate,
+        selectedCity,
+        selectedAdditionalMetrics,
       );
       framesByDate = simulatedPointsByDate;
 
-      // Log elements whose values changed compared to baseline
-      const changedElements: Array<{
-        date: string;
-        index: number;
-        coordinates: [number, number];
-        baselineValue: number;
-        simulatedValue: number;
-        delta: number;
-        point: HeatmapMetricValue;
-      }> = [];
-
-      for (const [date, simPoints] of Object.entries(simulatedPointsByDate)) {
-        const basePoints = baselinePointsByDate[date] || [];
-        simPoints.forEach((simPoint, index) => {
-          const basePoint = basePoints[index];
-          if (basePoint && Math.abs(simPoint.value - basePoint.value) > 1e-10) {
-            changedElements.push({
-              date,
-              index,
-              coordinates: simPoint.location_coordinates,
-              baselineValue: basePoint.value,
-              simulatedValue: simPoint.value,
-              delta: simPoint.value - basePoint.value,
-              point: simPoint,
-            });
-          }
-        });
-      }
-
-      console.log('[Simulation] Elements with changed values:', changedElements);
+     
+     
       
     } catch (error) {
       console.error('Failed to simulate points by date', error);

@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 import type { SelectDateProps } from '../types/components';
 
 // --- Local-time-safe date helpers -------------------------------------------
@@ -21,15 +20,6 @@ export function parseISODate(iso: string): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-const addDays = (date: Date, n: number): Date =>
-  new Date(date.getFullYear(), date.getMonth(), date.getDate() + n);
-
-const addMonths = (date: Date, n: number): Date =>
-  new Date(date.getFullYear(), date.getMonth() + n, 1);
-
-const startOfMonth = (date: Date): Date =>
-  new Date(date.getFullYear(), date.getMonth(), 1);
-
 const triggerFmt = new Intl.DateTimeFormat(undefined, {
   weekday: 'short',
   month: 'short',
@@ -37,12 +27,9 @@ const triggerFmt = new Intl.DateTimeFormat(undefined, {
   year: 'numeric',
 });
 
-const monthTitleFmt = new Intl.DateTimeFormat(undefined, {
-  month: 'long',
-  year: 'numeric',
-});
-
-const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+const MONTHS = Array.from({ length: 12 }, (_, month) =>
+  new Intl.DateTimeFormat(undefined, { month: 'long' }).format(new Date(2000, month, 1)),
+);
 
 const panelStyle: React.CSSProperties = {
   border: '1px solid rgba(148, 163, 184, 0.45)',
@@ -52,18 +39,16 @@ const panelStyle: React.CSSProperties = {
   boxShadow: '0 4px 14px rgba(0, 0, 0, 0.35)',
 };
 
-const navButtonStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  width: 28,
-  height: 28,
-  flexShrink: 0,
-  borderRadius: 8,
+const selectStyle: React.CSSProperties = {
+  width: '100%',
+  minWidth: 0,
+  height: 34,
+  borderRadius: 6,
   border: '1px solid rgba(148, 163, 184, 0.45)',
   backgroundColor: 'rgba(15, 23, 42, 0.9)',
   color: '#e2e8f0',
-  cursor: 'pointer',
+  fontSize: 13,
+  padding: '0 8px',
 };
 
 const SelectDate: React.FC<SelectDateProps> = ({
@@ -74,7 +59,6 @@ const SelectDate: React.FC<SelectDateProps> = ({
   maxDate,
   availableDates,
   disabled = false,
-  weekStartsOn = 0,
   variant = 'panel',
   className,
   style,
@@ -83,22 +67,23 @@ const SelectDate: React.FC<SelectDateProps> = ({
   const [open, setOpen] = useState(false);
 
   const selectedDate = useMemo(() => (value ? parseISODate(value) : null), [value]);
-
-  // The month currently shown in the grid.
-  const [viewDate, setViewDate] = useState<Date>(() =>
-    startOfMonth(selectedDate ?? new Date()),
-  );
+  const initialDate = selectedDate ?? new Date();
+  const [draftYear, setDraftYear] = useState(initialDate.getFullYear());
+  const [draftMonth, setDraftMonth] = useState(initialDate.getMonth());
+  const [draftDay, setDraftDay] = useState(initialDate.getDate());
 
   const availableSet = useMemo(
     () => (availableDates ? new Set(availableDates) : null),
     [availableDates],
   );
 
-  const todayIso = useMemo(() => toISODate(new Date()), []);
-
-  // When opening, jump the grid to the selected month (or today).
+  // Reset the selectors when opening to the selected date (or today).
   useEffect(() => {
-    if (open) setViewDate(startOfMonth(selectedDate ?? new Date()));
+    if (!open) return;
+    const date = selectedDate ?? new Date();
+    setDraftYear(date.getFullYear());
+    setDraftMonth(date.getMonth());
+    setDraftDay(date.getDate());
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Close on outside click / Escape while open.
@@ -129,22 +114,20 @@ const SelectDate: React.FC<SelectDateProps> = ({
     return false;
   };
 
-  // 42 cells (6 weeks) starting on the configured weekday, including trailing
-  // days from adjacent months so the grid height stays stable.
-  const cells = useMemo(() => {
-    const first = startOfMonth(viewDate);
-    const offset = (first.getDay() - weekStartsOn + 7) % 7;
-    const gridStart = addDays(first, -offset);
-    return Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
-  }, [viewDate, weekStartsOn]);
+  const years = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const minYear = minDate ? parseISODate(minDate)?.getFullYear() : currentYear - 100;
+    const maxYear = maxDate ? parseISODate(maxDate)?.getFullYear() : currentYear + 100;
+    const start = Math.min(minYear ?? currentYear - 100, draftYear);
+    const end = Math.max(maxYear ?? currentYear + 100, draftYear);
+    return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  }, [draftYear, maxDate, minDate]);
 
-  const weekdays = useMemo(
-    () => WEEKDAY_LABELS.map((_, i) => WEEKDAY_LABELS[(i + weekStartsOn) % 7]),
-    [weekStartsOn],
-  );
+  const daysInMonth = new Date(draftYear, draftMonth + 1, 0).getDate();
+  const days = Array.from({ length: daysInMonth }, (_, index) => index + 1);
 
-  const selectDay = (date: Date) => {
-    const iso = toISODate(date);
+  const applyDate = () => {
+    const iso = toISODate(new Date(draftYear, draftMonth, Math.min(draftDay, daysInMonth)));
     if (isDisabledDate(iso)) return;
     onChange(iso);
     setOpen(false);
@@ -161,8 +144,6 @@ const SelectDate: React.FC<SelectDateProps> = ({
     ...(variant === 'panel' ? panelStyle : null),
     ...style,
   };
-
-  const viewMonth = viewDate.getMonth();
 
   return (
     <div ref={rootRef} className={className} style={containerStyle}>
@@ -196,10 +177,9 @@ const SelectDate: React.FC<SelectDateProps> = ({
         >
           {selectedDate ? triggerFmt.format(selectedDate) : 'Select a date'}
         </span>
-        <Calendar size={15} color="#94a3b8" style={{ flexShrink: 0 }} />
       </button>
 
-      {/* Popover calendar */}
+      {/* Popover selectors */}
       {open && (
         <div
           role="dialog"
@@ -217,104 +197,51 @@ const SelectDate: React.FC<SelectDateProps> = ({
             boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
           }}
         >
-          {/* Month navigation */}
-          <div
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 76px 92px', gap: 6 }}>
+            <select
+              aria-label="Month"
+              value={draftMonth}
+              onChange={(event) => setDraftMonth(Number(event.target.value))}
+              style={selectStyle}
+            >
+              {MONTHS.map((month, index) => <option key={month} value={index}>{month}</option>)}
+            </select>
+            <select
+              aria-label="Day"
+              value={Math.min(draftDay, daysInMonth)}
+              onChange={(event) => setDraftDay(Number(event.target.value))}
+              style={selectStyle}
+            >
+              {days.map((day) => <option key={day} value={day}>{day}</option>)}
+            </select>
+            <select
+              aria-label="Year"
+              value={draftYear}
+              onChange={(event) => setDraftYear(Number(event.target.value))}
+              style={selectStyle}
+            >
+              {years.map((year) => <option key={year} value={year}>{year}</option>)}
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={applyDate}
+            disabled={isDisabledDate(toISODate(new Date(draftYear, draftMonth, Math.min(draftDay, daysInMonth))))}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: 10,
+              width: '100%',
+              height: 34,
+              marginTop: 10,
+              borderRadius: 6,
+              border: 0,
+              backgroundColor: '#38bdf8',
+              color: '#02121f',
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: 700,
             }}
           >
-            <button
-              type="button"
-              onClick={() => setViewDate((d) => addMonths(d, -1))}
-              aria-label="Previous month"
-              style={navButtonStyle}
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>
-              {monthTitleFmt.format(viewDate)}
-            </div>
-            <button
-              type="button"
-              onClick={() => setViewDate((d) => addMonths(d, 1))}
-              aria-label="Next month"
-              style={navButtonStyle}
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-
-          {/* Weekday header */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(7, 1fr)',
-              gap: 2,
-              marginBottom: 4,
-            }}
-          >
-            {weekdays.map((wd, i) => (
-              <div
-                key={`wd-${i}`}
-                style={{
-                  textAlign: 'center',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: '#64748b',
-                  padding: '2px 0',
-                }}
-              >
-                {wd}
-              </div>
-            ))}
-          </div>
-
-          {/* Day grid */}
-          <div
-            style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}
-          >
-            {cells.map((date) => {
-              const iso = toISODate(date);
-              const inMonth = date.getMonth() === viewMonth;
-              const isSelected = value === iso;
-              const isToday = iso === todayIso;
-              const dayDisabled = isDisabledDate(iso);
-
-              let color = inMonth ? '#e2e8f0' : '#475569';
-              if (dayDisabled) color = '#334155';
-              if (isSelected) color = '#02121f';
-
-              return (
-                <button
-                  key={iso}
-                  type="button"
-                  onClick={() => selectDay(date)}
-                  disabled={dayDisabled}
-                  aria-label={triggerFmt.format(date)}
-                  aria-pressed={isSelected}
-                  style={{
-                    height: 30,
-                    borderRadius: 6,
-                    border:
-                      isToday && !isSelected
-                        ? '1px solid rgba(56, 189, 248, 0.6)'
-                        : '1px solid transparent',
-                    backgroundColor: isSelected ? '#38bdf8' : 'transparent',
-                    color,
-                    fontSize: 12,
-                    fontWeight: isSelected ? 700 : 500,
-                    cursor: dayDisabled ? 'not-allowed' : 'pointer',
-                    padding: 0,
-                  }}
-                >
-                  {date.getDate()}
-                </button>
-              );
-            })}
-          </div>
+            Apply date
+          </button>
         </div>
       )}
     </div>

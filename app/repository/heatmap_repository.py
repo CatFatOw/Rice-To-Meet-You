@@ -50,6 +50,7 @@ from typing import Any, ClassVar, Dict, Iterable, Iterator, List, Optional, Sequ
 from sqlalchemy import Float, Integer, MetaData, Numeric, Table, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
+from repository.urban_internvetion_repository import UrbanInterventionRecord, UrbanInterventionRepository
 from services.heatmap import create_weather_cache_key, create_urban_heat_cache_key
 
 logger = logging.getLogger(__name__)
@@ -123,6 +124,11 @@ class HeatmapRepository:
         "atlanta",
         "seattle",
     )
+    MARKET_CODE_ALIASES: ClassVar[Dict[str, str]] = {
+        "new_york": "new_york_nj",
+        "new_jersey": "new_york_nj",
+        "san_francisco_bay_area": "san_francisco",
+    }
 
     WEATHER_TABLE = "market_daily_weather"
     HEAT_INDEX_TABLE = "urban_heat_index_updated"
@@ -1199,22 +1205,116 @@ class HeatmapRepository:
 
     def get_simulated_points_by_date(
         self,
+        from_date: DateLike,
+        to_date: DateLike,
+        city: str,
         metric: str,
-        points_by_date: HeatmapPointsByDate,
-        placed_objects: Any,
+        additional_metrics: Optional[Iterable[str]] = None,
         mode: str = "standard",
     ) -> HeatmapPointsByDate:
-        """Run the intervention simulation for one metric and return the readings."""
+        """Retrieve a city's inputs for a date range and return simulated readings."""
         from services.simulation_services import run_diminishing_return_simulation
+
+        start_date = self._coerce_date(from_date)
+        print(start_date)
+        end_date = self._coerce_date(to_date)
+        print(end_date)
+        if start_date > end_date:
+            raise ValueError("from_date must not be after to_date.")
+
+        market_codes = self._resolve_markets(city)
+        if not market_codes:
+            raise ValueError("Unknown city %r." % city)
+        market_code = market_codes[0]
+
+        heatmap_points_by_date: HeatmapPointsByDate = {}
+        current_date = start_date
+        while current_date <= end_date:
+            date_key = current_date.isoformat()
+            points = self.getDataPointsForCityDateMetric(
+                weather_date=current_date,
+                metric=metric,
+                market_code=market_code,
+                additional_metrics=additional_metrics,
+            )
+            heatmap_points_by_date[date_key] = points.get(date_key, [])
+            current_date += dt.timedelta(days=1)
+        print(len(heatmap_points_by_date))
+
+        interventions = UrbanInterventionRepository(self.session).get_all_by_city_between_date(
+            city=market_code,
+            from_date=start_date,
+            to_date=end_date,
+        )
+        print(f"Interventions: {interventions}")
+        placed_objects = self._group_interventions_for_simulation(interventions)
+        print(f"Simulation placed_objects: {placed_objects}")
 
         return run_diminishing_return_simulation(
             metric=metric,
-            points_by_date=points_by_date,
+            points_by_date=heatmap_points_by_date,
             categorized_objects=placed_objects,
             mode=mode,
         ).points_by_date
 
     getSimulatedPointsByDate = get_simulated_points_by_date
+
+    @staticmethod
+    def _group_interventions_for_simulation(
+        interventions: Iterable[UrbanInterventionRecord],
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Convert persisted intervention records into the simulation input shape."""
+        category_by_type = {
+            "street_tree": "Vegetation",
+            "cool_roof": "High-albedo surface",
+            "cool_pavement": "High-albedo surface",
+            "shade_structure": "Shade structure",
+            "misting_station": "Evaporative / water",
+        }
+        grouped: Dict[str, List[Dict[str, Any]]] = {
+            "Vegetation": [],
+            "High-albedo surface": [],
+            "Shade structure": [],
+            "Evaporative / water": [],
+        }
+
+        for intervention in interventions:
+            category = category_by_type[intervention.intervention_type]
+            geometry = intervention.geometry
+            geometry_type = geometry["type"]
+            coordinates = geometry["coordinates"]
+            if geometry_type == "Point":
+                longitude, latitude = coordinates
+                simulation_geometry = {
+                    "kind": "point",
+                    "longitude": longitude,
+                    "latitude": latitude,
+                }
+            elif geometry_type == "LineString":
+                simulation_geometry = {"kind": "line", "coordinates": coordinates}
+            else:
+                simulation_geometry = {"kind": "polygon", "ring": coordinates[0]}
+
+            grouped[category].append(
+                {
+                    "id": str(intervention.id),
+                    "name": intervention.name,
+                    "type": intervention.intervention_type,
+                    "category": category,
+                    "color": intervention.color,
+                    "market_code": intervention.market_code,
+                    "geometry": simulation_geometry,
+                    "params": intervention.parameters,
+                    "activeFrom": intervention.active_from.isoformat()
+                    if intervention.active_from
+                    else None,
+                    "activeTo": intervention.active_to.isoformat()
+                    if intervention.active_to
+                    else None,
+                }
+            )
+
+        return grouped
 
     def getMetricByCityDate(
         self,
@@ -1462,11 +1562,13 @@ class HeatmapRepository:
         if market_code is None:
             return list(self.SUPPORTED_MARKET_CODES)
         requested = [market_code] if isinstance(market_code, str) else list(market_code)
-        return [
-            m
-            for m in (str(c).strip().lower() for c in requested)
-            if m in self.SUPPORTED_MARKET_CODES
-        ]
+        normalized: List[str] = []
+        for value in requested:
+            code = "_".join(str(value).strip().lower().split())
+            code = self.MARKET_CODE_ALIASES.get(code, code)
+            if code in self.SUPPORTED_MARKET_CODES:
+                normalized.append(code)
+        return normalized
 
     def _format_value(self, column: str, value: Any) -> str:
         if isinstance(value, bool):

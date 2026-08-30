@@ -36,6 +36,12 @@ export default function SimulatePanel({
   title = 'Simulate',
 }: SimulatePanelProps) {
   const handleStart = onStartSimulation ?? onSimulate;
+  const handleFromDateChange = (isoDate: string) => {
+    onFromDateChange?.(isoDate);
+    if (toDate && isoDate > toDate) {
+      onToDateChange?.(isoDate);
+    }
+  };
 
   return (
     <div className="shrink-0 rounded-lg border border-slate-800 bg-slate-950/55 p-4">
@@ -51,7 +57,7 @@ export default function SimulatePanel({
           <SelectDate
             label="From"
             value={fromDate ?? null}
-            onChange={(isoDate) => onFromDateChange?.(isoDate)}
+            onChange={handleFromDateChange}
             availableDates={availableDates}
             variant="bare"
             className="w-full"

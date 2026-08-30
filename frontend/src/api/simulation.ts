@@ -1099,14 +1099,15 @@
 // }
 
 import type { HeatmapPointsByDate } from '../types/heatmap';
-import type { BasePlacedObjectCategorized } from '../hooks/usePlacedObjects';
 
 const BASE_URL = 'http://127.0.0.1:8000';
 
 export async function getSimulatedPointsByDate(
   metric: string,
-  pointsByDate: HeatmapPointsByDate,
-  placedObjects: BasePlacedObjectCategorized,
+  fromDate: string,
+  toDate: string,
+  city: string,
+  additionalMetrics?: string[],
   mode: 'standard' | 'contextual' = 'standard',
 ): Promise<HeatmapPointsByDate> {
   const response = await fetch(`${BASE_URL}/heatmap/get-simulated-point-by-date`, {
@@ -1116,9 +1117,11 @@ export async function getSimulatedPointsByDate(
       Accept: 'application/json',
     },
     body: JSON.stringify({
+      from_date: fromDate,
+      to_date: toDate,
+      city,
       metric,
-      points_by_date: pointsByDate,
-      placed_objects: placedObjects,
+      additional_metrics: additionalMetrics,
       mode,
     }),
   });

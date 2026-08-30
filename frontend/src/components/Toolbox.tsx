@@ -163,6 +163,15 @@ const Toolbox: React.FC<ToolboxProps> = ({
   const toolColor = pendingPlacedObject?.color ?? '';
   const toolActiveFrom = pendingPlacedObject?.activeFrom ?? null;
   const toolActiveTo = pendingPlacedObject?.activeTo ?? null;
+  const handleToolStartDateChange = React.useCallback(
+    (isoDate: string) => {
+      updatePendingPlacedObject?.({ activeFrom: isoDate });
+      if (toolActiveTo && isoDate > toolActiveTo) {
+        updatePendingPlacedObject?.({ activeTo: isoDate });
+      }
+    },
+    [toolActiveTo, updatePendingPlacedObject],
+  );
 
 
   // --- Urban-interventions selection state ----------------------------------
@@ -377,8 +386,8 @@ const Toolbox: React.FC<ToolboxProps> = ({
         color: item.color,
         market_code: selectedCity ? selectedCity.trim().toLowerCase().replace(/\s+/g, '_') : undefined,
         params: { ...item.params },
-        activeFrom: pendingPlacedObject?.activeFrom ?? '',
-        activeTo: pendingPlacedObject?.activeTo ?? '',
+        activeFrom: pendingPlacedObject?.activeFrom || '2020-01-01',
+        activeTo: pendingPlacedObject?.activeTo || '2020-01-01',
         geometry:
           item.kind === 'polygon' && !isWaterArchetype
             ? { kind: 'polygon', ring: [] }
@@ -743,7 +752,7 @@ const handleDrawIntervention = React.useCallback(
                   <SelectDate
                     label="Start date"
                     value={toolActiveFrom}
-                    onChange={(isoDate) => updatePendingPlacedObject?.({ activeFrom: isoDate })}
+                    onChange={handleToolStartDateChange}
                     availableDates={availableDates}
                     disabled={!citySelected}
                     variant="bare"
