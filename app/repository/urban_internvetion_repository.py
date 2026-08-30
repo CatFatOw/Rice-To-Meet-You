@@ -228,6 +228,69 @@ class UrbanInterventionRepository:
     # Convenience alias for callers using the camelCase name.
     getManyByCityAndDate = get_many_by_city_and_date  # noqa: N815
 
+    def get_all_by_city_between_date(
+        self,
+        city: str,
+        from_date: datetime | date,
+        to_date: datetime | date,
+        *,
+        statuses: Sequence[InterventionStatus] | None = None,
+    ) -> list[UrbanInterventionRecord]:
+        """Return every intervention in ``city`` active at any point in a range.
+
+        A row matches when its activity window overlaps the inclusive range
+        ``[from_date, to_date]`` — not only when it is contained by it. As in
+        :meth:`get_many_by_city_and_date`, a NULL ``active_from`` or
+        ``active_to`` is an open-ended bound.
+
+        Args:
+            city: value matched against ``market_code``.
+            from_date: start of the range, inclusive.
+            to_date: end of the range, inclusive.
+            statuses: optional status whitelist; omit to include all statuses.
+
+        Returns:
+            Records ordered by name, empty if nothing matches.
+
+        Raises:
+            ValueError: ``from_date`` is later than ``to_date``.
+        """
+        if from_date > to_date:
+            raise ValueError(
+                f"from_date ({from_date!r}) must not be after to_date ({to_date!r})."
+            )
+
+        bindings: dict[str, Any] = {
+            "city": city,
+            "from_date": from_date,
+            "to_date": to_date,
+        }
+
+        status_filter = ""
+        if statuses is not None:
+            if not statuses:
+                return []
+            status_filter = "AND status = ANY(:statuses)"
+            bindings["statuses"] = list(statuses)
+
+        statement = text(
+            f"""
+            SELECT {_COLUMNS}
+            FROM urban_interventions
+            WHERE market_code = :city
+              AND (active_from IS NULL OR active_from <= :to_date)
+              AND (active_to   IS NULL OR active_to   >= :from_date)
+              {status_filter}
+            ORDER BY name, id
+            """
+        )
+
+        rows = self._session.execute(statement, bindings).mappings().all()
+        return [self._to_record(row) for row in rows]
+
+    # Convenience alias for callers using the camelCase name.
+    getAllByCityBetweenDate = get_all_by_city_between_date  # noqa: N815
+
     # -- writes -------------------------------------------------------------
 
     def create(self, data: UrbanInterventionCreate) -> UrbanInterventionRecord:

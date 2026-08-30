@@ -1196,6 +1196,26 @@ class HeatmapRepository:
         if not points:
             return {}
         return {target_date.isoformat(): points}
+
+    def get_simulated_points_by_date(
+        self,
+        metric: str,
+        points_by_date: HeatmapPointsByDate,
+        placed_objects: Any,
+        mode: str = "standard",
+    ) -> HeatmapPointsByDate:
+        """Run the intervention simulation for one metric and return the readings."""
+        from services.simulation_services import run_diminishing_return_simulation
+
+        return run_diminishing_return_simulation(
+            metric=metric,
+            points_by_date=points_by_date,
+            categorized_objects=placed_objects,
+            mode=mode,
+        ).points_by_date
+
+    getSimulatedPointsByDate = get_simulated_points_by_date
+
     def getMetricByCityDate(
         self,
         metrics: Iterable[str],

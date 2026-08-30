@@ -50,6 +50,22 @@ function isPlacedObjectCategory(value: string): value is PlacedObjectCategory {
   return (PLACED_OBJECT_CATEGORIES as readonly string[]).includes(value);
 }
 
+const ARCHETYPE_CODE_TO_CATEGORY: Record<string, PlacedObjectCategory> = {
+  vegetation: 'Vegetation',
+  high_albedo_surface: 'High-albedo surface',
+  shade_structure: 'Shade structure',
+  evaporative_water: 'Evaporative / water',
+};
+
+function normalizeCategory(categoryOrArchetypeCode?: string): PlacedObjectCategory | null {
+  if (!categoryOrArchetypeCode) return null;
+  if (isPlacedObjectCategory(categoryOrArchetypeCode)) {
+    return categoryOrArchetypeCode;
+  }
+  const normalizedCode = categoryOrArchetypeCode.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return ARCHETYPE_CODE_TO_CATEGORY[normalizedCode] ?? null;
+}
+
 function toCategorizedPlacedObjects(
   placedObjects: BasePlacedObject[],
 ): BasePlacedObjectCategorized {
@@ -58,9 +74,12 @@ function toCategorizedPlacedObjects(
   ) as BasePlacedObjectCategorized;
 
   for (const object of placedObjects) {
-    const category = object.category;
-    if (!category || !isPlacedObjectCategory(category)) continue;
-    categorized[category].push(object);
+    const category = normalizeCategory(object.category);
+    if (!category) continue;
+    categorized[category].push({
+      ...object,
+      category,
+    });
   }
 
   return categorized;
@@ -224,12 +243,45 @@ const SimulationPage: React.FC = () => {
         city: selectedCity,
         count: placedObjects.length,
       });
+      console.log(placedObjects)
+      console.log(toCategorizedPlacedObjects(placedObjects))
       const simulatedPointsByDate = await getSimulatedPointsByDate(
         metric,
         baselinePointsByDate,
         toCategorizedPlacedObjects(placedObjects),
       );
       framesByDate = simulatedPointsByDate;
+
+      // Log elements whose values changed compared to baseline
+      const changedElements: Array<{
+        date: string;
+        index: number;
+        coordinates: [number, number];
+        baselineValue: number;
+        simulatedValue: number;
+        delta: number;
+        point: HeatmapMetricValue;
+      }> = [];
+
+      for (const [date, simPoints] of Object.entries(simulatedPointsByDate)) {
+        const basePoints = baselinePointsByDate[date] || [];
+        simPoints.forEach((simPoint, index) => {
+          const basePoint = basePoints[index];
+          if (basePoint && Math.abs(simPoint.value - basePoint.value) > 1e-10) {
+            changedElements.push({
+              date,
+              index,
+              coordinates: simPoint.location_coordinates,
+              baselineValue: basePoint.value,
+              simulatedValue: simPoint.value,
+              delta: simPoint.value - basePoint.value,
+              point: simPoint,
+            });
+          }
+        });
+      }
+
+      console.log('[Simulation] Elements with changed values:', changedElements);
       
     } catch (error) {
       console.error('Failed to simulate points by date', error);
@@ -442,7 +494,7 @@ useEffect(() => {
             : statistics.overallStatistics.topDestinations;
 
           setTopDestinations(
-            liveTopDestinations.length > 0
+            liveTopDestinations && liveTopDestinations.length > 0
               ? liveTopDestinations
               : statistics.overallStatistics.topDestinations,
           );
