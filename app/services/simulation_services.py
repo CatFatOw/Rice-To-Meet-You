@@ -25,11 +25,17 @@ the return is positive; the returned field negates it.
 
 The public entry point is `get_simulated_points_by_date`, which delegates to
 `run_diminishing_return_simulation` and returns just the readings.
+
+Copy semantics: the baseline `points_by_date` is never mutated. Simulated
+points are SHALLOW copies of their source, which is sufficient because every
+write is a top-level key rebind -- `value` is reassigned and
+`individual_metrics` is replaced with a freshly built dict, never mutated in
+place. `location_coordinates` is only ever read. Points that no intervention
+touches are copied but otherwise passed through unchanged.
 """
 
 from __future__ import annotations
 
-import copy
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -864,6 +870,12 @@ def run_diminishing_return_simulation(
     cooling effect. Because every contribution is measured from the untouched
     baseline, the result is independent of iteration order.
 
+    The baseline is never mutated. Returned points are shallow copies of their
+    source: `value` and `individual_metrics` are rebound as whole keys, and
+    `location_coordinates` is only read, so a deep copy is unnecessary. That
+    does mean the returned points share their `location_coordinates` object with
+    the input -- safe for serialization, but do not edit it in place downstream.
+
     :param metric:              the heatmap metric being simulated
     :param points_by_date:      baseline readings grouped by date (not mutated)
     :param categorized_objects: interventions grouped by archetype category
@@ -871,12 +883,15 @@ def run_diminishing_return_simulation(
                                 cross-archetype interaction factors
     :returns: the simulated readings plus a feedback summary
     """
-   
 
     feedback = SimulationFeedback(mode=mode)
 
     if not metric_is_temperature(metric):
-        return DiminishingSimulationResult(copy.deepcopy(points_by_date), feedback)
+        # Nothing is modified on this path, so fresh containers around the
+        # existing point objects are enough.
+        return DiminishingSimulationResult(
+            {date: list(points) for date, points in points_by_date.items()}, feedback
+        )
 
     is_change_metric = metric == "change_in_temperature"
     total_cooling = 0.0
@@ -902,8 +917,8 @@ def run_diminishing_return_simulation(
         simulated_points: list[HeatmapMetricValue] = []
 
         for index, source_point in enumerate(points):
-            point = copy.deepcopy(source_point)
             metrics = source_point.get("individual_metrics") or {}
+
             parsed_temperature = parse_temperature(metrics.get("average_temperature_c", ""))
             parsed_humidity = parse_percentage(
                 metrics.get("average_relative_humidity_pct", "")
@@ -933,7 +948,8 @@ def run_diminishing_return_simulation(
                         raw.append(_Contribution(obj, category, cooling))
 
             if not raw:
-                simulated_points.append(point)
+                # Untouched: copy the container only, nothing to rewrite.
+                simulated_points.append(dict(source_point))
                 continue
 
             categories = {item.category for item in raw}
@@ -974,9 +990,12 @@ def run_diminishing_return_simulation(
                 if interaction.label not in feedback.contextual_interactions:
                     feedback.contextual_interactions.append(interaction.label)
 
+            # Shallow copy: both writes below rebind top-level keys, and the
+            # metrics spread builds a new dict rather than mutating the source.
+            point = dict(source_point)
             point["value"] = -cooling_c if is_change_metric else final_temperature
             point["individual_metrics"] = {
-                **(point.get("individual_metrics") or {}),
+                **metrics,
                 "average_temperature_c": f"{final_temperature:.1f}°C",
                 "simulation_cooling_c": f"{cooling_c:.2f}°C",
                 "simulation_overlap_count": str(len(raw)),
