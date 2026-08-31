@@ -1215,10 +1215,22 @@ class HeatmapRepository:
         """Retrieve a city's inputs for a date range and return simulated readings."""
         from services.simulation_services import run_diminishing_return_simulation
 
+        total_start = perf_counter()
+        stage_start = total_start
+
+        def print_timing(stage: str) -> None:
+            nonlocal stage_start
+            now = perf_counter()
+            print(
+                f"[SIM] {stage}: "
+                f"{now - stage_start:.4f}s "
+                f"(total: {now - total_start:.4f}s)"
+            )
+            stage_start = now
+
+        # --- 1. inputs -----------------------------------------------------
         start_date = self._coerce_date(from_date)
-        print(start_date)
         end_date = self._coerce_date(to_date)
-        print(end_date)
         if start_date > end_date:
             raise ValueError("from_date must not be after to_date.")
 
@@ -1227,35 +1239,103 @@ class HeatmapRepository:
             raise ValueError("Unknown city %r." % city)
         market_code = market_codes[0]
 
+        day_count = (end_date - start_date).days + 1
+        print(
+            f"[SIM] range {start_date.isoformat()} -> {end_date.isoformat()} "
+            f"({day_count} days), market={market_code}, metric={metric}, mode={mode}"
+        )
+        print_timing("Parse inputs")
+
+        # --- 2. fetch baseline points, one date at a time -------------------
+        # Timed per date as well as in aggregate: the first date usually pays
+        # for a cache miss / preload fallback, so a large first entry and small
+        # rest means the cache is working. Uniformly large means it is not.
         heatmap_points_by_date: HeatmapPointsByDate = {}
+        per_date_seconds: List[Tuple[str, float, int]] = []
+
         current_date = start_date
         while current_date <= end_date:
             date_key = current_date.isoformat()
+
+            date_start = perf_counter()
             points = self.getDataPointsForCityDateMetric(
                 weather_date=current_date,
                 metric=metric,
                 market_code=market_code,
                 additional_metrics=additional_metrics,
             )
-            heatmap_points_by_date[date_key] = points.get(date_key, [])
-            current_date += dt.timedelta(days=1)
-        print(len(heatmap_points_by_date))
+            date_points = points.get(date_key, [])
+            elapsed = perf_counter() - date_start
 
+            heatmap_points_by_date[date_key] = date_points
+            per_date_seconds.append((date_key, elapsed, len(date_points)))
+
+            current_date += dt.timedelta(days=1)
+
+        total_points = sum(count for _, _, count in per_date_seconds)
+        fetch_seconds = sum(seconds for _, seconds, _ in per_date_seconds)
+
+        print_timing(
+            f"Fetch baseline points ({total_points:,} across {len(per_date_seconds)} dates)"
+        )
+
+        if per_date_seconds:
+            slowest = max(per_date_seconds, key=lambda entry: entry[1])
+            fastest = min(per_date_seconds, key=lambda entry: entry[1])
+            print(
+                f"[SIM]   per-date: "
+                f"mean {fetch_seconds / len(per_date_seconds):.4f}s, "
+                f"slowest {slowest[0]} {slowest[1]:.4f}s, "
+                f"fastest {fastest[0]} {fastest[1]:.4f}s"
+            )
+            # Uncomment for a full per-date breakdown.
+            # for date_key, seconds, count in per_date_seconds:
+            #     print(f"[SIM]     {date_key}: {seconds:.4f}s ({count:,} points)")
+
+        # --- 3. interventions ----------------------------------------------
         interventions = UrbanInterventionRepository(self.session).get_all_by_city_between_date(
             city=market_code,
             from_date=start_date,
             to_date=end_date,
         )
-        print(f"Interventions: {interventions}")
-        placed_objects = self._group_interventions_for_simulation(interventions)
-        print(f"Simulation placed_objects: {placed_objects}")
+        interventions = list(interventions)  # materialize before timing the query
+        print_timing(f"Query interventions ({len(interventions)} rows)")
 
-        return run_diminishing_return_simulation(
+        placed_objects = self._group_interventions_for_simulation(interventions)
+        object_count = sum(len(objects) for objects in placed_objects.values())
+        print_timing(f"Group interventions ({object_count} placed objects)")
+
+        # --- 4. simulation ---------------------------------------------------
+        simulated = run_diminishing_return_simulation(
             metric=metric,
             points_by_date=heatmap_points_by_date,
             categorized_objects=placed_objects,
             mode=mode,
-        ).points_by_date
+        )
+        simulation_seconds = perf_counter() - stage_start
+        print_timing("Run simulation")
+
+        feedback = simulated.feedback
+        print(
+            f"[SIM]   affected {feedback.affected_points:,} points "
+            f"({feedback.overlap_points:,} overlapping, "
+            f"max {feedback.max_objects_at_point} objects at a point)"
+        )
+        if total_points:
+            print(
+                f"[SIM]   simulation cost: "
+                f"{simulation_seconds / total_points * 1e6:.1f} us/point "
+                f"across {total_points:,} points"
+            )
+
+        total_seconds = perf_counter() - total_start
+        print(
+            f"[SIM] COMPLETE: {total_seconds:.4f}s "
+            f"(fetch {fetch_seconds / total_seconds * 100:.0f}%, "
+            f"simulate {simulation_seconds / total_seconds * 100:.0f}%)"
+        )
+
+        return simulated.points_by_date
 
     getSimulatedPointsByDate = get_simulated_points_by_date
 

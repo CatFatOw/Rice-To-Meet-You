@@ -64,8 +64,10 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Core POI preload failed; falling back to queries")
 
+    # The simulation endpoint needs this cache to build baseline points. Wait
+    # here so its first request does not block behind a full cache preload.
+    await preload_heatmap()
     tasks = [
-        asyncio.create_task(preload_heatmap(), name="preload-heatmap"),
         asyncio.create_task(preload_core_poi(), name="preload-core-poi"),
     ]
 
