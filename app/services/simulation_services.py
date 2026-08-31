@@ -904,7 +904,6 @@ def run_diminishing_return_simulation(
         for index, source_point in enumerate(points):
             point = copy.deepcopy(source_point)
             metrics = source_point.get("individual_metrics") or {}
-
             parsed_temperature = parse_temperature(metrics.get("average_temperature_c", ""))
             parsed_humidity = parse_percentage(
                 metrics.get("average_relative_humidity_pct", "")
