@@ -167,6 +167,8 @@ export interface HeatmapProps {
   isLoading?: boolean;
   isRunning?: boolean;
   mapContainerRef: React.RefObject<HTMLDivElement | null>;
+  /** External dashboard host for the passive 2D overview map. */
+  minimapContainerRef: React.RefObject<HTMLDivElement | null>;
   mapRef: React.MutableRefObject<import('maplibre-gl').Map | null>;
   mapSyncFrameRef: React.MutableRefObject<number | null>;
   fullscreenTargetRef?: React.RefObject<HTMLElement | null>;
