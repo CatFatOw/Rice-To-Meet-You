@@ -265,11 +265,14 @@ export async function callAllCityPOIs(): Promise<CityPOIAreaMap> {
     headers: { Accept: "application/json" },
   });
 
+
+
   if (!response.ok) {
     throw new Error(`POI request failed: ${response.status} ${response.statusText}`);
   }
 
   const rows = (await response.json()) as (CorePOIResponse & Record<string, any>)[];
+
   return rows.reduce<CityPOIAreaMap>((areasByCity, row) => {
     const area: CityPOIArea = {
       ...row,

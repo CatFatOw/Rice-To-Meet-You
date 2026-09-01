@@ -29,21 +29,21 @@ export default function Navigationbar() {
 
   return (
     <aside
-      className={`relative flex h-screen flex-col bg-[#050B18] text-white transition-[width] duration-300 ease-in-out ${
+      className={`relative flex h-screen flex-col border-r border-[var(--border-subtle)] bg-[var(--surface-sidebar)] text-[var(--text-primary)] shadow-[12px_0_30px_rgb(1_9_19_/_0.16)] transition-[width] duration-300 ease-in-out ${
         collapsed ? "w-16" : "w-52"
       }`}
     >
       {/* Logo */}
-      <div className="border-b border-slate-800 px-4 py-5">
+      <div className="border-b border-[var(--border-subtle)] px-4 py-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-orange-500 via-red-500 to-green-500">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-sky-300/20 bg-linear-to-br from-sky-500 via-blue-600 to-cyan-700 shadow-sm">
             <span className="text-lg">🌎</span>
           </div>
 
           {!collapsed && (
             <div className="overflow-hidden whitespace-nowrap">
-              <h1 className="text-xl font-bold">UrbanTwin</h1>
-              <p className="text-sm text-slate-400">World Cup 2026</p>
+              <h1 className="text-lg font-semibold tracking-tight">UrbanTwin</h1>
+              <p className="text-xs font-medium tracking-wide text-[var(--text-muted)]">World Cup 2026</p>
             </div>
           )}
         </div>
@@ -61,12 +61,12 @@ export default function Navigationbar() {
                 to={item.to}
                 title={collapsed ? item.name : undefined}
                 className={({ isActive }) =>
-                  `flex w-full items-center gap-3 rounded-xl px-3 py-2.5 transition-all ${
+                  `flex w-full items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${
                     collapsed ? "justify-center" : ""
                   } ${
                     isActive
-                      ? "bg-blue-900/50 text-white"
-                      : "text-slate-400 hover:bg-slate-900 hover:text-white"
+                      ? "border border-sky-400/20 bg-[var(--accent-soft)] text-[var(--text-primary)]"
+                      : "border border-transparent text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)]"
                   }`
                 }
               >
@@ -74,11 +74,11 @@ export default function Navigationbar() {
                   <>
                     <Icon
                       className={`h-4.5 w-4.5 shrink-0 ${
-                        isActive ? "text-blue-400" : ""
+                        isActive ? "text-sky-300" : ""
                       }`}
                     />
                     {!collapsed && (
-                      <span className="whitespace-nowrap text-base font-medium">
+                      <span className="whitespace-nowrap text-sm font-medium">
                         {item.name}
                       </span>
                     )}
@@ -95,7 +95,7 @@ export default function Navigationbar() {
         type="button"
         onClick={toggleCollapsed}
         aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        className="group absolute right-0 top-0 h-full w-1.5 cursor-pointer border-r border-slate-800 bg-transparent transition-colors hover:border-blue-500 hover:bg-blue-500/20"
+        className="group absolute right-0 top-0 h-full w-1.5 cursor-pointer border-r border-[var(--border-subtle)] bg-transparent transition-colors hover:border-sky-400 hover:bg-sky-400/15"
       />
     </aside>
   );

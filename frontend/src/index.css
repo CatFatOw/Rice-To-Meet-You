@@ -1,6 +1,35 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
+@keyframes activity-status-indeterminate {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(360%); }
+}
+
+.activity-status-indeterminate {
+  width: 34%;
+  animation: activity-status-indeterminate 1.35s ease-in-out infinite;
+}
+
+:root {
+  color-scheme: dark;
+  --surface-canvas: #07101d;
+  --surface-sidebar: #0a1424;
+  --surface-panel: #0d1929;
+  --surface-raised: #111f31;
+  --surface-muted: #17263a;
+  --border-subtle: #24354b;
+  --border-strong: #39516b;
+  --text-primary: #edf3fa;
+  --text-secondary: #a9b9cb;
+  --text-muted: #7890a8;
+  --accent: #5aa6f8;
+  --accent-strong: #3386df;
+  --accent-soft: rgb(90 166 248 / 0.14);
+  --focus-ring: #93c5fd;
+  --shadow-panel: 0 16px 36px rgb(1 9 19 / 0.22);
+}
+
 html,
 body,
 button,
@@ -8,4 +37,49 @@ input,
 select,
 textarea {
 	font-family: 'Inter', sans-serif;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background: var(--surface-canvas);
+}
+
+body {
+  color: var(--text-primary);
+  text-rendering: optimizeLegibility;
+}
+
+button,
+a,
+select,
+input,
+textarea {
+  outline: none;
+}
+
+button:focus-visible,
+a:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgb(90 166 248 / 0.32);
+  color: var(--text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
