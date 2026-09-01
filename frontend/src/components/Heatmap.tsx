@@ -1,6 +1,7 @@
 import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
 import { Expand, Shrink } from 'lucide-react';
 import DeckGL from '@deck.gl/react';
+import maplibregl from 'maplibre-gl';
 import {
   type CityPOIArea,
   type HeatmapMetricValue,
@@ -208,6 +209,126 @@ function metricLegendGradient(metric: string): string {
   return `linear-gradient(to right, ${segments.join(', ')})`;
 }
 
+type MapMode = '2d' | '3d';
+type BasemapId = 'dark' | 'streets' | 'satellite';
+
+const mapModeCamera: Record<MapMode, Pick<ViewState, 'pitch' | 'bearing'>> = {
+  '2d': { pitch: 0, bearing: 0 },
+  // A restrained oblique angle keeps the heat surface legible while adding
+  // enough depth to distinguish terrain and building context.
+  '3d': { pitch: 55, bearing: -20 },
+};
+
+const basemapStyles: Record<BasemapId, string | maplibregl.StyleSpecification> = {
+  dark: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+  streets: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+  satellite: {
+    version: 8,
+    name: 'Satellite imagery',
+    sources: {
+      'satellite-imagery': {
+        type: 'raster',
+        tiles: [
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        ],
+        tileSize: 256,
+        attribution: 'Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community',
+      },
+    },
+    layers: [
+      {
+        id: 'satellite-imagery',
+        type: 'raster',
+        source: 'satellite-imagery',
+      },
+    ],
+  },
+};
+const defaultBasemapId: BasemapId = 'dark';
+const buildingExtrusionLayerId = 'rice-map-3d-buildings';
+const minimapViewportSourceId = 'main-map-viewport';
+
+/**
+ * Add the optional 3D-building presentation using the source identifiers in
+ * the currently loaded style. Raster-only styles (including satellite) have
+ * no compatible layer and are intentionally left unchanged.
+ */
+function applyBuildingPresentation(map: maplibregl.Map, mode: MapMode, basemap: BasemapId): void {
+  if (map.getLayer(buildingExtrusionLayerId)) {
+    map.removeLayer(buildingExtrusionLayerId);
+  }
+
+  if (mode !== '3d') return;
+
+  const style = map.getStyle();
+  const buildingLayer = style.layers.find((layer) => {
+    const sourceLayer = 'source-layer' in layer ? layer['source-layer'] : undefined;
+    const source = 'source' in layer ? layer.source : undefined;
+
+    return (
+      (layer.type === 'fill' || layer.type === 'fill-extrusion') &&
+      typeof sourceLayer === 'string' &&
+      sourceLayer.toLowerCase().includes('building') &&
+      typeof source === 'string' &&
+      style.sources[source]?.type === 'vector'
+    );
+  });
+
+  if (!buildingLayer || !('source' in buildingLayer) || typeof buildingLayer.source !== 'string') {
+    return;
+  }
+
+  const sourceLayer = 'source-layer' in buildingLayer ? buildingLayer['source-layer'] : undefined;
+  if (typeof sourceLayer !== 'string') return;
+
+  const firstLabelLayerId = style.layers.find((layer) => layer.type === 'symbol')?.id;
+  const buildingFilter: maplibregl.FilterSpecification =
+    buildingLayer.filter ?? ['!=', 'hide_3d', true];
+
+  map.addLayer(
+    {
+      id: buildingExtrusionLayerId,
+      type: 'fill-extrusion',
+      source: buildingLayer.source,
+      'source-layer': sourceLayer,
+      minzoom: 14,
+      filter: buildingFilter,
+      paint: {
+        'fill-extrusion-color': basemap === 'dark' ? '#64748b' : '#cbd5e1',
+        'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 8],
+        'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+        'fill-extrusion-opacity': 0.78,
+        'fill-extrusion-vertical-gradient': true,
+      },
+    },
+    firstLabelLayerId,
+  );
+}
+
+function minimapZoom(mainZoom: number): number {
+  return Math.max(0, Math.min(16, mainZoom - 5));
+}
+
+function viewportOutline(bounds: maplibregl.LngLatBounds) {
+  const southWest = bounds.getSouthWest();
+  const northEast = bounds.getNorthEast();
+
+  return {
+    type: 'Feature' as const,
+    properties: {},
+    geometry: {
+      type: 'Polygon' as const,
+      coordinates: [[
+        [southWest.lng, southWest.lat],
+        [northEast.lng, southWest.lat],
+        [northEast.lng, northEast.lat],
+        [southWest.lng, northEast.lat],
+        [southWest.lng, southWest.lat],
+      ]],
+    },
+  };
+}
+
 const Heatmap: React.FC<HeatmapProps> = ({
   viewState,
   setViewState,
@@ -221,6 +342,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
   isLoading = false,
   isRunning = false,
   mapContainerRef,
+  minimapContainerRef,
   mapRef,
   mapSyncFrameRef,
   fullscreenTargetRef,
@@ -257,6 +379,188 @@ const Heatmap: React.FC<HeatmapProps> = ({
   // Fallback fullscreen target when the parent doesn't supply one: the root
   // element of this component.
   const heatmapRootRef = useRef<HTMLDivElement>(null);
+  const minimapRef = useRef<maplibregl.Map | null>(null);
+  const [mapMode, setMapMode] = useState<MapMode>('2d');
+  const [basemapId, setBasemapId] = useState<BasemapId>(defaultBasemapId);
+  const latestViewStateRef = useRef(viewState);
+  const latestMapModeRef = useRef<MapMode>('2d');
+  const latestBasemapIdRef = useRef<BasemapId>(defaultBasemapId);
+  const pendingStyleLoadRef = useRef<{
+    map: maplibregl.Map;
+    loadHandler: () => void;
+    errorHandler: () => void;
+  } | null>(null);
+
+  useEffect(() => {
+    latestViewStateRef.current = viewState;
+  }, [viewState]);
+
+  /**
+   * Keep the MapLibre basemap locked to deck.gl's camera. The update is
+   * throttled to one animation frame because deck.gl emits camera changes more
+   * often than the browser paints; jumpTo prevents basemap easing lag.
+   */
+  const syncMapCamera = useCallback(
+    (nextState: ViewState) => {
+      if (!mapRef.current) return;
+
+      if (mapSyncFrameRef.current !== null) {
+        cancelAnimationFrame(mapSyncFrameRef.current);
+      }
+
+      mapSyncFrameRef.current = requestAnimationFrame(() => {
+        if (!mapRef.current) return;
+        mapRef.current.jumpTo({
+          center: [nextState.longitude, nextState.latitude],
+          zoom: nextState.zoom,
+          pitch: nextState.pitch,
+          bearing: nextState.bearing,
+        });
+        mapSyncFrameRef.current = null;
+      });
+    },
+    [mapRef, mapSyncFrameRef],
+  );
+
+  const clearPendingStyleLoad = useCallback((expectedRequest?: typeof pendingStyleLoadRef.current) => {
+    const pending = pendingStyleLoadRef.current;
+    if (!pending || (expectedRequest && pending !== expectedRequest)) return false;
+
+    pending.map.off('style.load', pending.loadHandler);
+    pending.map.off('error', pending.errorHandler);
+    pendingStyleLoadRef.current = null;
+    return true;
+  }, []);
+
+  const restoreMapPresentation = useCallback(
+    (map: maplibregl.Map) => {
+      if (mapRef.current !== map || !map.isStyleLoaded()) return;
+
+      const camera = latestViewStateRef.current;
+      map.jumpTo({
+        center: [camera.longitude, camera.latitude],
+        zoom: camera.zoom,
+        pitch: camera.pitch,
+        bearing: camera.bearing,
+      });
+      applyBuildingPresentation(map, latestMapModeRef.current, latestBasemapIdRef.current);
+    },
+    [mapRef],
+  );
+
+  const waitForStyleLoad = useCallback(
+    (map: maplibregl.Map) => {
+      clearPendingStyleLoad();
+
+      const request = {
+        map,
+        loadHandler: () => {
+          if (!clearPendingStyleLoad(request)) return;
+          restoreMapPresentation(map);
+        },
+        errorHandler: () => {
+          clearPendingStyleLoad(request);
+        },
+      };
+
+      pendingStyleLoadRef.current = request;
+      map.on('style.load', request.loadHandler);
+      map.on('error', request.errorHandler);
+    },
+    [clearPendingStyleLoad, restoreMapPresentation],
+  );
+
+  useEffect(
+    () => () => {
+      clearPendingStyleLoad();
+    },
+    [clearPendingStyleLoad],
+  );
+
+  /**
+   * Keep the overview map observational: it reads the main camera but never
+   * emits events or writes shared page state. The viewport source is added on
+   * the minimap's load event, so this is also safe during its initial render.
+   */
+  const syncMinimapCamera = useCallback(
+    (nextState: ViewState) => {
+      const minimap = minimapRef.current;
+      if (!minimap) return;
+
+      minimap.jumpTo({
+        center: [nextState.longitude, nextState.latitude],
+        zoom: minimapZoom(nextState.zoom),
+        pitch: 0,
+        bearing: 0,
+      });
+
+      const source = minimap.getSource(minimapViewportSourceId) as maplibregl.GeoJSONSource | undefined;
+      const mainBounds = mapRef.current?.getBounds();
+      if (source && mainBounds) {
+        source.setData(viewportOutline(mainBounds));
+      }
+    },
+    [mapRef],
+  );
+
+  // The minimap is intentionally self-contained: no controls, handlers, or
+  // callbacks are registered, keeping it a read-only overview of the main map.
+  useEffect(() => {
+    const container = minimapContainerRef.current;
+    if (!container || minimapRef.current) return;
+
+    const minimap = new maplibregl.Map({
+      container,
+      style: basemapStyles[defaultBasemapId],
+      center: [latestViewStateRef.current.longitude, latestViewStateRef.current.latitude],
+      zoom: minimapZoom(latestViewStateRef.current.zoom),
+      pitch: 0,
+      bearing: 0,
+      interactive: false,
+      attributionControl: false,
+      fadeDuration: 0,
+    });
+    minimapRef.current = minimap;
+
+    const addViewportOutline = () => {
+      if (!minimap.getSource(minimapViewportSourceId)) {
+        const bounds = mapRef.current?.getBounds();
+        if (!bounds) return;
+
+        minimap.addSource(minimapViewportSourceId, {
+          type: 'geojson',
+          data: viewportOutline(bounds),
+        });
+        minimap.addLayer({
+          id: `${minimapViewportSourceId}-fill`,
+          type: 'fill',
+          source: minimapViewportSourceId,
+          paint: { 'fill-color': '#5aa6f8', 'fill-opacity': 0.08 },
+        });
+        minimap.addLayer({
+          id: `${minimapViewportSourceId}-line`,
+          type: 'line',
+          source: minimapViewportSourceId,
+          paint: { 'line-color': '#bfdbfe', 'line-width': 2, 'line-opacity': 0.95 },
+        });
+      }
+
+      syncMinimapCamera(latestViewStateRef.current);
+    };
+
+    minimap.once('load', addViewportOutline);
+
+    return () => {
+      minimap.remove();
+      if (minimapRef.current === minimap) {
+        minimapRef.current = null;
+      }
+    };
+  }, [mapRef, syncMinimapCamera]);
+
+  useEffect(() => {
+    syncMinimapCamera(viewState);
+  }, [syncMinimapCamera, viewState]);
 
   // Drawing state lives in the usePolygonDraw hook; aliased here for brevity.
   const isDrawing = drawControls.isDrawing;
@@ -347,15 +651,13 @@ const hoverablePolygons = useMemo(() => {
   // so the basemap and the overlays stay in sync.
   const flyTo = useCallback(
     (lng: number, lat: number, zoom: number, cityName?: string) => {
-      const newState: ViewState = { longitude: lng, latitude: lat, zoom, pitch: 0, bearing: 0 };
+      const newState: ViewState = { longitude: lng, latitude: lat, zoom, ...mapModeCamera[mapMode] };
+      latestViewStateRef.current = newState;
       setViewState(newState);
       if (cityName !== undefined) setSelectedCity(cityName);
-
-      if (mapRef.current) {
-        mapRef.current.flyTo({ center: [lng, lat], zoom, duration: 1200 });
-      }
+      syncMapCamera(newState);
     },
-    [setViewState, setSelectedCity, mapRef],
+    [setViewState, setSelectedCity, syncMapCamera, mapMode],
   );
 
   /**
@@ -367,24 +669,18 @@ const hoverablePolygons = useMemo(() => {
       // While drawing, map clicks add vertices instead of switching cities.
       if (isDrawing) return;
 
-      setViewState({
+      const newState: ViewState = {
         longitude: city.longitude,
         latitude: city.latitude,
         zoom: 10,
-        pitch: 0,
-        bearing: 0,
-      });
+        ...mapModeCamera[mapMode],
+      };
+      latestViewStateRef.current = newState;
+      setViewState(newState);
       setSelectedCity(city.name);
-
-      if (mapRef.current) {
-        mapRef.current.flyTo({
-          center: [city.longitude, city.latitude],
-          zoom: 10,
-          duration: 1000,
-        });
-      }
+      syncMapCamera(newState);
     },
-    [isDrawing, setViewState, setSelectedCity, mapRef],
+    [isDrawing, setViewState, setSelectedCity, syncMapCamera, mapMode],
   );
 
   // ======================================================
@@ -717,16 +1013,59 @@ const hoverablePolygons = useMemo(() => {
     }
   }, [fullscreenTargetRef]);
 
-  /**
-   * Keep the MapLibre basemap locked to deck.gl's camera as the user pans/zooms.
-   *
-   * Two guards matter here:
-   *  - The epsilon comparison returns the previous state object when the camera
-   *    hasn't meaningfully moved, so React can bail out of a re-render.
-   *  - The basemap sync is throttled to one rAF frame (cancelling any pending
-   *    one) because deck.gl fires this far more often than the browser paints.
-   * jumpTo (not flyTo) is used so the basemap tracks the drag with no easing lag.
-   */
+  const handleMapModeChange = useCallback(
+    (nextMode: MapMode) => {
+      const nextState: ViewState = {
+        ...latestViewStateRef.current,
+        ...mapModeCamera[nextMode],
+      };
+
+      latestViewStateRef.current = nextState;
+      latestMapModeRef.current = nextMode;
+      setMapMode(nextMode);
+      setViewState(nextState);
+      syncMapCamera(nextState);
+
+      const map = mapRef.current;
+      if (!map) return;
+
+      if (map.isStyleLoaded()) {
+        clearPendingStyleLoad();
+        restoreMapPresentation(map);
+      } else {
+        waitForStyleLoad(map);
+      }
+    },
+    [
+      setViewState,
+      syncMapCamera,
+      mapRef,
+      clearPendingStyleLoad,
+      restoreMapPresentation,
+      waitForStyleLoad,
+    ],
+  );
+
+  const handleBasemapChange = useCallback(
+    (event: React.ChangeEvent<HTMLSelectElement>) => {
+      const nextBasemap = event.target.value as BasemapId;
+      const map = mapRef.current;
+
+      latestBasemapIdRef.current = nextBasemap;
+      setBasemapId(nextBasemap);
+      if (!map) return;
+
+      waitForStyleLoad(map);
+      try {
+        map.setStyle(basemapStyles[nextBasemap], { diff: false });
+      } catch (error) {
+        clearPendingStyleLoad();
+        console.error('Failed to change basemap style', error);
+      }
+    },
+    [mapRef, waitForStyleLoad, clearPendingStyleLoad],
+  );
+
   const handleViewStateChange = useCallback(
     (e: any) => {
       const nextState = e.viewState as ViewState;
@@ -737,6 +1076,7 @@ const hoverablePolygons = useMemo(() => {
         pitch: nextState.pitch,
         bearing: nextState.bearing,
       };
+      latestViewStateRef.current = newState;
 
       setViewState((prev) => {
         if (
@@ -751,23 +1091,9 @@ const hoverablePolygons = useMemo(() => {
         return newState;
       });
 
-      if (!mapRef.current) return;
-
-      if (mapSyncFrameRef.current !== null) {
-        cancelAnimationFrame(mapSyncFrameRef.current);
-      }
-
-      mapSyncFrameRef.current = requestAnimationFrame(() => {
-        if (!mapRef.current) return;
-        mapRef.current.jumpTo({
-          center: [newState.longitude, newState.latitude],
-          zoom: newState.zoom,
-          pitch: newState.pitch,
-          bearing: newState.bearing,
-        });
-      });
+      syncMapCamera(newState);
     },
-    [setViewState, mapRef, mapSyncFrameRef],
+    [setViewState, syncMapCamera],
   );
 
   // ======================================================
@@ -922,6 +1248,80 @@ const hoverablePolygons = useMemo(() => {
           setIsAreaDragging(false);
         }}
       />
+
+      <div
+        role="group"
+        aria-label="Map presentation"
+        style={{
+          position: 'absolute',
+          top: 68,
+          right: 20,
+          zIndex: 30,
+          display: 'flex',
+          gap: 2,
+          padding: 3,
+          border: '1px solid var(--border-strong, rgba(148, 163, 184, 0.55))',
+          borderRadius: 9,
+          backgroundColor: 'var(--surface-panel, rgba(2, 8, 23, 0.88))',
+          boxShadow: 'var(--shadow-panel, 0 8px 24px rgba(0, 0, 0, 0.28))',
+        }}
+      >
+        <select
+          value={basemapId}
+          onChange={handleBasemapChange}
+          aria-label="Basemap"
+          title="Choose basemap"
+          style={{
+            width: 136,
+            height: 32,
+            border: 0,
+            borderRadius: 6,
+            padding: '0 8px',
+            backgroundColor: 'rgba(15, 23, 42, 0.72)',
+            color: 'var(--text-primary, #f8fafc)',
+            fontSize: 12,
+            fontWeight: 650,
+            cursor: 'pointer',
+          }}
+        >
+          <option value="dark">Dark</option>
+          <option value="streets">Streets</option>
+          <option value="satellite">Satellite imagery</option>
+        </select>
+
+        <span
+          aria-hidden="true"
+          style={{ width: 1, margin: '5px 2px', backgroundColor: 'rgba(148, 163, 184, 0.35)' }}
+        />
+
+        {(['2d', '3d'] as const).map((mode) => {
+          const isActive = mapMode === mode;
+          return (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => handleMapModeChange(mode)}
+              aria-pressed={isActive}
+              aria-label={`Show ${mode.toUpperCase()} map view`}
+              style={{
+                minWidth: 38,
+                height: 32,
+                border: 0,
+                borderRadius: 6,
+                backgroundColor: isActive ? 'var(--accent, #5aa6f8)' : 'transparent',
+                color: isActive ? '#07101d' : 'var(--text-secondary, #cbd5e1)',
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: '0.04em',
+                cursor: 'pointer',
+              }}
+              title={`Switch to ${mode.toUpperCase()} map view`}
+            >
+              {mode.toUpperCase()}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Fullscreen toggle, floating top-right over the map. */}
       <button

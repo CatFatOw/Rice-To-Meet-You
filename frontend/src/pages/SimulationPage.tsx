@@ -1,10 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { usePolygonDraw, type Ring } from '../hooks/usePolygonDraw';
 import maplibregl from 'maplibre-gl';
 import Heatmap from '../components/Heatmap';
 import NavigationBar from '../components/NavigationBar';
 import OverallStatistics from '../components/OverallStatistics';
 import POIStatistics from '../components/POIStatistics';
+import ActivityStatusPill from '../components/ActivityStatusPill';
+import { SimulationProgressProvider } from '../components/SimulatePanel';
 import {
   availableDates,
   availableMetrics,
@@ -26,6 +28,7 @@ import type { TooltipState } from '../types/components';
 import type {
   DistributionBucket,
   POIStatisticsProps,
+  SimulationProgressDisplay,
   StatCardInfo,
   TopDestination,
 } from '../types/statistics';
@@ -40,6 +43,8 @@ import usePlacedObjects from '../hooks/usePlacedObjects';
 import { getHeatmapPointsByCityDateMetric, getHeatRiskDataByCityDate, getVisitorDataByCityDate, getLocalTemperatureCByCityDate, getLocalTemperatureFByCityDate } from '../api/map';
 import { getRiskDistributionByCityDate } from '../api/statistics';
 
+
+const SIMULATION_FRAME_INTERVAL_MS = 3000;
 
 const SimulationPage: React.FC = () => {
 
@@ -59,6 +64,7 @@ const SimulationPage: React.FC = () => {
   });
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
+  const minimapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const mapSyncFrameRef = useRef<number | null>(null);
 
@@ -143,7 +149,28 @@ const SimulationPage: React.FC = () => {
   const [statCardsInfo, setStatCardsInfo] = useState<StatCardInfo[]>();
   const [poiStatisticsProps, setPOIStatisticsProps] = useState<POIStatisticsProps>({ pois: [] });
 
-  const { runTimeline, stop, isRunning } = useSimulationRunner({intervalMs: 3000});
+  const { runTimeline, stop, isRunning } = useSimulationRunner({
+    intervalMs: SIMULATION_FRAME_INTERVAL_MS,
+  });
+
+  const simulationProgress = useMemo<SimulationProgressDisplay>(() => {
+    const timelineDates = fromDate && toDate ? eachDay(fromDate, toDate) : [];
+    const currentFrameIndex = isRunning && selectedDate
+      ? timelineDates.indexOf(selectedDate)
+      : -1;
+    const completedFrames = currentFrameIndex >= 0 ? currentFrameIndex + 1 : 0;
+    const totalFrames = timelineDates.length;
+    // The runner stops on the interval tick after its last rendered frame, so
+    // an active timeline includes one final display-only dwell step.
+    const progressSteps = totalFrames + (isRunning ? 1 : 0);
+
+    return {
+      fraction: progressSteps > 0 ? completedFrames / progressSteps : 0,
+      completedFrames,
+      totalFrames,
+      etaMs: Math.max(0, progressSteps - completedFrames) * SIMULATION_FRAME_INTERVAL_MS,
+    };
+  }, [fromDate, isRunning, selectedDate, toDate]);
 
   const selectedMetricKey = selectedMetric ? Object.keys(selectedMetric)[0] : null;
   const selectedAdditionalMetrics = selectedMetric ? Object.values(selectedMetric)[0] : [];
@@ -501,6 +528,11 @@ useEffect(() => {
       <div className="shrink-0">
         <NavigationBar />
       </div>
+      <ActivityStatusPill
+        isSimulationActive={isRunning || loadingSimulation}
+        simulationProgress={simulationProgress}
+        isMapLoading={isPOIAreasLoading || isHeatmapPointsLoading}
+      />
 
       <main className="flex-1 overflow-hidden p-3">
         <div className="grid h-full grid-cols-[minmax(0,1fr)_360px] grid-rows-[minmax(0,1fr)_minmax(180px,24vh)] gap-3">
@@ -518,6 +550,7 @@ useEffect(() => {
               isLoading={!isRunning && (isPOIAreasLoading || isHeatmapPointsLoading)}
               isRunning={isRunning}
               mapContainerRef={mapContainerRef}
+              minimapContainerRef={minimapContainerRef}
               mapRef={mapRef}
               mapSyncFrameRef={mapSyncFrameRef}
               tooltip={tooltip}
@@ -554,22 +587,44 @@ useEffect(() => {
           </section>
 
           <div className="min-h-0 flex h-full flex-col gap-3">
-            <section className="min-h-0 flex-1">
-              <POIStatistics
-                {...poiStatisticsProps}
-                containSimulation={containSimulation}
-                fromDate={fromDate}
-                toDate={toDate}
-                availableDates={availableDates}
-                onFromDateChange={setFromDate}
-                onToDateChange={setToDate}
-                placedObjects={placedObjectsControls.placedObjects}
-                onPlacedObjectsChange={(placedObjects) => placedObjectsControls.setPlacedObjects(placedObjects)}
-                onStartSimulation={onStartSimulation}
-                onStopSimulation={onStopSimulation}
-                isRunning={isRunning}
-                loadingSimulation={loadingSimulation}
+            <section
+              className="flex shrink-0 items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/80 p-3"
+              aria-labelledby="simulation-map-overview-title"
+            >
+              <div className="min-w-0">
+                <h2
+                  id="simulation-map-overview-title"
+                  className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400"
+                >
+                  Map overview
+                </h2>
+                <p className="mt-1 text-xs text-slate-500">2D · synced</p>
+              </div>
+              <div
+                ref={minimapContainerRef}
+                aria-hidden="true"
+                className="h-24 w-40 shrink-0 overflow-hidden rounded-lg border border-slate-700 bg-slate-950 pointer-events-none"
               />
+            </section>
+
+            <section className="min-h-0 flex-1">
+              <SimulationProgressProvider value={simulationProgress}>
+                <POIStatistics
+                  {...poiStatisticsProps}
+                  containSimulation={containSimulation}
+                  fromDate={fromDate}
+                  toDate={toDate}
+                  availableDates={availableDates}
+                  onFromDateChange={setFromDate}
+                  onToDateChange={setToDate}
+                  placedObjects={placedObjectsControls.placedObjects}
+                  onPlacedObjectsChange={(placedObjects) => placedObjectsControls.setPlacedObjects(placedObjects)}
+                  onStartSimulation={onStartSimulation}
+                  onStopSimulation={onStopSimulation}
+                  isRunning={isRunning}
+                  loadingSimulation={loadingSimulation}
+                />
+              </SimulationProgressProvider>
             </section>
           </div>
 

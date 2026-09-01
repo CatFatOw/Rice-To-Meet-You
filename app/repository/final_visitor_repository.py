@@ -5,7 +5,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date as date_type, datetime
 from decimal import Decimal
-from typing import NamedTuple, Optional
+from typing import Callable, NamedTuple, Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session, sessionmaker
@@ -300,7 +300,11 @@ class VisitorRepository:
         return local, skipped
 
     @classmethod
-    def initialize_table(cls, db: Session):
+    def initialize_table(
+        cls,
+        db: Session,
+        progress_callback: Optional[Callable[[int, int, int], None]] = None,
+    ):
         """Fetch every point value in parallel and cache it in memory."""
         ranges = cls._id_ranges(db)
         # _id_ranges starts a transaction on the caller's session. Release
@@ -308,6 +312,8 @@ class VisitorRepository:
         db.rollback()
         if not ranges:
             cls._cache = {}
+            if progress_callback:
+                progress_callback(0, 0, 0)
             return
 
         session_factory = sessionmaker(bind=db.get_bind(), expire_on_commit=False)
@@ -315,6 +321,9 @@ class VisitorRepository:
         total = 0
         skipped = 0
         linked = 0
+        completed_chunks = 0
+        if progress_callback:
+            progress_callback(completed_chunks, len(ranges), total)
 
         with ThreadPoolExecutor(max_workers=cls.N_WORKERS) as pool:
             futures = [
@@ -328,6 +337,9 @@ class VisitorRepository:
                     cache[key].extend(points)
                     total += len(points)
                     linked += sum(1 for p in points if p.poi is not None)
+                completed_chunks += 1
+                if progress_callback:
+                    progress_callback(completed_chunks, len(ranges), total)
                 # once per completed chunk, not once per city/date key
                 print(f"Pre-loaded {total:,} visitor rows...")
 

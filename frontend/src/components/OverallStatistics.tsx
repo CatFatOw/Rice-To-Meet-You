@@ -89,30 +89,30 @@ export default function OverallStatistics({
     .join(", ")})`;
 
   return (
-    <div className="w-full rounded-xl border border-slate-800 bg-slate-950 p-4 text-slate-100">
-      <h2 className="mb-4 text-base font-semibold">{title}</h2>
+    <div className="app-panel w-full rounded-2xl p-5 text-[var(--text-primary)]">
+      <h2 className="mb-5 text-base font-semibold tracking-tight">{title}</h2>
 
-      <div className="grid grid-cols-1 gap-4 border-b border-slate-800 pb-4 md:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 border-b border-[var(--border-subtle)] pb-5 md:grid-cols-4">
         {statCardsInfo.map((stat) => (
           <StatCard key={stat.label} {...stat} />
         ))}
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-          <h3 className="mb-3 text-sm font-semibold">{topRiskHeading}</h3>
+        <div className="app-subpanel rounded-xl p-4">
+          <h3 className="mb-4 text-sm font-semibold">{topRiskHeading}</h3>
           <div className="space-y-3">
             {topDestinations.map((city, index) => (
               <div
                 key={`${city.name}-${index}`}
                 className="grid grid-cols-[24px_100px_1fr_36px] items-center gap-4"
               >
-                <span className="text-slate-400">{index + 1}</span>
+                <span className="text-[var(--text-muted)]">{index + 1}</span>
                 <span>{city.name}</span>
 
-                <div className="h-3 rounded-full bg-slate-800">
+                <div className="h-2.5 rounded-full bg-[var(--surface-muted)]">
                   <div
-                    className="h-3 rounded-full bg-linear-to-r from-orange-400 to-red-500"
+                    className="h-2.5 rounded-full bg-linear-to-r from-sky-400 to-blue-600"
                     style={{ width: `${city.score}%` }}
                   />
                 </div>
@@ -123,16 +123,16 @@ export default function OverallStatistics({
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-          <h3 className="mb-3 text-sm font-semibold">Risk Distribution</h3>
+        <div className="app-subpanel rounded-xl p-4">
+          <h3 className="mb-4 text-sm font-semibold">Risk Distribution</h3>
 
           <div className="flex flex-col items-center gap-4 md:flex-row">
             <div
               className="relative h-36 w-36 rounded-full"
               style={{ background: donut }}
             >
-              <div className="absolute inset-8 flex flex-col items-center justify-center rounded-full bg-slate-950">
-                <span className="text-xs text-slate-400">{donutLabel}</span>
+              <div className="absolute inset-8 flex flex-col items-center justify-center rounded-full bg-[var(--surface-panel)]">
+                <span className="text-xs text-[var(--text-muted)]">{donutLabel}</span>
                 <span className="text-xl font-semibold">{total}</span>
               </div>
             </div>
@@ -148,7 +148,7 @@ export default function OverallStatistics({
                       className="h-4 w-4 rounded"
                       style={{ backgroundColor: item.color }}
                     />
-                    <span className="text-sm text-slate-300">{item.label}</span>
+                    <span className="text-sm text-[var(--text-secondary)]">{item.label}</span>
                   </div>
 
                   <span className="text-sm font-medium">{item.value}</span>
@@ -174,10 +174,12 @@ function StatCard({
 
   return (
     <div className="flex items-center gap-4">
-      <Icon className={`h-9 w-9 ${iconClassName}`} />
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/5">
+        <Icon className={`h-5 w-5 ${iconClassName}`} />
+      </span>
 
       <div>
-        <p className="text-xs text-slate-400">{label}</p>
+        <p className="text-xs font-medium text-[var(--text-muted)]">{label}</p>
         <div className="flex items-end gap-1.5">
           <span className="text-2xl font-semibold">{value}</span>
           {suffix && (

@@ -45,7 +45,7 @@ from array import array
 from decimal import Decimal
 from threading import Lock
 from time import perf_counter
-from typing import Any, ClassVar, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, ClassVar, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
 
 from sqlalchemy import Float, Integer, MetaData, Numeric, Table, select
 from sqlalchemy.engine import Engine
@@ -312,6 +312,7 @@ class HeatmapRepository:
         preload: bool = True,
         markets: Optional[Sequence[str]] = None,
         force: bool = False,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> None:
         """Reflect metadata and load both tables into memory.
 
@@ -333,11 +334,22 @@ class HeatmapRepository:
                 cls._heat_loaded = False
                 cls._weather_loaded = False
 
+            target_markets = list(markets or cls.SUPPORTED_MARKET_CODES)
+            total_steps = 1 + len(target_markets)  # weather + one step per market
+            completed_steps = 0
+
             if not cls._weather_loaded:
                 cls._load_weather(bind)
+            completed_steps += 1
+            if progress_callback:
+                progress_callback(completed_steps, total_steps, "weather")
 
             if not cls._heat_loaded:
-                cls._load_heat_index(bind, markets)
+                cls._load_heat_index(bind, markets, progress_callback, completed_steps, total_steps)
+            elif progress_callback:
+                for market in target_markets:
+                    completed_steps += 1
+                    progress_callback(completed_steps, total_steps, market)
 
     @classmethod
     def refresh_weather(cls, bind: Any) -> None:
@@ -453,7 +465,12 @@ class HeatmapRepository:
 
     @classmethod
     def _load_heat_index(
-        cls, bind: Any, markets: Optional[Sequence[str]] = None
+        cls,
+        bind: Any,
+        markets: Optional[Sequence[str]] = None,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        completed_steps: int = 0,
+        total_steps: int = 0,
     ) -> None:
         table = cls._heat_index_table
         started = perf_counter()
@@ -519,6 +536,9 @@ class HeatmapRepository:
                         )
 
                 logger.info("Preloaded %s points for %s", f"{market_rows:,}", market)
+                completed_steps += 1
+                if progress_callback:
+                    progress_callback(completed_steps, total_steps, market)
 
         cls._heat_metric_names = metric_names
         cls._heat_cache = cache

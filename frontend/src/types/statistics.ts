@@ -68,6 +68,16 @@ export interface POIStatisticsProps {
   onSimulate?: () => void;
 }
 
+/** Presentation-only state for the simulation timeline indicator. */
+export interface SimulationProgressDisplay {
+  /** Completed share of the selected date range, clamped by the renderer. */
+  fraction: number;
+  completedFrames: number;
+  totalFrames: number;
+  /** Estimated playback time remaining at the configured timeline cadence. */
+  etaMs: number;
+}
+
 export interface CityStatisticsResponse {
   overallStatistics: OverallStatisticsProps;
   poiStatistics: POIStatisticsProps;

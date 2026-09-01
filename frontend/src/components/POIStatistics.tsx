@@ -91,7 +91,7 @@ export default function POIStatistics({
   return (
     <section
       ref={panelRef}
-      className={`relative flex h-full w-full flex-col border-slate-800 bg-[#07111f] p-5 text-white shadow-lg ${
+      className={`app-panel relative flex h-full w-full flex-col p-5 text-[var(--text-primary)] ${
         isFullscreen ? 'rounded-none border-0' : 'rounded-xl border'
       }`}
     >
@@ -101,14 +101,14 @@ export default function POIStatistics({
         onClick={toggleFullscreen}
         aria-label={isFullscreen ? 'Exit fullscreen' : 'View fullscreen'}
         title={isFullscreen ? 'Exit fullscreen' : 'View fullscreen'}
-        className="absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-lg border border-slate-600/60 bg-slate-950/85 text-slate-100 shadow-md transition hover:border-slate-500 hover:bg-slate-900"
+        className="absolute right-4 top-4 z-20 flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border-strong)] bg-[var(--surface-raised)] text-[var(--text-secondary)] shadow-sm transition-colors hover:border-sky-400/70 hover:text-[var(--text-primary)]"
       >
         {isFullscreen ? <Shrink size={18} /> : <Expand size={18} />}
       </button>
 
       {/* Fixed header - stays put while the body below it scrolls. pr-12 keeps
           the title clear of the corner button. */}
-      <h2 className="mb-4 shrink-0 pr-12 text-lg font-semibold">{title}</h2>
+      <h2 className="mb-4 shrink-0 pr-12 text-lg font-semibold tracking-tight">{title}</h2>
 
       {/* Scroll container: everything else lives in here */}
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
@@ -135,14 +135,14 @@ export default function POIStatistics({
         )}
 
         <div className="flex shrink-0 flex-col">
-          <h3 className="mb-3 shrink-0 text-sm font-semibold uppercase tracking-wide text-slate-300">
+          <h3 className="mb-3 shrink-0 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
             Key POIs in View
           </h3>
 
-          <div className="overflow-x-auto rounded-lg border border-slate-800">
+          <div className="overflow-x-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-raised)]">
             <table className="w-full border-collapse text-left">
               <thead>
-                <tr className="border-b border-slate-800 text-sm text-slate-400">
+                <tr className="border-b border-[var(--border-subtle)] text-xs uppercase tracking-wide text-[var(--text-muted)]">
                   {columns.map((column) => (
                     <th key={column.header} className="px-5 py-4 font-semibold">
                       {column.header}
@@ -155,7 +155,7 @@ export default function POIStatistics({
                 {pois.map((poi) => (
                   <tr
                     key={poi.name}
-                    className="border-b border-slate-800 last:border-b-0"
+                    className="border-b border-[var(--border-subtle)] transition-colors last:border-b-0 hover:bg-white/4"
                   >
                     {columns.map((column) => (
                       <td
@@ -175,7 +175,7 @@ export default function POIStatistics({
           </div>
         </div>
 
-        <button className="shrink-0 flex items-center gap-2 font-semibold text-blue-400 transition hover:text-blue-300">
+        <button className="shrink-0 flex items-center gap-2 text-sm font-semibold text-sky-300 transition-colors hover:text-sky-200">
           View all POIs in {cityName}
           <ArrowRight size={20} />
         </button>
