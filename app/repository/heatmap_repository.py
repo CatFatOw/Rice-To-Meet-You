@@ -1252,18 +1252,30 @@ class HeatmapRepository:
         # rest means the cache is working. Uniformly large means it is not.
         heatmap_points_by_date: HeatmapPointsByDate = {}
         per_date_seconds: List[Tuple[str, float, int]] = []
+        local_temperature_unit = {
+            "local_temperature_c": "c",
+            "local_temperature_f": "f",
+        }.get(metric)
 
         current_date = start_date
         while current_date <= end_date:
             date_key = current_date.isoformat()
 
             date_start = perf_counter()
-            points = self.getDataPointsForCityDateMetric(
-                weather_date=current_date,
-                metric=metric,
-                market_code=market_code,
-                additional_metrics=additional_metrics,
-            )
+            if local_temperature_unit:
+                points = self.getLocalTemperatureByCityDate(
+                    weather_date=current_date,
+                    market_code=market_code,
+                    additional_metrics=additional_metrics,
+                    temperature_unit=local_temperature_unit,
+                )
+            else:
+                points = self.getDataPointsForCityDateMetric(
+                    weather_date=current_date,
+                    metric=metric,
+                    market_code=market_code,
+                    additional_metrics=additional_metrics,
+                )
             date_points = points.get(date_key, [])
             elapsed = perf_counter() - date_start
 

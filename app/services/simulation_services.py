@@ -560,6 +560,16 @@ EVAPORATIVE_CATEGORY = "Evaporative / water"  # ← set to your toolbox archetyp
 # up the co-located temperature reading and pass that instead.
 CHANGE_IN_TEMP_ASSUMED_C = 34.0
 
+# Which `individual_metrics` key holds the temperature reading behind a metric.
+# `change_in_temperature` carries no temperature of its own, so it reads (and
+# writes back) the average reading, falling back to CHANGE_IN_TEMP_ASSUMED_C.
+TEMPERATURE_METRIC_KEYS: dict[str, str] = {
+    "average_temperature_c": "average_temperature_c",
+    "local_temperature_c": "local_temperature_c",
+    "change_in_temperature": "average_temperature_c",
+}
+DEFAULT_TEMPERATURE_METRIC_KEY = "average_temperature_c"
+
 # Canopy fraction default when the toolbox param omits it.
 DEFAULT_CANOPY_FRACTION = 1.0
 
@@ -624,7 +634,11 @@ def get_evaporative_params(obj: BasePlacedObject) -> EvaporativeCoolingParams | 
 
 def metric_is_temperature(metric: str) -> bool:
     """This model only moves temperature; leave other metrics untouched."""
-    return metric in ("average_temperature_c", "change_in_temperature")
+    return metric in (
+        "average_temperature_c",
+        "local_temperature_c",
+        "change_in_temperature",
+    )
 
 
 def _to_epoch(value: str | None) -> float | None:
@@ -870,6 +884,10 @@ def run_diminishing_return_simulation(
     cooling effect. Because every contribution is measured from the untouched
     baseline, the result is independent of iteration order.
 
+    `average_temperature_c` and `local_temperature_c` run the identical model;
+    they differ only in which `individual_metrics` key supplies (and receives)
+    the temperature reading, per TEMPERATURE_METRIC_KEYS.
+
     The baseline is never mutated. Returned points are shallow copies of their
     source: `value` and `individual_metrics` are rebound as whole keys, and
     `location_coordinates` is only read, so a deep copy is unnecessary. That
@@ -894,6 +912,7 @@ def run_diminishing_return_simulation(
         )
 
     is_change_metric = metric == "change_in_temperature"
+    temperature_key = TEMPERATURE_METRIC_KEYS.get(metric, DEFAULT_TEMPERATURE_METRIC_KEY)
     total_cooling = 0.0
 
     # dicts rather than sets: insertion order is preserved, matching the JS Set.
@@ -913,13 +932,17 @@ def run_diminishing_return_simulation(
 
     result: HeatmapPointsByDate = {}
 
+    # If metric is average_temperature_c, local_temperature_c do this
+    # If metric is average_temperature_f, local_temperature_f, perform operations for
+    # average_temperature_c, local_temperature_c and convert it to f at the end
+
     for date, points in points_by_date.items():
         simulated_points: list[HeatmapMetricValue] = []
 
         for index, source_point in enumerate(points):
             metrics = source_point.get("individual_metrics") or {}
 
-            parsed_temperature = parse_temperature(metrics.get("average_temperature_c", ""))
+            parsed_temperature = parse_temperature(metrics.get(temperature_key, ""))
             parsed_humidity = parse_percentage(
                 metrics.get("average_relative_humidity_pct", "")
             )
@@ -996,7 +1019,7 @@ def run_diminishing_return_simulation(
             point["value"] = -cooling_c if is_change_metric else final_temperature
             point["individual_metrics"] = {
                 **metrics,
-                "average_temperature_c": f"{final_temperature:.1f}°C",
+                temperature_key: f"{final_temperature:.1f}°C",
                 "simulation_cooling_c": f"{cooling_c:.2f}°C",
                 "simulation_overlap_count": str(len(raw)),
                 "simulation_capacity_used": f"{impact * 100:.0f}%",

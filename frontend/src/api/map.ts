@@ -595,16 +595,12 @@ export const availableMetrics = [
   },
   {
     local_temperature_c: [
-      "local_temperature_c",
-      "local_temperature_f",
       "average_temperature_c",
       "average_relative_humidity_pct",
     ],
   },
   {
     local_temperature_f: [
-      "local_temperature_f",
-      "local_temperature_c",
       "average_temperature_f",
       "average_relative_humidity_pct",
     ],
