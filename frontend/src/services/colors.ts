@@ -6,9 +6,100 @@ export type Metric =
   | "average_relative_humidity_pct"
   | "avg_daily_visits"
   | "heat_risk_score"
-  | "change_in_temperature";
+  | "change_in_temperature"
+  | "change_in_average_temperature_c";
 
 type RGBColor = [number, number, number];
+
+export function metricLabel(metricKey: string): string {
+  switch (metricKey) {
+    case "temperatureF":
+      return "Air Temp";
+    case "heatIndexF":
+      return "Heat Index";
+    case "relativeHumidityPct":
+      return "Humidity";
+    case "landSurfaceTempF":
+      return "Surface Temp";
+    case "nighttimeTempF":
+      return "Night Temp";
+    case "treeCanopyPct":
+      return "Tree Canopy";
+    case "imperviousSurfacePct":
+      return "Impervious";
+    default:
+      return metricKey;
+  }
+}
+
+export function metricUnit(metricKey: string): string {
+  if (metricKey.endsWith("F")) return " deg F";
+  if (metricKey.endsWith("Pct")) return "%";
+  return "";
+}
+
+export function hexToRgb(hex: string): RGBColor {
+  const normalized = hex.replace("#", "");
+  const red = parseInt(normalized.substring(0, 2), 16);
+  const green = parseInt(normalized.substring(2, 4), 16);
+  const blue = parseInt(normalized.substring(4, 6), 16);
+  return [
+    Number.isNaN(red) ? 0 : red,
+    Number.isNaN(green) ? 0 : green,
+    Number.isNaN(blue) ? 0 : blue,
+  ];
+}
+
+export function colorMetricKey(metric: string): Metric {
+  if (metric === "heat_risk_score") return "average_temperature_c";
+  if (metric === "average_temperature_c") return "average_temperature_c";
+  if (metric === "average_temperature_f") return "average_temperature_f";
+  if (metric === "heat_index_c") return "heat_index_c";
+  if (metric === "heat_index_f") return "heat_index_f";
+  if (metric === "average_relative_humidity_pct") return "average_relative_humidity_pct";
+  if (metric === "avg_daily_visits") return "avg_daily_visits";
+  if (
+    metric === "change_in_temperature" ||
+    metric === "change_in_average_temperature_c"
+  ) {
+    return "change_in_temperature";
+  }
+  return "heat_risk_score";
+}
+
+export function rgbaCss(rgb: RGBColor, alpha: number): string {
+  return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
+}
+
+export function metricWeightOffset(metric: string): number {
+  return colorMetricKey(metric) === "change_in_temperature" ? 5 : 0;
+}
+
+export function metricColorRange(metric: string): [number, number, number, number][] {
+  const colorMetric = colorMetricKey(metric);
+  const stops = metricStops(colorMetric);
+  const fadeFirst = colorMetric !== "change_in_temperature";
+
+  return stops.map((value, index) => {
+    const [red, green, blue] = getColor(value, colorMetric);
+    const alpha = index === 0 && fadeFirst ? 0 : 230;
+    return [red, green, blue, alpha];
+  });
+}
+
+export function metricLegendGradient(metric: string): string {
+  const colorMetric = colorMetricKey(metric);
+  const stops = metricStops(colorMetric);
+  const pctStep = 100 / (stops.length - 1);
+
+  const segments = stops.map((value, index) => {
+    const color = getColor(value, colorMetric);
+    const pct = Math.round(index * pctStep);
+    return `${rgbaCss(color, 0.95)} ${pct}%`;
+  });
+
+  return `linear-gradient(to right, ${segments.join(", ")})`;
+}
 
 function getTemperatureCColor(valueC: number): RGBColor {
   if (valueC >= 40) return [189, 0, 38];
@@ -110,6 +201,7 @@ export function getColor(value: number, metric: Metric): RGBColor {
       return [102, 194, 165];
 
     case "change_in_temperature":
+    case "change_in_average_temperature_c":
       // Cooling (blue) → no change (gray) → warming (red)
       if (value >= 5) return [165, 0, 38];
       if (value >= 4) return [215, 48, 39];
@@ -172,6 +264,7 @@ export function metricStops(metric: Metric): number[] {
       return [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 
     case "change_in_temperature":
+    case "change_in_average_temperature_c":
       return [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5];
 
     default:
@@ -242,6 +335,7 @@ export function getScaleLabels(
       };
 
     case "change_in_temperature":
+    case "change_in_average_temperature_c":
       return {
         tickLabels: ["-5°C", "-2.5°C", "0°C", "+2.5°C", "+5°C"],
         lowLabel: "Cooling",
@@ -283,6 +377,7 @@ export function metricColorDomain(
       return [0, 100];
 
     case "change_in_temperature":
+    case "change_in_average_temperature_c":
       // Values are shifted by +5 before being passed to Deck.gl.
       return [0, 10];
 

@@ -567,6 +567,7 @@ TEMPERATURE_METRIC_KEYS: dict[str, str] = {
     "average_temperature_c": "average_temperature_c",
     "local_temperature_c": "local_temperature_c",
     "change_in_temperature": "average_temperature_c",
+    "change_in_average_temperature_c": "average_temperature_c",
 }
 DEFAULT_TEMPERATURE_METRIC_KEY = "average_temperature_c"
 
@@ -638,6 +639,7 @@ def metric_is_temperature(metric: str) -> bool:
         "average_temperature_c",
         "local_temperature_c",
         "change_in_temperature",
+        "change_in_average_temperature_c",
     )
 
 
@@ -911,7 +913,7 @@ def run_diminishing_return_simulation(
             {date: list(points) for date, points in points_by_date.items()}, feedback
         )
 
-    is_change_metric = metric == "change_in_temperature"
+    is_change_metric = metric == "change_in_temperature" or metric == "change_in_average_temperature_c"
     temperature_key = TEMPERATURE_METRIC_KEYS.get(metric, DEFAULT_TEMPERATURE_METRIC_KEY)
     total_cooling = 0.0
 

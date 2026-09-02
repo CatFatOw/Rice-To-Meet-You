@@ -7,7 +7,16 @@ import {
   type HeatmapMetricValue,
 } from '../api/map';
 import { type City } from '../data/hostCities';
-import { getColor, metricStops, metricColorDomain, type Metric } from '../services/colors';
+import {
+  hexToRgb,
+  metricColorDomain,
+  metricColorRange,
+  metricLabel,
+  metricLegendGradient,
+  metricUnit,
+  metricWeightOffset,
+  type Metric,
+} from '../services/colors';
 import { useHeatmapLayers } from '../hooks/useHeatmapLayers';
 import SearchBar from './SearchBar';
 import Toolbox from './Toolbox';
@@ -78,135 +87,6 @@ function formatPoiFieldValue(value: any): string {
     return JSON.stringify(value);
   }
   return String(value);
-}
-
-/**
- * Short display name for a raw sub-metric key, used in the tooltip's
- * `individual_metrics` breakdown (e.g. 'heatIndexF' -> 'Heat Index').
- * Unknown keys fall through unchanged so new metrics still render.
- */
-function metricLabel(metricKey: string): string {
-  switch (metricKey) {
-    case 'temperatureF':
-      return 'Air Temp';
-    case 'heatIndexF':
-      return 'Heat Index';
-    case 'relativeHumidityPct':
-      return 'Humidity';
-    case 'landSurfaceTempF':
-      return 'Surface Temp';
-    case 'nighttimeTempF':
-      return 'Night Temp';
-    case 'treeCanopyPct':
-      return 'Tree Canopy';
-    case 'imperviousSurfacePct':
-      return 'Impervious';
-    default:
-      return metricKey;
-  }
-}
-
-/**
- * Unit suffix inferred from the metric key's naming convention:
- * a trailing 'F' means Fahrenheit, a trailing 'Pct' means percent.
- * Returns an empty string for unitless metrics.
- */
-function metricUnit(metricKey: string): string {
-  if (metricKey.endsWith('F')) return ' deg F';
-  if (metricKey.endsWith('Pct')) return '%';
-  return '';
-}
-
-// Convert a #rrggbb hex string to an [r, g, b] tuple for deck.gl color props.
-// Malformed components degrade to 0 rather than NaN, which deck.gl would
-// otherwise render as a transparent/black fill.
-function hexToRgb(hex: string): [number, number, number] {
-  const normalized = hex.replace('#', '');
-  const r = parseInt(normalized.substring(0, 2), 16);
-  const g = parseInt(normalized.substring(2, 4), 16);
-  const b = parseInt(normalized.substring(4, 6), 16);
-  return [
-    Number.isNaN(r) ? 0 : r,
-    Number.isNaN(g) ? 0 : g,
-    Number.isNaN(b) ? 0 : b,
-  ];
-}
-
-// ======================================================
-// Colour helpers
-// Map a metric onto the shared palette in utils/colors.
-// ======================================================
-
-/**
- * Maps a metric to the palette name `getColor` understands.
- * 'heat_risk_score' has no palette of its own and reuses the temperature ramp.
- */
-function colorMetricKey(metric: string): Metric {
-  if (metric === 'heat_risk_score') return 'average_temperature_c';
-  if (metric === 'average_temperature_c') return 'average_temperature_c';
-  if (metric === 'average_temperature_f') return 'average_temperature_f';
-  if (metric === 'heat_index_c') return 'heat_index_c';
-  if (metric === 'heat_index_f') return 'heat_index_f';
-  if (metric === 'average_relative_humidity_pct') return 'average_relative_humidity_pct';
-  if (metric === 'avg_daily_visits') return 'avg_daily_visits';
-  if (metric === 'change_in_temperature') return 'change_in_temperature';
-  return 'heat_risk_score';
-}
-
-/** Format an [r, g, b] tuple plus an alpha as a CSS rgba() string. */
-function rgbaCss(rgb: [number, number, number], alpha: number): string {
-  return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
-}
-
-
-function metricWeightOffset(metric: string): number {
-  return colorMetricKey(metric) === 'change_in_temperature' ? 5 : 0;
-}
-
-/**
- * Stops (in each metric's own units) used to sample getColor for both the
- * heatmap colour range and the legend gradient. Temperature is in °C and
- * spans ~10–44; visitor density is a 0–100 index.
- */
-
-/**
- * Build the six-stop RGBA colour ramp deck.gl's heatmap layer expects.
- * The first stop is fully transparent (alpha 0) so low-intensity areas fade
- * into the basemap instead of tinting the whole city.
- */
-function metricColorRange(metric: string): [number, number, number, number][] {
-  const colorMetric = colorMetricKey(metric);
-  const stops = metricStops(colorMetric);
-
-  // Sequential metrics fade their lowest stop into the basemap. The ΔT ramp is
-  // diverging — its first stop is strong cooling, not "low intensity" — so it
-  // stays opaque.
-  const fadeFirst = colorMetric !== 'change_in_temperature';
-
-  return stops.map((value, index) => {
-    const [r, g, b] = getColor(value, colorMetric);
-    const alpha = index === 0 && fadeFirst ? 0 : 230;
-    return [r, g, b, alpha];
-  });
-}
-
-/**
- * CSS linear-gradient for the HeatRiskScale legend, using the same stops as
- * `metricColorRange` so the legend always matches the rendered heatmap.
- * Alpha is near-opaque here (unlike the layer ramp) so the legend stays legible.
- */
-function metricLegendGradient(metric: string): string {
-  const colorMetric = colorMetricKey(metric);
-  const stops = metricStops(colorMetric);
-  const pctStep = 100 / (stops.length - 1);
-
-  const segments = stops.map((value, index) => {
-    const color = getColor(value, colorMetric);
-    const pct = Math.round(index * pctStep);
-    return `${rgbaCss(color, 0.95)} ${pct}%`;
-  });
-
-  return `linear-gradient(to right, ${segments.join(', ')})`;
 }
 
 type MapMode = '2d' | '3d';

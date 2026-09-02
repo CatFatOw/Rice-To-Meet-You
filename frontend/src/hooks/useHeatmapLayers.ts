@@ -111,7 +111,8 @@ export function useHeatmapLayers({
   const dragContextRef = useRef<DragContext | null>(null);
 
   const isTemperatureChange =
-    activeMetricKey === 'change_in_temperature';
+    activeMetricKey === 'change_in_temperature'
+    || activeMetricKey === 'change_in_average_temperature_c';
 
   const deltaThreshold = 0.05;
 
