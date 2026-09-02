@@ -595,6 +595,16 @@ export const availableMetrics = [
     ],
   },
   {
+    change_in_local_temperature_c: [
+      "maximum_temperature_c",
+      "minimum_temperature_c",
+      "average_relative_humidity_pct",
+      "average_wind_speed_knots",
+      "precipitation_3d_sum_mm",
+      "average_temperature_c",
+    ],
+  },
+  {
     avg_daily_visits: [
       "avg_daily_visits",
       "heat_risk_score",

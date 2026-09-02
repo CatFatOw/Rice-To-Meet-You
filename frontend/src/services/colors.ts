@@ -7,7 +7,9 @@ export type Metric =
   | "avg_daily_visits"
   | "heat_risk_score"
   | "change_in_temperature"
-  | "change_in_average_temperature_c";
+  | "change_in_average_temperature_c"
+  | "change_in_local_temperature_c"
+
 
 type RGBColor = [number, number, number];
 
@@ -60,7 +62,8 @@ export function colorMetricKey(metric: string): Metric {
   if (metric === "avg_daily_visits") return "avg_daily_visits";
   if (
     metric === "change_in_temperature" ||
-    metric === "change_in_average_temperature_c"
+    metric === "change_in_average_temperature_c" ||
+    metric === "change_in_local_temperature_c"
   ) {
     return "change_in_temperature";
   }
@@ -202,6 +205,7 @@ export function getColor(value: number, metric: Metric): RGBColor {
 
     case "change_in_temperature":
     case "change_in_average_temperature_c":
+    case "change_in_local_temperature_c":
       // Cooling (blue) → no change (gray) → warming (red)
       if (value >= 5) return [165, 0, 38];
       if (value >= 4) return [215, 48, 39];
@@ -265,6 +269,7 @@ export function metricStops(metric: Metric): number[] {
 
     case "change_in_temperature":
     case "change_in_average_temperature_c":
+    case "change_in_local_temperature_c":
       return [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5];
 
     default:
@@ -336,6 +341,7 @@ export function getScaleLabels(
 
     case "change_in_temperature":
     case "change_in_average_temperature_c":
+    case "change_in_local_temperature_c":
       return {
         tickLabels: ["-5°C", "-2.5°C", "0°C", "+2.5°C", "+5°C"],
         lowLabel: "Cooling",
@@ -378,6 +384,7 @@ export function metricColorDomain(
 
     case "change_in_temperature":
     case "change_in_average_temperature_c":
+    case "change_in_local_temperature_c":
       // Values are shifted by +5 before being passed to Deck.gl.
       return [0, 10];
 

@@ -568,6 +568,7 @@ TEMPERATURE_METRIC_KEYS: dict[str, str] = {
     "local_temperature_c": "local_temperature_c",
     "change_in_temperature": "average_temperature_c",
     "change_in_average_temperature_c": "average_temperature_c",
+    "change_in_local_temperature_c": "local_temperature_c",
 }
 DEFAULT_TEMPERATURE_METRIC_KEY = "average_temperature_c"
 
@@ -640,6 +641,7 @@ def metric_is_temperature(metric: str) -> bool:
         "local_temperature_c",
         "change_in_temperature",
         "change_in_average_temperature_c",
+        "change_in_local_temperature_c"
     )
 
 
@@ -913,7 +915,7 @@ def run_diminishing_return_simulation(
             {date: list(points) for date, points in points_by_date.items()}, feedback
         )
 
-    is_change_metric = metric == "change_in_temperature" or metric == "change_in_average_temperature_c"
+    is_change_metric = metric == "change_in_temperature" or metric == "change_in_average_temperature_c" or metric == "change_in_local_temperature_c"
     temperature_key = TEMPERATURE_METRIC_KEYS.get(metric, DEFAULT_TEMPERATURE_METRIC_KEY)
     total_cooling = 0.0
 
@@ -973,8 +975,12 @@ def run_diminishing_return_simulation(
                         raw.append(_Contribution(obj, category, cooling))
 
             if not raw:
-                # Untouched: copy the container only, nothing to rewrite.
-                simulated_points.append(dict(source_point))
+                # Change metrics report a delta, so untouched points remain zero
+                # even when their source point carries a local temperature.
+                point = dict(source_point)
+                if is_change_metric:
+                    point["value"] = 0
+                simulated_points.append(point)
                 continue
 
             categories = {item.category for item in raw}
@@ -1057,7 +1063,9 @@ def get_simulated_points_by_date(
     need the feedback summary. The baseline `points_by_date` is never mutated.
 
     (The TypeScript version awaited a mock latency delay here purely so the
-    frontend could exercise its loading states; there's nothing to simulate
+        metric == "change_in_temperature"
+        or metric == "change_in_average_temperature_c"
+        or metric == "change_in_local_temperature_c"
     server-side, so it's dropped.)
     """
     return run_diminishing_return_simulation(
