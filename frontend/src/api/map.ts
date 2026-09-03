@@ -595,6 +595,14 @@ export const availableMetrics = [
     ],
   },
   {
+    change_in_average_temperature_f: [
+      "average_relative_humidity_pct",
+      "average_wind_speed_knots",
+      "precipitation_3d_sum_mm",
+      "average_temperature_f",
+    ],
+  },
+  {
     change_in_local_temperature_c: [
       "maximum_temperature_c",
       "minimum_temperature_c",
@@ -604,6 +612,15 @@ export const availableMetrics = [
       "average_temperature_c",
     ],
   },
+  {
+    change_in_local_temperature_f: [
+      "average_relative_humidity_pct",
+      "average_wind_speed_knots",
+      "precipitation_3d_sum_mm",
+      "average_temperature_f",
+    ],
+  },
+
   {
     avg_daily_visits: [
       "avg_daily_visits",

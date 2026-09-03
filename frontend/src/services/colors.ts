@@ -9,6 +9,8 @@ export type Metric =
   | "change_in_temperature"
   | "change_in_average_temperature_c"
   | "change_in_local_temperature_c"
+  | "change_in_average_temperature_f"
+  | "change_in_local_temperature_f";
 
 
 type RGBColor = [number, number, number];
@@ -67,6 +69,12 @@ export function colorMetricKey(metric: string): Metric {
   ) {
     return "change_in_temperature";
   }
+  if (
+    metric === "change_in_average_temperature_f" ||
+    metric === "change_in_local_temperature_f"
+  ) {
+    return metric;
+  }
   return "heat_risk_score";
 }
 
@@ -75,13 +83,20 @@ export function rgbaCss(rgb: RGBColor, alpha: number): string {
 }
 
 export function metricWeightOffset(metric: string): number {
-  return colorMetricKey(metric) === "change_in_temperature" ? 5 : 0;
+  const colorMetric = colorMetricKey(metric);
+  if (
+    colorMetric === "change_in_average_temperature_f" ||
+    colorMetric === "change_in_local_temperature_f"
+  ) {
+    return 10;
+  }
+  return colorMetric === "change_in_temperature" ? 5 : 0;
 }
 
 export function metricColorRange(metric: string): [number, number, number, number][] {
   const colorMetric = colorMetricKey(metric);
   const stops = metricStops(colorMetric);
-  const fadeFirst = colorMetric !== "change_in_temperature";
+  const fadeFirst = !colorMetric.startsWith("change_in_");
 
   return stops.map((value, index) => {
     const [red, green, blue] = getColor(value, colorMetric);
@@ -220,6 +235,22 @@ export function getColor(value: number, metric: Metric): RGBColor {
 
       return [8, 48, 107];
 
+    case "change_in_average_temperature_f":
+    case "change_in_local_temperature_f":
+      // Same cooling/warming gradient as Celsius, with Fahrenheit stops.
+      if (value >= 10) return [165, 0, 38];
+      if (value >= 8) return [215, 48, 39];
+      if (value >= 6) return [244, 109, 67];
+      if (value >= 4) return [253, 174, 97];
+      if (value >= 2) return [254, 224, 144];
+      if (value > -2) return [247, 247, 247];
+      if (value > -4) return [209, 229, 240];
+      if (value > -6) return [146, 197, 222];
+      if (value > -8) return [67, 147, 195];
+      if (value > -10) return [33, 102, 172];
+
+      return [8, 48, 107];
+
     default:
       return [128, 128, 128];
   }
@@ -271,6 +302,10 @@ export function metricStops(metric: Metric): number[] {
     case "change_in_average_temperature_c":
     case "change_in_local_temperature_c":
       return [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5];
+
+    case "change_in_average_temperature_f":
+    case "change_in_local_temperature_f":
+      return [-10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10];
 
     default:
       return [0, 20, 40, 60, 80, 100];
@@ -348,6 +383,14 @@ export function getScaleLabels(
         highLabel: "Warming",
       };
 
+    case "change_in_average_temperature_f":
+    case "change_in_local_temperature_f":
+      return {
+        tickLabels: ["-10°F", "-5°F", "0°F", "+5°F", "+10°F"],
+        lowLabel: "Cooling",
+        highLabel: "Warming",
+      };
+
     default:
       return {
         tickLabels: ["0", "25", "50", "75", "100"],
@@ -387,6 +430,11 @@ export function metricColorDomain(
     case "change_in_local_temperature_c":
       // Values are shifted by +5 before being passed to Deck.gl.
       return [0, 10];
+
+    case "change_in_average_temperature_f":
+    case "change_in_local_temperature_f":
+      // Values are shifted by +10 before being passed to Deck.gl.
+      return [0, 20];
 
     default:
       return [0, 100];

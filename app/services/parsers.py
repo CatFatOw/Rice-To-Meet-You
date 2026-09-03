@@ -11,6 +11,8 @@ import re
 
 # "13°C", "-2.5 °C"  (case-insensitive on the C)
 _TEMPERATURE_RE = re.compile(r"^(-?\d+(?:\.\d+)?)\s*°C$", re.IGNORECASE)
+# "55°F", "-2.5 °F"  (case-insensitive on the F)
+_TEMPERATURE_F_RE = re.compile(r"^(-?\d+(?:\.\d+)?)\s*°F$", re.IGNORECASE)
 
 # "49.4%", "80 %"
 _PERCENTAGE_RE = re.compile(r"^(-?\d+(?:\.\d+)?)\s*%$")
@@ -22,6 +24,12 @@ def parse_temperature(value: str) -> float | None:
     Returns None when the value is invalid.
     """
     match = _TEMPERATURE_RE.match(value.strip())
+    return float(match.group(1)) if match else None
+
+
+def parse_temperature_f(value: str) -> float | None:
+    """Parse a Fahrenheit temperature string such as "55°F" into 55.0."""
+    match = _TEMPERATURE_F_RE.match(value.strip())
     return float(match.group(1)) if match else None
 
 

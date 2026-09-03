@@ -132,7 +132,13 @@ class HeatmapRepository:
 
     WEATHER_TABLE = "market_daily_weather"
     HEAT_INDEX_TABLE = "urban_heat_index_updated"
-    SYNTHETIC_METRICS = {"change_in_temperature", "change_in_average_temperature_c", "change_in_local_temperature_c"}
+    SYNTHETIC_METRICS = {
+        "change_in_temperature",
+        "change_in_average_temperature_c",
+        "change_in_local_temperature_c",
+        "change_in_average_temperature_f",
+        "change_in_local_temperature_f",
+    }
 
     # -- urban heat island model -------------------------------------------
 
@@ -888,7 +894,7 @@ class HeatmapRepository:
         format_value = self._format_value
 
         # This metric is always reported as zero, regardless of source data.
-        force_zero = metric_name == "change_in_temperature" or metric_name == "change_in_average_temperature_c" or metric_name == "change_in_local_temperature_c"
+        force_zero = metric_name in self.SYNTHETIC_METRICS
 
         points: List[HeatmapMetricValue] = []
 

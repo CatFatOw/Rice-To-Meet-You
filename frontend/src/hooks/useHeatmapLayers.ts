@@ -114,6 +114,8 @@ export function useHeatmapLayers({
     activeMetricKey === 'change_in_temperature'
     || activeMetricKey === 'change_in_average_temperature_c'
     || activeMetricKey === 'change_in_local_temperature_c'
+      || activeMetricKey === 'change_in_average_temperature_f'
+    || activeMetricKey === 'change_in_local_temperature_f'
    
 
   const deltaThreshold = 0.05;

@@ -50,7 +50,7 @@ from schemas.simulation_schemas import (
     HeatmapPointsByDate,
     Polygon,
 )
-from services.parsers import parse_percentage, parse_temperature
+from services.parsers import parse_percentage, parse_temperature, parse_temperature_f
 
 
 class CoolingResult(NamedTuple):
@@ -569,6 +569,8 @@ TEMPERATURE_METRIC_KEYS: dict[str, str] = {
     "change_in_temperature": "average_temperature_c",
     "change_in_average_temperature_c": "average_temperature_c",
     "change_in_local_temperature_c": "local_temperature_c",
+    "change_in_average_temperature_f": "average_temperature_f",
+    "change_in_local_temperature_f": "local_temperature_f",
 }
 DEFAULT_TEMPERATURE_METRIC_KEY = "average_temperature_c"
 
@@ -641,7 +643,9 @@ def metric_is_temperature(metric: str) -> bool:
         "local_temperature_c",
         "change_in_temperature",
         "change_in_average_temperature_c",
-        "change_in_local_temperature_c"
+        "change_in_local_temperature_c",
+        "change_in_average_temperature_f",
+        "change_in_local_temperature_f",
     )
 
 
@@ -915,7 +919,17 @@ def run_diminishing_return_simulation(
             {date: list(points) for date, points in points_by_date.items()}, feedback
         )
 
-    is_change_metric = metric == "change_in_temperature" or metric == "change_in_average_temperature_c" or metric == "change_in_local_temperature_c"
+    is_change_metric = metric in {
+        "change_in_temperature",
+        "change_in_average_temperature_c",
+        "change_in_local_temperature_c",
+        "change_in_average_temperature_f",
+        "change_in_local_temperature_f",
+    }
+    is_fahrenheit_change_metric = metric in {
+        "change_in_average_temperature_f",
+        "change_in_local_temperature_f",
+    }
     temperature_key = TEMPERATURE_METRIC_KEYS.get(metric, DEFAULT_TEMPERATURE_METRIC_KEY)
     total_cooling = 0.0
 
@@ -946,14 +960,20 @@ def run_diminishing_return_simulation(
         for index, source_point in enumerate(points):
             metrics = source_point.get("individual_metrics") or {}
 
-            parsed_temperature = parse_temperature(metrics.get(temperature_key, ""))
+            parsed_temperature = (
+                parse_temperature_f(metrics.get(temperature_key, ""))
+                if is_fahrenheit_change_metric
+                else parse_temperature(metrics.get(temperature_key, ""))
+            )
             parsed_humidity = parse_percentage(
                 metrics.get("average_relative_humidity_pct", "")
             )
 
             if is_change_metric:
                 temperature_c = (
-                    parsed_temperature
+                    ((parsed_temperature - 32) * 5 / 9)
+                    if is_fahrenheit_change_metric and parsed_temperature is not None
+                    else parsed_temperature
                     if parsed_temperature is not None
                     else CHANGE_IN_TEMP_ASSUMED_C
                 )
@@ -1024,10 +1044,18 @@ def run_diminishing_return_simulation(
             # Shallow copy: both writes below rebind top-level keys, and the
             # metrics spread builds a new dict rather than mutating the source.
             point = dict(source_point)
-            point["value"] = -cooling_c if is_change_metric else final_temperature
+            point["value"] = (
+                -cooling_c * 9 / 5
+                if is_fahrenheit_change_metric
+                else -cooling_c
+            ) if is_change_metric else final_temperature
             point["individual_metrics"] = {
                 **metrics,
-                temperature_key: f"{final_temperature:.1f}°C",
+                temperature_key: (
+                    f"{(final_temperature * 9 / 5 + 32):.1f}°F"
+                    if is_fahrenheit_change_metric
+                    else f"{final_temperature:.1f}°C"
+                ),
                 "simulation_cooling_c": f"{cooling_c:.2f}°C",
                 "simulation_overlap_count": str(len(raw)),
                 "simulation_capacity_used": f"{impact * 100:.0f}%",
