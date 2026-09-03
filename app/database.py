@@ -9,7 +9,7 @@ from sqlalchemy.ext.declarative import declarative_base
 
 
 
-def _load_environment_from_project_root() -> None:
+def load_env() -> None:
     """Load values from the repository-level .env file if present."""
     env_path = Path(__file__).resolve().parent.parent / ".env"
     if not env_path.exists():
@@ -30,8 +30,14 @@ def _load_environment_from_project_root() -> None:
         os.environ.setdefault(key, value)
 
 
-_load_environment_from_project_root()
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./local_dev.sqlite3")
+# Importing ``database`` is part of every route's DB dependency chain, so load
+# local secrets before creating the engine/session factory.
+load_env()
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL is required. Copy .env.example to .env and add your Neon URL."
+    )
 
 # SQLlite option for online hosting/production (only if url for sqllite is specified or fallback)
 is_sqlite = DATABASE_URL.startswith("sqlite")
