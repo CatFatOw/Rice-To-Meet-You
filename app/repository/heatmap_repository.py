@@ -1217,8 +1217,8 @@ class HeatmapRepository:
         metric: str,
         additional_metrics: Optional[Iterable[str]] = None,
         mode: str = "standard",
-    ) -> HeatmapPointsByDate:
-        """Retrieve a city's inputs for a date range and return simulated readings."""
+    ) -> Union[HeatmapPointsByDate, Dict[str, Any]]:
+        """Retrieve simulated readings, including feedback for contextual mode."""
         from services.simulation_services import run_diminishing_return_simulation
 
         total_start = perf_counter()
@@ -1354,6 +1354,12 @@ class HeatmapRepository:
             f"(fetch {fetch_seconds / total_seconds * 100:.0f}%, "
             f"simulate {simulation_seconds / total_seconds * 100:.0f}%)"
         )
+
+        if mode == "contextual":
+            return {
+                "points_by_date": simulated.points_by_date,
+                "feedback": simulated.feedback,
+            }
 
         return simulated.points_by_date
 
@@ -1564,6 +1570,34 @@ class HeatmapRepository:
         )
  
         return results
+
+    def getAllMetricsByCityDate(
+        self,
+        weather_date: DateLike,
+        market_code: str,
+    ) -> Dict[str, Any]:
+        """Return all available metrics for one market and date."""
+        weather = self._get_table(self.WEATHER_TABLE)
+        heat_index = self._get_table(self.HEAT_INDEX_TABLE)
+
+        metric_names = list(
+            dict.fromkeys(
+                [
+                    column.name
+                    for table in (weather, heat_index)
+                    for column in table.columns
+                    if column.name not in self.EXCLUDED_METRIC_COLUMNS
+                ]
+                + list(self.SYNTHETIC_METRICS)
+                + list(self.DERIVED_METRICS)
+            )
+        )
+
+        return self.getMetricByCityDate(
+            metrics=metric_names,
+            city=market_code,
+            weather_date=weather_date,
+        )
 
     # -- schema helpers -----------------------------------------------------
 
