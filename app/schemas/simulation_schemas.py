@@ -107,6 +107,7 @@ class SimulationRequest(BaseModel):
     metric: str
     additional_metrics: List[str] | None = None
     mode: Literal["standard", "contextual"] = "standard"
+    state: Dict[str, Any] | None = None
 
 
 def flatten_categorized(

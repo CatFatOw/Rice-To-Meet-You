@@ -130,6 +130,7 @@ def get_simulated_point_by_date(
             metric=payload.metric,
             additional_metrics=payload.additional_metrics,
             mode=payload.mode,
+            state=payload.state,
         )
         print("Simulation Function Called")
     except Exception as exc:

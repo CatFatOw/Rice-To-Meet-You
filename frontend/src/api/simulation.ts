@@ -1135,6 +1135,9 @@ export async function getSimulatedPointsByDate(
     );
   }
 
-  return (await response.json()) as HeatmapPointsByDate;
+  const result = (await response.json()) as {
+    points_by_date: HeatmapPointsByDate;
+  };
+  return result.points_by_date;
 }
 

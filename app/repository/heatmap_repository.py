@@ -1217,8 +1217,9 @@ class HeatmapRepository:
         metric: str,
         additional_metrics: Optional[Iterable[str]] = None,
         mode: str = "standard",
+        state: Optional[Dict[str, Any]] = None,
     ) -> Union[HeatmapPointsByDate, Dict[str, Any]]:
-        """Retrieve simulated readings, including feedback for contextual mode."""
+        """Retrieve simulated readings and update the supplied chat state."""
         from services.simulation_services import run_diminishing_return_simulation
 
         total_start = perf_counter()
@@ -1355,13 +1356,27 @@ class HeatmapRepository:
             f"simulate {simulation_seconds / total_seconds * 100:.0f}%)"
         )
 
+        if state is not None:
+            # Import locally: ChatbotRepository already imports this repository
+            # when it builds a city briefing.
+            from repository.chatbot_repository import ChatbotRepository
+
+            chatbot = ChatbotRepository.resume(self.session, state)
+            messages = chatbot.update_session_context_with_simulation(feedback)
+            return {
+                "points_by_date": simulated.points_by_date,
+                "messages": messages,
+            }
+
         if mode == "contextual":
             return {
                 "points_by_date": simulated.points_by_date,
-                "feedback": simulated.feedback,
+                "feedback": feedback,
             }
 
-        return simulated.points_by_date
+        return {
+            "points_by_date": simulated.points_by_date
+        }
 
     getSimulatedPointsByDate = get_simulated_points_by_date
 
