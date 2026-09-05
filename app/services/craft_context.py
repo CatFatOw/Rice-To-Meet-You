@@ -1,119 +1,46 @@
-"""Context crafting for the urban-heat intervention chat bot.
+"""Simulation-result section for the urban-heat chat briefing.
 
-craftContext() folds the three raw sources
+craftContext() produces a briefing whose section 4 carries *projected* cooling —
+arithmetic done inside the context builder itself. Once the real simulator has
+run, `extendContext` folds a SimulationFeedback into the briefing as an
+additional, authoritative section, and `editContext` swaps that section out when
+the planner re-runs with different interventions.
 
-    B. craftCurrentScenarios(city, date)                    -> planned interventions
-    C. queryVisitorRowsWithGeometryByCityDate(...)          -> top heat-risk destinations
-    D. getAllMetricsByCityDate(weather_date, market_code)   -> daily weather context
+The section is delimited by sentinel lines rather than by its heading, so
+editing never depends on section numbering or on the wording of the title.
 
-into one prompt-ready briefing that mirrors the simulation model spec: archetypes,
-psychrometrics, per-archetype ΔT_max ceilings for today's weather, spatial reach,
-time windows, diminishing-returns composition and contextual interactions.
+Feedback is read by duck typing (`getattr`, falling back to `dict.get`), so the
+SimulationFeedback dataclass, a `dataclasses.asdict` of it, or a JSON payload
+round-tripped through the browser all work. That also keeps this module free of
+an import from the simulation module, so neither has to know about the other.
 """
 
 from __future__ import annotations
 
-import math
-from datetime import date as date_type, datetime
-from decimal import Decimal
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
+
+from services.craft_context import MODEL_RULES
 
 
-# ---------------------------------------------------------------------------
-# Spec constants (§3-§7, §10, §11)
-# ---------------------------------------------------------------------------
+# Sentinels bounding the section. Kept deliberately ugly so they cannot collide
+# with anything craftContext emits or a planner types into an object name.
+SIMULATION_SECTION_BEGIN = "<<<SIMULATION RESULT>>>"
+SIMULATION_SECTION_END = "<<<END SIMULATION RESULT>>>"
 
-ANCHOR_VEG = 5.0
-ANCHOR_ALBEDO = 4.0
-ANCHOR_SHADE = 5.0
-ANCHOR_EVAP = 8.0
+SIMULATION_SECTION_TITLE = (
+	"5. SIMULATION RESULT — measured by the simulator, authoritative. These figures "
+	"supersede the projected cooling in section 4."
+)
 
-VPD_REF = 4.5
-LAI_EXTINCTION = 0.5
-WEIGHT_LATENT = 0.4
-WEIGHT_SHADE = 0.6
-SHADE_DROUGHT_SURVIVAL = 0.8
+# First line of the model-rules block, used to find the insertion point so the
+# rules stay at the end of the briefing.
+_MODEL_RULES_HEADER = MODEL_RULES.split("\n", 1)[0]
 
-DELTA_ALBEDO_REF = 0.7
-T_LOW = 20.0
-T_HIGH = 38.0
-DIRECT_BEAM_FRACTION = 0.85
-
-L_V = 2.45e6
-RHO_WATER = 1.0
-EVAP_POWER_REF_W = 50000.0
-
-MIN_CEILING = 0.1
-CHANGE_IN_TEMP_ASSUMED_C = 34.0
-
-VEGETATION = "Vegetation"
-ALBEDO = "High-albedo surface"
-SHADE = "Shade structure"
-EVAPORATIVE = "Evaporative / water"
-
-# toolbox param -> model field, plus which params the model refuses to run without (§2)
-ARCHETYPES: Dict[str, Dict[str, Any]] = {
-	VEGETATION: {
-		"fields": {
-			"coverPct": "vegetated_coverage",
-			"canopyFraction": "canopy_fraction",
-			"lai": "lai",
-			"irrigation": "water_factor",
-		},
-		"required": ("coverPct", "lai", "irrigation"),
-		"defaults": {"canopyFraction": 1.0},
-		"geometry": "polygon",
-		"anchor": ANCHOR_VEG,
-	},
-	ALBEDO: {
-		"fields": {"deltaAlbedo": "delta_albedo", "coverPct": "area_coverage"},
-		"required": ("deltaAlbedo", "coverPct"),
-		"defaults": {},
-		"geometry": "polygon",
-		"anchor": ANCHOR_ALBEDO,
-	},
-	SHADE: {
-		"fields": {"opacity": "opacity", "footprintFraction": "shaded_footprint"},
-		"required": ("opacity", "footprintFraction"),
-		"defaults": {},
-		"geometry": "polygon",
-		"anchor": ANCHOR_SHADE,
-	},
-	EVAPORATIVE: {
-		"fields": {
-			"evapRateLpm": "evap_rate_lpm",
-			"coverageRadiusM": "coverage_radius_m",
-			"activeFraction": "active_fraction",
-		},
-		"required": ("evapRateLpm", "coverageRadiusM", "activeFraction"),
-		"defaults": {},
-		"geometry": "point",
-		"anchor": ANCHOR_EVAP,
-	},
-}
-
-INTERACTIONS: List[Tuple[frozenset, float, str]] = [
-	(frozenset({VEGETATION, EVAPORATIVE}), 1.25, "irrigation + ET reinforce"),
-	(frozenset({VEGETATION, ALBEDO}), 0.82, "less complementary"),
-	(frozenset({VEGETATION, SHADE}), 0.86, "shared solar blocking"),
-	(frozenset({SHADE, EVAPORATIVE}), 0.92, "lower airflow limits plume"),
-]
-
-CATEGORY_ALIASES = {
-	"vegetation": VEGETATION,
-	"veg": VEGETATION,
-	"trees": VEGETATION,
-	"green": VEGETATION,
-	"high-albedo surface": ALBEDO,
-	"high albedo surface": ALBEDO,
-	"albedo": ALBEDO,
-	"cool roof": ALBEDO,
-	"shade structure": SHADE,
-	"shade": SHADE,
-	"evaporative / water": EVAPORATIVE,
-	"evaporative": EVAPORATIVE,
-	"water": EVAPORATIVE,
-	"misting": EVAPORATIVE,
+# Only these two metrics report their per-object deltas in °F; the three
+# top-level temperature averages in feedback are always °C.
+_FAHRENHEIT_CHANGE_METRICS = {
+	"change_in_average_temperature_f",
+	"change_in_local_temperature_f",
 }
 
 
@@ -121,599 +48,284 @@ CATEGORY_ALIASES = {
 # Small helpers
 # ---------------------------------------------------------------------------
 
-def _clamp(value: float, low: float, high: float) -> float:
-	return max(low, min(high, value))
+def _field(source: Any, name: str, default: Any = None) -> Any:
+	"""Read `name` off a dataclass, an object, or a mapping."""
+	if isinstance(source, dict):
+		value = source.get(name, default)
+	else:
+		value = getattr(source, name, default)
+	return default if value is None else value
 
 
-def _as_float(value: Any) -> Optional[float]:
-	if value is None or isinstance(value, bool):
-		return None
-	if isinstance(value, Decimal):
-		return float(value)
-	if isinstance(value, (int, float)):
-		return float(value)
-	text = str(value).strip().replace("%", "").replace("°C", "").replace("°F", "")
+def _num(value: Any, default: float = 0.0) -> float:
 	try:
-		return float(text)
-	except ValueError:
-		return None
+		return float(value)
+	except (TypeError, ValueError):
+		return default
 
 
-def _fmt(value: Optional[float], digits: int = 2, suffix: str = "") -> str:
-	if value is None:
-		return "n/a"
-	return f"{value:.{digits}f}{suffix}"
+def _signed(value: Any, digits: int = 2, suffix: str = "") -> str:
+	"""Always show the sign, so a cooling delta reads unambiguously."""
+	return f"{_num(value):+.{digits}f}{suffix}"
 
 
-def _row_to_dict(row: Any) -> Dict[str, Any]:
-	"""Accept SQLAlchemy Rows, ORM objects, mappings, or plain dicts."""
-	if isinstance(row, dict):
-		return dict(row)
-	mapping = getattr(row, "_mapping", None)
-	if mapping is not None:
-		return {key: value for key, value in mapping.items()}
-	if hasattr(row, "__dict__"):
-		return {k: v for k, v in vars(row).items() if not k.startswith("_")}
-	return {}
+def _metric_unit(metric_name: Any) -> str:
+	return "°F" if str(metric_name) in _FAHRENHEIT_CHANGE_METRICS else "°C"
 
 
-def _records(value: Any) -> List[Dict[str, Any]]:
-	if value is None:
-		return []
-	if isinstance(value, dict):
-		return [value]
-	if isinstance(value, (list, tuple, set)):
-		return [_row_to_dict(item) for item in value if item is not None]
-	if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
-		return [_row_to_dict(item) for item in value if item is not None]
-	return [_row_to_dict(value)]
-
-
-def _pick(mapping: Dict[str, Any], *keys: str) -> Any:
-	lowered = {str(k).lower(): v for k, v in mapping.items()}
-	for key in keys:
-		if key.lower() in lowered and lowered[key.lower()] is not None:
-			return lowered[key.lower()]
+def _coordinates_label(coordinates: Any) -> Optional[str]:
+	if isinstance(coordinates, (list, tuple)) and len(coordinates) >= 2:
+		return f"({_num(coordinates[0]):.5f}, {_num(coordinates[1]):.5f})"
 	return None
 
 
-def _normalize_category(raw: Any) -> Optional[str]:
-	if raw is None:
-		return None
-	text = str(raw).strip()
-	if text in ARCHETYPES:
-		return text
-	return CATEGORY_ALIASES.get(text.lower())
+def _location_label(entry: Any) -> str:
+	"""Render `{'location', 'coordinates'}`, tolerating the older bare-name shape."""
+	if isinstance(entry, dict):
+		name = entry.get("location") or "unnamed location"
+		coordinates = _coordinates_label(entry.get("coordinates"))
+		return f"{name} @ {coordinates}" if coordinates else str(name)
+	return str(entry)
 
 
-def _coerce_date(value: Any) -> Optional[date_type]:
-	if value is None:
-		return None
-	if isinstance(value, datetime):
-		return value.date()
-	if isinstance(value, date_type):
-		return value
-	try:
-		return date_type.fromisoformat(str(value).strip()[:10])
-	except ValueError:
-		return None
-
-
-# ---------------------------------------------------------------------------
-# Psychrometrics and per-archetype ceilings (§3-§7, §10)
-# ---------------------------------------------------------------------------
-
-def _es_kpa(temp_c: float) -> float:
-	return 0.6108 * math.exp(17.27 * temp_c / (temp_c + 237.3))
-
-
-def _vpd_kpa(temp_c: float, rh_pct: float) -> float:
-	return _es_kpa(temp_c) * (1.0 - rh_pct / 100.0)
-
-
-def _ceilings(
-	temp_c: Optional[float],
-	rh_pct: Optional[float],
-	f_solar: float = 1.0,
-	f_wind: float = 1.0,
-) -> Dict[str, Any]:
-	"""ΔT_max per archetype for the day's weather, plus the shared budget ceiling."""
-	vpd = None
-	if temp_c is not None and rh_pct is not None:
-		vpd = _vpd_kpa(temp_c, rh_pct)
-
-	if vpd is not None:
-		vpd_factor = min(vpd / VPD_REF, 1.0)
-		veg = ANCHOR_VEG * vpd_factor * f_solar * f_wind
-		evap = ANCHOR_EVAP * vpd_factor * f_wind
-	else:
-		# §10: RH unknown -> fall back to the fixed anchors
-		veg = ANCHOR_VEG
-		evap = ANCHOR_EVAP
-
-	if temp_c is not None:
-		f_thermal = _clamp((temp_c - T_LOW) / (T_HIGH - T_LOW), 0.0, 1.0)
-	else:
-		f_thermal = 1.0
-	albedo = ANCHOR_ALBEDO * f_thermal * f_solar
-	shade = ANCHOR_SHADE * f_thermal * f_solar * DIRECT_BEAM_FRACTION
-
-	return {
-		"vpd_kpa": vpd,
-		"f_thermal": f_thermal,
-		"delta_t_max": {VEGETATION: veg, ALBEDO: albedo, SHADE: shade, EVAPORATIVE: evap},
-		"ceiling": max(veg, evap, albedo, shade, MIN_CEILING),
-	}
-
-
-# ---------------------------------------------------------------------------
-# Geometry (§8)
-# ---------------------------------------------------------------------------
-
-def _ring(geometry: Dict[str, Any]) -> List[Sequence[float]]:
-	ring = _pick(geometry, "ring", "coordinates", "coords", "points")
-	if isinstance(ring, (list, tuple)) and ring and isinstance(ring[0], (list, tuple)):
-		if ring[0] and isinstance(ring[0][0], (list, tuple)):  # GeoJSON [[[lon,lat],...]]
-			ring = ring[0]
-		return [p for p in ring if isinstance(p, (list, tuple)) and len(p) >= 2]
-	return []
-
-
-def _geometry_anchor(geometry: Optional[Dict[str, Any]]) -> Tuple[float, float]:
-	"""point -> its own (lon,lat); line/polygon -> centroid of coordinates; else (0,0)."""
-	if not isinstance(geometry, dict):
-		return (0.0, 0.0)
-	kind = str(_pick(geometry, "kind", "type") or "").lower()
-	if kind == "point":
-		coords = _pick(geometry, "coordinates", "coords", "point")
-		if isinstance(coords, (list, tuple)) and len(coords) >= 2:
-			return (float(coords[0]), float(coords[1]))
-		lon = _as_float(_pick(geometry, "lon", "lng", "longitude"))
-		lat = _as_float(_pick(geometry, "lat", "latitude"))
-		if lon is not None and lat is not None:
-			return (lon, lat)
-		return (0.0, 0.0)
-	points = _ring(geometry)
-	if not points:
-		return (0.0, 0.0)
-	return (
-		sum(float(p[0]) for p in points) / len(points),
-		sum(float(p[1]) for p in points) / len(points),
-	)
-
-
-def _distance_meters(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
-	mean_lat = math.radians((lat1 + lat2) / 2.0)
-	dx = (lon2 - lon1) * math.cos(mean_lat) * 111320.0
-	dy = (lat2 - lat1) * 110540.0
-	return math.hypot(dx, dy)
-
-
-def _point_in_ring(lon: float, lat: float, ring: Sequence[Sequence[float]]) -> bool:
-	if len(ring) < 3:
-		return False
-	xs = [float(p[0]) for p in ring]
-	ys = [float(p[1]) for p in ring]
-	if lon < min(xs) or lon > max(xs) or lat < min(ys) or lat > max(ys):
-		return False  # bbox pre-filter
-	inside = False
-	count = len(ring)
-	j = count - 1
-	for i in range(count):
-		xi, yi = float(ring[i][0]), float(ring[i][1])
-		xj, yj = float(ring[j][0]), float(ring[j][1])
-		if (yi > lat) != (yj > lat):
-			x_cross = (xj - xi) * (lat - yi) / (yj - yi) + xi
-			if lon < x_cross:
-				inside = not inside
-		j = i
-	return inside
-
-
-# ---------------------------------------------------------------------------
-# Scenario normalization (§2, §4-§7, §9)
-# ---------------------------------------------------------------------------
-
-def _scenario_objects(currentScenarios: Any) -> List[Dict[str, Any]]:
-	if isinstance(currentScenarios, dict):
-		for key in ("scenarios", "objects", "projects", "interventions", "features", "items"):
-			value = currentScenarios.get(key)
-			if isinstance(value, (list, tuple)):
-				return [_row_to_dict(item) for item in value if item is not None]
-		if _normalize_category(_pick(currentScenarios, "category", "archetype", "type")):
-			return [dict(currentScenarios)]
+def _names(values: Any) -> List[str]:
+	if not isinstance(values, (list, tuple)):
 		return []
-	return _records(currentScenarios)
-
-
-def _intensity(category: str, params: Dict[str, float]) -> Optional[float]:
-	"""Standalone intensity ∈ [0,1] (evaporative excludes the spatial falloff)."""
-	if category == VEGETATION:
-		cover = _clamp(params["vegetated_coverage"], 0.0, 1.0)
-		canopy = _clamp(params.get("canopy_fraction", 1.0), 0.0, 1.0)
-		water = _clamp(params["water_factor"], 0.0, 1.0)
-		f_lai = 1.0 - math.exp(-LAI_EXTINCTION * max(params["lai"], 0.0))
-		latent = cover * f_lai * water
-		shade = cover * canopy * f_lai * (SHADE_DROUGHT_SURVIVAL + 0.2 * water)
-		return WEIGHT_LATENT * latent + WEIGHT_SHADE * shade
-	if category == ALBEDO:
-		f_albedo = min(max(params["delta_albedo"], 0.0) / DELTA_ALBEDO_REF, 1.0)
-		return f_albedo * _clamp(params["area_coverage"], 0.0, 1.0)
-	if category == SHADE:
-		return _clamp(params["opacity"], 0.0, 1.0) * _clamp(params["shaded_footprint"], 0.0, 1.0)
-	if category == EVAPORATIVE:
-		mass_rate = max(params["evap_rate_lpm"], 0.0) * RHO_WATER / 60.0
-		i_source = min(mass_rate * L_V / EVAP_POWER_REF_W, 1.0)
-		return i_source * _clamp(params["active_fraction"], 0.0, 1.0)
-	return None
-
-
-def _summarize_scenario(index: int, raw: Dict[str, Any], as_of: Optional[date_type]) -> Dict[str, Any]:
-	category = _normalize_category(_pick(raw, "category", "archetype", "type", "kind"))
-	name = _pick(raw, "name", "label", "title", "id") or f"object #{index}"
-	geometry = _pick(raw, "geometry", "geom", "shape")
-	geometry = geometry if isinstance(geometry, dict) else None
-	source_params = _pick(raw, "params", "parameters", "inputs", "properties")
-	source_params = source_params if isinstance(source_params, dict) else raw
-
-	summary: Dict[str, Any] = {
-		"name": str(name),
-		"category": category,
-		"raw_category": _pick(raw, "category", "archetype", "type", "kind"),
-		"geometry": geometry,
-		"geometry_kind": str(_pick(geometry or {}, "kind", "type") or "unknown").lower(),
-		"anchor": _geometry_anchor(geometry),
-		"ring": _ring(geometry) if geometry else [],
-		"params": {},
-		"missing": [],
-		"intensity": None,
-		"active": True,
-		"skipped_reason": None,
-		"active_from": _coerce_date(_pick(raw, "activeFrom", "active_from", "start_date")),
-		"active_to": _coerce_date(_pick(raw, "activeTo", "active_to", "end_date")),
-	}
-
-	if category is None:
-		summary["skipped_reason"] = "unknown archetype"
-		return summary
-
-	spec = ARCHETYPES[category]
-	values: Dict[str, float] = {}
-	for toolbox_key, model_field in spec["fields"].items():
-		value = _as_float(_pick(source_params, toolbox_key, model_field))
-		if value is None and toolbox_key in spec["defaults"]:
-			value = spec["defaults"][toolbox_key]
-		if value is None:
-			if toolbox_key in spec["required"]:
-				summary["missing"].append(toolbox_key)
-			continue
-		values[model_field] = value
-	summary["params"] = values
-
-	if summary["missing"]:
-		summary["skipped_reason"] = "missing " + ", ".join(summary["missing"]) + " (model returns None)"
-		return summary
-
-	if spec["geometry"] == "polygon" and summary["geometry_kind"] != "polygon":
-		summary["skipped_reason"] = f"needs a polygon footprint, geometry is '{summary['geometry_kind']}'"
-	elif spec["geometry"] == "polygon" and not summary["ring"]:
-		summary["skipped_reason"] = "polygon ring is empty"
-
-	# §9 time window, bounds inclusive, missing bound = open ended
-	if as_of is not None:
-		if summary["active_from"] and as_of < summary["active_from"]:
-			summary["active"] = False
-		if summary["active_to"] and as_of > summary["active_to"]:
-			summary["active"] = False
-
-	summary["intensity"] = _intensity(category, values)
-	return summary
-
-
-def _reaches(scenario: Dict[str, Any], lon: float, lat: float) -> Tuple[bool, float, str]:
-	"""(reaches?, falloff, human note) for a destination point."""
-	if scenario["category"] == EVAPORATIVE:
-		radius = scenario["params"].get("coverage_radius_m", 0.0)
-		anchor_lon, anchor_lat = scenario["anchor"]
-		distance = max(_distance_meters(anchor_lon, anchor_lat, lon, lat), 0.0)
-		if radius <= 0:
-			return (False, 0.0, "coverage radius is 0")
-		falloff = max(1.0 - distance / radius, 0.0)
-		return (falloff > 0, falloff, f"{distance:.0f} m from source, radius {radius:.0f} m")
-	if _point_in_ring(lon, lat, scenario["ring"]):
-		return (True, 1.0, "point inside footprint")
-	return (False, 0.0, "point outside footprint")
-
-
-def _compose(
-	contributions: List[Dict[str, Any]],
-	ceiling: float,
-	mode: str,
-) -> Dict[str, Any]:
-	"""§10 diminishing returns + §11 contextual factor."""
-	categories = {c["category"] for c in contributions}
-	factor = 1.0
-	applied: List[str] = []
-	if mode == "contextual":
-		for pair, multiplier, reason in INTERACTIONS:
-			if pair <= categories:
-				factor *= multiplier
-				applied.append(f"{' + '.join(sorted(pair))} ×{multiplier} ({reason})")
-
-	remaining = 1.0
-	for contribution in contributions:
-		remaining *= 1.0 - _clamp(contribution["cooling_c"] * factor / ceiling, 0.0, 1.0)
-	impact = 1.0 - remaining
-	return {
-		"factor": factor,
-		"interactions": applied,
-		"capacity_used": impact,
-		"cooling_c": ceiling * impact,
-	}
+	return [str(value) for value in values]
 
 
 # ---------------------------------------------------------------------------
-# Weather context (D)
+# Section rendering
 # ---------------------------------------------------------------------------
 
-_METRIC_NAME_KEYS = ("metric", "metric_name", "metric_key", "name", "key")
-_METRIC_VALUE_KEYS = ("value", "metric_value", "val", "amount")
-
-
-def _flatten_metrics(allMetricsByCityDate: Any) -> Dict[str, Any]:
-	flat: Dict[str, Any] = {}
-	for record in _records(allMetricsByCityDate):
-		if not isinstance(record, dict):
-			continue
-		nested = record.get("individual_metrics")
-		if isinstance(nested, dict):
-			flat.update({str(k).lower(): v for k, v in nested.items()})
-		metric_name = _pick(record, *_METRIC_NAME_KEYS)
-		metric_value = _pick(record, *_METRIC_VALUE_KEYS)
-		if metric_name is not None and metric_value is not None:
-			flat[str(metric_name).lower()] = metric_value
-		else:
-			flat.update({str(k).lower(): v for k, v in record.items()})
-	return flat
-
-
-def _weather_context(allMetricsByCityDate: Any) -> Dict[str, Any]:
-	flat = _flatten_metrics(allMetricsByCityDate)
-
-	temp_c = _as_float(_pick(flat, "average_temperature_c", "local_temperature_c", "temperature_c"))
-	temp_source = "average_temperature_c"
-	if temp_c is None:
-		temp_f = _as_float(_pick(flat, "average_temperature_f", "local_temperature_f", "temperature_f"))
-		if temp_f is not None:
-			temp_c = (temp_f - 32.0) * 5.0 / 9.0
-			temp_source = "converted from °F"
-		else:
-			temp_source = f"assumed {CHANGE_IN_TEMP_ASSUMED_C:.1f}°C (CHANGE_IN_TEMP_ASSUMED_C)"
-
-	humidity = _as_float(_pick(flat, "average_relative_humidity_pct", "relative_humidity_pct", "humidity_pct"))
-	effective_temp = temp_c if temp_c is not None else CHANGE_IN_TEMP_ASSUMED_C
-
-	return {
-		"metrics": flat,
-		"temperature_c": temp_c,
-		"temperature_source": temp_source,
-		"effective_temperature_c": effective_temp,
-		"humidity_pct": humidity,
-		"ceilings": _ceilings(effective_temp, humidity),
-	}
-
-
-# ---------------------------------------------------------------------------
-# Destinations (C)
-# ---------------------------------------------------------------------------
-
-def _destination_point(row: Dict[str, Any]) -> Tuple[Optional[float], Optional[float]]:
-	lon = _as_float(_pick(row, "longitude", "lon", "lng", "x"))
-	lat = _as_float(_pick(row, "latitude", "lat", "y"))
-	if lon is not None and lat is not None:
-		return (lon, lat)
-	geometry = _pick(row, "geometry", "geom", "shape", "location")
-	if isinstance(geometry, dict):
-		anchor_lon, anchor_lat = _geometry_anchor(geometry)
-		if (anchor_lon, anchor_lat) != (0.0, 0.0):
-			return (anchor_lon, anchor_lat)
-	return (None, None)
-
-
-def _destination_baseline(row: Dict[str, Any], fallback_c: float) -> float:
-	value = _as_float(_pick(row, "value", "average_temperature_c", "local_temperature_c", "temperature_c"))
-	if value is not None:
-		return value
-	value_f = _as_float(_pick(row, "average_temperature_f", "local_temperature_f", "temperature_f"))
-	if value_f is not None:
-		return (value_f - 32.0) * 5.0 / 9.0
-	return fallback_c
-
-
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
-
-MODEL_RULES = """MODEL RULES (for reasoning about any what-if the user asks)
-- Every archetype: delta_t = ΔT_max(weather) × intensity(planner inputs ∈ [0,1]); returned
-  delta_t is signed, negative means cooling; final_temp = initial_temp − |delta_t|.
-- Vegetation ΔT_max = 5.0 × min(VPD/4.5,1); intensity = 0.4×latent + 0.6×shade,
-  f_LAI = 1 − exp(−0.5×LAI), shade keeps 0.8 of its effect with no irrigation.
-- High-albedo ΔT_max = 4.0 × clamp((T−20)/18,0,1) (no VPD term);
-  intensity = min(Δalbedo/0.7,1) × coverage.
-- Shade ΔT_max = 5.0 × clamp((T−20)/18,0,1) × 0.85 (diffuse sky still reaches the ground);
-  intensity = opacity × shaded footprint.
-- Evaporative ΔT_max = 8.0 × min(VPD/4.5,1) × f_wind (wind LOWERS the ceiling);
-  intensity = min(ṁ·L_v/50 kW,1) × duty × max(1 − r/radius, 0). Beyond the radius: nothing.
-- Reach: polygons apply only to points inside the ring; misting falls off linearly from
-  the geometry anchor. Objects only count on dates inside [activeFrom, activeTo] (inclusive).
-- Composition is NOT additive: a shared per-point budget
-  ceiling = max(ΔT_max of the four archetypes, 0.1), remaining = Π(1 − c_i×factor/ceiling),
-  cooling = ceiling × (1 − remaining). Each c_i is computed standalone against the untouched
-  baseline, so results are order-independent and overlapping projects never stack fully.
-- Contextual mode multiplies every contribution by each interaction whose BOTH categories are
-  present: veg+water ×1.25, veg+albedo ×0.82, veg+shade ×0.86, shade+water ×0.92."""
-
-
-def craftContext(
-	currentScenarios: Any,
-	topHeatRiskDestinations: Any,
-	allMetricsByCityDate: Any,
-	mode: str = "standard",
+def craftSimulationSection(
+	feedback: Any,
+	max_locations: int = 12,
+	max_objects_per_location: int = 6,
+	title: str = SIMULATION_SECTION_TITLE,
 ) -> str:
-	"""Assemble the chat-bot briefing from the three context sources.
+	"""Render a SimulationFeedback as the sentinel-delimited briefing section.
 
-	Returns a prompt-ready string: day/weather framing with the ΔT_max ceilings that
-	today's air temperature and humidity allow, the planned interventions with their
-	normalized model fields and standalone intensities, the contextual interactions in
-	play, and the top heat-risk destinations annotated with which interventions actually
-	reach them and the composed cooling that results.
+	:param feedback:                 SimulationFeedback, or any mapping/object with
+	                                 the same field names
+	:param max_locations:            cap on per-location rows; the rest are counted
+	                                 rather than listed, so a dense heatmap does not
+	                                 blow out the prompt
+	:param max_objects_per_location: cap on interventions listed per location
+	:param title:                    heading line, in case the section number moves
 	"""
-	scenarios_dict = currentScenarios if isinstance(currentScenarios, dict) else {}
-	city = _pick(scenarios_dict, "city", "market_code", "market") or "unknown city"
-	as_of = _coerce_date(_pick(scenarios_dict, "date", "weather_date", "day"))
-	date_label = as_of.isoformat() if as_of else str(_pick(scenarios_dict, "date") or "unknown date")
+	mode = _field(feedback, "mode", "standard")
+	affected_points = int(_num(_field(feedback, "affected_points", 0)))
+	overlap_points = int(_num(_field(feedback, "overlap_points", 0)))
+	max_objects_at_point = int(_num(_field(feedback, "max_objects_at_point", 0)))
+	average_cooling = _num(_field(feedback, "average_cooling_c", 0.0))
+	baseline_average = _num(_field(feedback, "baseline_average_temperature_c", 0.0))
+	final_average = _num(_field(feedback, "average_temperature_c", 0.0))
+	max_capacity_used = _num(_field(feedback, "max_capacity_used", 0.0))
 
-	weather = _weather_context(allMetricsByCityDate)
-	ceilings = weather["ceilings"]
-	delta_t_max = ceilings["delta_t_max"]
+	affected_locations = _field(feedback, "affected_locations", []) or []
+	overlap_locations = _field(feedback, "overlap_locations", []) or []
+	contributing = _names(_field(feedback, "contributing_interventions", []))
+	without_effect = _names(_field(feedback, "interventions_without_effect", []))
+	interactions = _names(_field(feedback, "contextual_interactions", []))
+	breakdown = _field(feedback, "metric_breakdown", []) or []
 
-	raw_objects = _scenario_objects(currentScenarios)
-	scenarios = [_summarize_scenario(i + 1, raw, as_of) for i, raw in enumerate(raw_objects, start=0)]
-	usable = [s for s in scenarios if s["category"] and s["active"] and not s["skipped_reason"]]
+	lines: List[str] = [SIMULATION_SECTION_BEGIN, title]
 
-	lines: List[str] = []
-	lines.append(f"URBAN HEAT CONTEXT — {city} — {date_label} — mode: {mode}")
-	lines.append("")
-
-	# --- weather -----------------------------------------------------------
-	lines.append("1. DAILY WEATHER CONTEXT")
-	lines.append(
-		f"   Air temperature: {_fmt(weather['temperature_c'], 1, '°C')} ({weather['temperature_source']})"
-	)
-	lines.append(f"   Relative humidity: {_fmt(weather['humidity_pct'], 0, '%')}")
-	if ceilings["vpd_kpa"] is not None:
-		lines.append(
-			f"   VPD (Tetens): {_fmt(ceilings['vpd_kpa'], 2, ' kPa')}"
-			f"  |  VPD/VPD_REF = {min(ceilings['vpd_kpa'] / VPD_REF, 1.0):.2f}"
-		)
+	if affected_points == 0:
+		lines.append("   No reading was affected: every intervention was out of its active "
+					 "window, missed the readings, or lacked usable params.")
 	else:
-		lines.append("   VPD: unavailable (no humidity) — vegetation/evaporative fall back to anchors 5.0 / 8.0°C")
-	lines.append(f"   f_thermal (T−20)/18: {ceilings['f_thermal']:.2f}")
-	lines.append("   ΔT_max the weather allows today:")
-	for category in (VEGETATION, ALBEDO, SHADE, EVAPORATIVE):
-		lines.append(f"     - {category}: {delta_t_max[category]:.2f}°C")
-	lines.append(f"   Shared per-point ceiling: {ceilings['ceiling']:.2f}°C")
-	other = {
-		key: _json_value(value)
-		for key, value in weather["metrics"].items()
-		if key not in {"average_temperature_c", "average_relative_humidity_pct"}
-	}
-	if other:
-		lines.append("   Other metrics passed through untouched: " + ", ".join(sorted(other)))
-	lines.append("")
-
-	# --- scenarios ---------------------------------------------------------
-	lines.append(f"2. CURRENT SCENARIO — {len(scenarios)} object(s), {len(usable)} contributing")
-	if not scenarios:
-		lines.append("   No interventions placed for this city/date.")
-	for index, scenario in enumerate(scenarios, start=1):
-		category = scenario["category"] or f"unrecognized ({scenario['raw_category']})"
-		head = f"   [{index}] {scenario['name']} — {category}"
-		if scenario["skipped_reason"]:
-			head += f"  ⚠ SKIPPED: {scenario['skipped_reason']}"
-		elif not scenario["active"]:
-			head += "  ⚠ outside its active window on this date"
-		lines.append(head)
-		if scenario["params"]:
-			lines.append(
-				"       fields: "
-				+ ", ".join(f"{k}={v:g}" for k, v in sorted(scenario["params"].items()))
-			)
-		window = "open-ended"
-		if scenario["active_from"] or scenario["active_to"]:
-			window = f"{scenario['active_from'] or '−inf'} → {scenario['active_to'] or '+inf'} (inclusive)"
-		lines.append(f"       geometry: {scenario['geometry_kind']}, anchor "
-					 f"({scenario['anchor'][0]:.5f}, {scenario['anchor'][1]:.5f}); window: {window}")
-		if scenario["intensity"] is not None and not scenario["skipped_reason"]:
-			standalone = delta_t_max[scenario["category"]] * scenario["intensity"]
-			lines.append(
-				f"       intensity: {scenario['intensity']:.3f} → standalone cooling "
-				f"{standalone:.2f}°C at full reach"
-			)
-	lines.append("")
-
-	# --- interactions ------------------------------------------------------
-	present = {s["category"] for s in usable}
-	lines.append("3. CONTEXTUAL INTERACTIONS")
-	if mode != "contextual":
-		lines.append("   Mode is 'standard' → factor = 1 (no interaction multipliers applied).")
-	pairs = [f"   {' + '.join(sorted(pair))} ×{mult} ({reason})"
-			 for pair, mult, reason in INTERACTIONS if pair <= present]
-	if pairs:
-		lines.append("   Category pairs co-present in the scenario:")
-		lines.extend(pairs)
-	else:
-		lines.append("   No interacting category pairs are co-present.")
-	lines.append("")
-
-	# --- destinations ------------------------------------------------------
-	destinations = _records(topHeatRiskDestinations)
-	lines.append(f"4. TOP HEAT-RISK DESTINATIONS ({len(destinations)}, hottest/most exposed first)")
-	if not destinations:
-		lines.append("   No visitor rows returned for this city/date.")
-	for rank, row in enumerate(destinations, start=1):
-		name = _pick(row, "name", "destination", "poi_name", "location_name", "id") or f"row {rank}"
-		lon, lat = _destination_point(row)
-		baseline = _destination_baseline(row, weather["effective_temperature_c"])
-		visitors = _pick(row, "visitors", "visitor_count", "visits", "footfall")
-		head = f"   {rank}. {name} — baseline {baseline:.1f}°C"
-		if visitors is not None:
-			head += f", visitors {_json_value(visitors)}"
-		if lon is None or lat is None:
-			lines.append(head + " — no coordinates, coverage cannot be evaluated")
-			continue
-		lines.append(head + f" @ ({lon:.5f}, {lat:.5f})")
-
-		contributions: List[Dict[str, Any]] = []
-		for scenario in usable:
-			reaches, falloff, note = _reaches(scenario, lon, lat)
-			if not reaches:
-				continue
-			cooling = delta_t_max[scenario["category"]] * scenario["intensity"] * falloff
-			contributions.append({
-				"name": scenario["name"],
-				"category": scenario["category"],
-				"cooling_c": cooling,
-				"note": note,
-			})
-		if not contributions:
-			lines.append("       covered by: nothing — this location gets 0.00°C of cooling")
-			continue
-		composed = _compose(contributions, ceilings["ceiling"], mode)
-		for contribution in contributions:
-			lines.append(
-				f"       + {contribution['name']} ({contribution['category']}): standalone "
-				f"{contribution['cooling_c']:.2f}°C — {contribution['note']}"
-			)
-		if composed["interactions"]:
-			lines.append(
-				f"       contextual factor {composed['factor']:.3f}: " + "; ".join(composed["interactions"])
-			)
+		lines.append(f"   Mode: {mode}")
 		lines.append(
-			f"       = composed cooling {composed['cooling_c']:.2f}°C "
-			f"({composed['capacity_used'] * 100:.0f}% of the {ceilings['ceiling']:.2f}°C ceiling, "
-			f"overlap {len(contributions)}) → final {baseline - composed['cooling_c']:.1f}°C"
+			f"   Affected readings: {affected_points}"
+			f" (overlapping: {overlap_points}, up to {max_objects_at_point} intervention(s)"
+			f" on a single reading)"
 		)
-	lines.append("")
+		lines.append(f"   Distinct affected locations: {len(affected_locations)}")
+		lines.append(
+			f"   Mean cooling where interventions landed: {average_cooling:.2f}°C"
+			f"  |  peak ceiling use at any reading: {max_capacity_used:.0f}%"
+		)
+		lines.append(
+			f"   Field mean temperature: {baseline_average:.2f}°C → {final_average:.2f}°C"
+			f" ({_signed(final_average - baseline_average, 2, '°C')} across every reading with a"
+			f" real value, affected or not)"
+		)
 
-	lines.append(MODEL_RULES)
+	if contributing:
+		lines.append("   Interventions that produced cooling: " + ", ".join(contributing))
+	if without_effect:
+		lines.append(
+			"   Interventions with no effect anywhere: " + ", ".join(without_effect)
+			+ " — outside the active window, no readings in reach, or missing required params"
+		)
+	if interactions:
+		lines.append("   Contextual interactions applied:")
+		for interaction in interactions:
+			lines.append(f"     - {interaction}")
+	elif str(mode) == "contextual":
+		lines.append("   Contextual mode ran, but no interacting category pair was co-present.")
+
+	if overlap_locations:
+		shown = [_location_label(entry) for entry in overlap_locations[:max_locations]]
+		suffix = "" if len(overlap_locations) <= max_locations else \
+			f" (+{len(overlap_locations) - max_locations} more)"
+		lines.append(f"   Locations with overlapping interventions: {'; '.join(shown)}{suffix}")
+
+	if breakdown:
+		total = len(breakdown)
+		shown_rows = breakdown[:max_locations]
+		header = f"   Per-location results ({total} affected location(s)"
+		if total > len(shown_rows):
+			header += f", {len(shown_rows)} shown, ordered as simulated"
+		lines.append(header + "):")
+		for rank, row in enumerate(shown_rows, start=1):
+			lines.extend(_render_breakdown_row(rank, row, max_objects_per_location))
+		if total > len(shown_rows):
+			lines.append(
+				f"     … {total - len(shown_rows)} further affected location(s) not listed;"
+				f" ask for a specific location by name and it can be looked up."
+			)
+
+	lines.append(SIMULATION_SECTION_END)
 	return "\n".join(lines)
 
 
-def _json_value(value: Any) -> Any:
-	if isinstance(value, Decimal):
-		return float(value)
-	if isinstance(value, (datetime, date_type)):
-		return value.isoformat()
-	return value
+def _render_breakdown_row(rank: int, row: Any, max_objects: int) -> List[str]:
+	"""One per-location block: the metric change, then each contributing object."""
+	location = _field(row, "location", "unnamed location")
+	coordinates = _coordinates_label(_field(row, "coordinates"))
+	metric_name = _field(row, "metric_name", "temperature")
+	unit = _metric_unit(metric_name)
+	point_count = int(_num(_field(row, "point_count", 0)))
+	dates = _field(row, "dates", []) or []
+	baseline = _num(_field(row, "metric", 0.0))
+	new_value = _num(_field(row, "new_metric", 0.0))
+	change = _num(_field(row, "change_in_metric", 0.0))
+	placed_objects = _field(row, "placed_objects", []) or []
+
+	head = f"     {rank}. {location}"
+	if coordinates:
+		head += f" @ {coordinates}"
+	head += f" — {point_count} reading(s)"
+	if dates:
+		head += f" over {len(dates)} date(s): {', '.join(str(d) for d in dates[:4])}"
+		if len(dates) > 4:
+			head += f", +{len(dates) - 4} more"
+	lines = [head]
+	lines.append(
+		f"        {metric_name}: {baseline:.2f} → {new_value:.2f}"
+		f" ({_signed(change, 2, unit)}; mean over those readings)"
+	)
+
+	for contribution in placed_objects[:max_objects]:
+		label = _field(contribution, "label", _field(contribution, "id", "unnamed"))
+		category = _field(contribution, "category", "unknown archetype")
+		share = _num(_field(contribution, "contribution", 0.0))
+		standalone = _num(_field(contribution, "standalone_change", 0.0))
+		share_pct = _num(_field(contribution, "share_pct", 0.0))
+		lines.append(
+			f"        + {label} ({category}): {_signed(share, 2, unit)} of that change"
+			f" ({share_pct:.0f}%), standalone {_signed(standalone, 2, unit)} before the"
+			f" overlap trim"
+		)
+	if len(placed_objects) > max_objects:
+		lines.append(f"        + {len(placed_objects) - max_objects} further intervention(s) not listed")
+	return lines
+
+
+# ---------------------------------------------------------------------------
+# Context extension / editing
+# ---------------------------------------------------------------------------
+
+def findSimulationSection(context: str) -> Optional[tuple[int, int]]:
+	"""Character span of the existing section, or None if the briefing has none."""
+	start = context.find(SIMULATION_SECTION_BEGIN)
+	if start == -1:
+		return None
+	end = context.find(SIMULATION_SECTION_END, start)
+	if end == -1:
+		return None  # truncated section — treated as absent, then overwritten
+	return (start, end + len(SIMULATION_SECTION_END))
+
+
+def hasSimulationSection(context: str) -> bool:
+	return findSimulationSection(context) is not None
+
+
+def extendContext(
+	context: str,
+	feedback: Any,
+	max_locations: int = 12,
+	max_objects_per_location: int = 6,
+) -> str:
+	"""Add the simulation-result section to a briefing from craftContext.
+
+	Inserted just above the MODEL RULES block so the rules stay last; appended to
+	the end if the briefing has no rules block. If a section is already present
+	this delegates to `editContext`, so calling it twice never duplicates.
+
+	:param context:  the briefing string craftContext returned
+	:param feedback: SimulationFeedback (or an equivalent mapping) from the run
+	:returns: a new briefing string — the input is not modified
+	"""
+	if not isinstance(context, str) or not context.strip():
+		raise ValueError("extendContext requires the briefing text from craftContext")
+
+	if hasSimulationSection(context):
+		return editContext(context, feedback, max_locations, max_objects_per_location)
+
+	section = craftSimulationSection(
+		feedback,
+		max_locations=max_locations,
+		max_objects_per_location=max_objects_per_location,
+	)
+
+	anchor = context.rfind(_MODEL_RULES_HEADER)
+	if anchor == -1:
+		return context.rstrip("\n") + "\n\n" + section + "\n"
+	return context[:anchor].rstrip("\n") + "\n\n" + section + "\n\n" + context[anchor:]
+
+
+def editContext(
+	context: str,
+	feedback: Any,
+	max_locations: int = 12,
+	max_objects_per_location: int = 6,
+) -> str:
+	"""Replace the simulation-result section with the results of a newer run.
+
+	Everything outside the sentinels is left byte-identical, so the weather,
+	scenario and destination sections stay exactly as craftContext wrote them.
+	Falls through to `extendContext` when there is no section to replace, which
+	makes the call safe to issue after every run without tracking whether one has
+	happened yet.
+
+	:param context:  a briefing that already carries a simulation section
+	:param feedback: SimulationFeedback (or an equivalent mapping) from the new run
+	:returns: a new briefing string — the input is not modified
+	"""
+	if not isinstance(context, str) or not context.strip():
+		raise ValueError("editContext requires the briefing text to edit")
+
+	span = findSimulationSection(context)
+	if span is None:
+		return extendContext(context, feedback, max_locations, max_objects_per_location)
+
+	section = craftSimulationSection(
+		feedback,
+		max_locations=max_locations,
+		max_objects_per_location=max_objects_per_location,
+	)
+	start, end = span
+	return context[:start] + section + context[end:]
+
+
+def stripSimulationSection(context: str) -> str:
+	"""Remove the section entirely — for reverting to the pre-run briefing."""
+	span = findSimulationSection(context)
+	if span is None:
+		return context
+	start, end = span
+	return (context[:start].rstrip("\n") + "\n\n" + context[end:].lstrip("\n")).strip("\n") + "\n"

@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 
 from repository.final_visitor_repository import VisitorRepository
 from repository.heatmap_repository import HeatmapRepository
-from services.craft_context import MODEL_RULES, craftContext
+from services.craft_context import MODEL_RULES, craftContext, craftSimulationSection
+from services.simulation_services import SimulationFeedback
 
 
 DateLike = Union[str, date_type, datetime]
@@ -268,6 +269,14 @@ class ChatbotRepository:
             last["content"].append({"type": "text", "text": question.strip()})
         else:
             self.messages.append({"role": "user", "content": question.strip()})
+
+    def update_session_context_with_simulation(
+        self,
+        feedback: SimulationFeedback,
+    ) -> List[Dict[str, Any]]:
+        """Append authoritative simulator results to the active chat session."""
+        return self.update_session_context(context=craftSimulationSection(feedback))
+
     def update_session_context(
         self,
         city: Optional[str] = None,

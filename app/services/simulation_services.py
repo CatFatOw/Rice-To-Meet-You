@@ -39,7 +39,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Literal, NamedTuple
+from typing import Any, Literal, NamedTuple
 
 from schemas.simulation_schemas import (
     BasePlacedObject,
@@ -703,19 +703,31 @@ SimulationMode = Literal["standard", "contextual"]
 
 @dataclass
 class SimulationFeedback:
-    """Diagnostics describing how the interventions landed."""
+    """Diagnostics describing how the interventions landed.
+
+    ``metric_breakdown`` holds one row per AFFECTED location — locations no
+    intervention reached are absent. See `run_diminishing_return_simulation`
+    for the row shape.
+
+    ``affected_locations`` and ``overlap_locations`` are lists of
+    ``{"location": str, "coordinates": [lon, lat]}`` rather than bare names, so
+    a caller can put every entry back on the map without a second lookup.
+    """
 
     mode: SimulationMode = "standard"
     affected_points: int = 0
     overlap_points: int = 0
     max_objects_at_point: int = 0
     average_cooling_c: float = 0.0
+    average_temperature_c: float = 0.0           # mean POST-intervention temp (°C)
+    baseline_average_temperature_c: float = 0.0  # mean pre-intervention temp (°C)
     max_capacity_used: float = 0.0
-    affected_locations: list[str] = field(default_factory=list)
-    overlap_locations: list[str] = field(default_factory=list)
+    affected_locations: list[dict[str, Any]] = field(default_factory=list)
+    overlap_locations: list[dict[str, Any]] = field(default_factory=list)
     contributing_interventions: list[str] = field(default_factory=list)
     interventions_without_effect: list[str] = field(default_factory=list)
     contextual_interactions: list[str] = field(default_factory=list)
+    metric_breakdown: list[dict[str, Any]] = field(default_factory=list)
 
 
 class DiminishingSimulationResult(NamedTuple):
@@ -879,6 +891,22 @@ class _Contribution(NamedTuple):
     cooling: float
 
 
+# ~0.11 m at the equator — enough to separate genuinely distinct readings while
+# absorbing float noise from whatever produced the coordinates.
+LOCATION_KEY_PRECISION = 6
+
+
+def location_key(point: HeatmapMetricValue) -> tuple[float, float]:
+    """Identity for a reading position, used to group results by location.
+
+    Keyed on coordinates rather than `location_name` because names are not
+    guaranteed unique or even present — the `Point N` fallback is derived from
+    list position, which is not stable across dates.
+    """
+    lon, lat = point["location_coordinates"]
+    return (round(lon, LOCATION_KEY_PRECISION), round(lat, LOCATION_KEY_PRECISION))
+
+
 def run_diminishing_return_simulation(
     metric: str,
     points_by_date: HeatmapPointsByDate,
@@ -901,6 +929,36 @@ def run_diminishing_return_simulation(
     `location_coordinates` is only read, so a deep copy is unnecessary. That
     does mean the returned points share their `location_coordinates` object with
     the input -- safe for serialization, but do not edit it in place downstream.
+
+    Feedback also carries a per-location `metric_breakdown`, one row per
+    AFFECTED location (locations no intervention reached are omitted)::
+
+        {
+          "location": "Discovery Green",
+          "coordinates": [-95.3595, 29.7527],  # [lon, lat] of the reading
+          "metric_name": "average_temperature_c",
+          "metric": 36.4,             # mean baseline value
+          "new_metric": 33.9,         # mean post-intervention value
+          "change_in_metric": -2.5,   # mean signed change (negative = cooling)
+          "point_count": 7,           # affected readings behind the means
+          "dates": ["2026-07-05", ...],
+          "placed_objects": [
+            {
+              "id": "obj-1",
+              "label": "Midtown canopy",
+              "category": "Vegetation",
+              "standalone_change": -1.9,  # this object alone, before overlap trim
+              "contribution": -1.6,       # its share of change_in_metric
+              "share_pct": 64.0,
+            },
+            ...
+          ],
+        }
+
+    Shares are apportioned proportionally to standalone cooling, so each row's
+    `contribution` values sum to its `change_in_metric`. The gap between
+    `standalone_change` and `contribution` is what the diminishing-returns
+    composition trimmed away as overlap.
 
     :param metric:              the heatmap metric being simulated
     :param points_by_date:      baseline readings grouped by date (not mutated)
@@ -933,9 +991,24 @@ def run_diminishing_return_simulation(
     temperature_key = TEMPERATURE_METRIC_KEYS.get(metric, DEFAULT_TEMPERATURE_METRIC_KEY)
     total_cooling = 0.0
 
+    # °F change metrics report their delta in °F; every other path is °C.
+    change_scale = 9 / 5 if is_fahrenheit_change_metric else 1.0
+
+    # Field-average accumulators. These span every point carrying a real
+    # reading, affected or not -- an average that ignored the untouched parts of
+    # the map would read cooler than the map actually is.
+    total_baseline_temperature = 0.0
+    total_final_temperature = 0.0
+    temperature_point_count = 0
+
+    # Keyed by coordinates so each affected location yields exactly one row,
+    # matching feedback.affected_locations. Flattened at the end.
+    metric_breakdown: dict[tuple[float, float], dict[str, Any]] = {}
+
     # dicts rather than sets: insertion order is preserved, matching the JS Set.
-    affected_locations: dict[str, None] = {}
-    overlap_locations: dict[str, None] = {}
+    # Keyed by coordinates, valued with the name + coordinates pair returned.
+    affected_locations: dict[tuple[float, float], dict[str, Any]] = {}
+    overlap_locations: dict[tuple[float, float], dict[str, Any]] = {}
     contributors: dict[str, None] = {}
 
     labels: dict[str, str] = {}
@@ -949,10 +1022,6 @@ def run_diminishing_return_simulation(
             labels[obj["id"]] = label
 
     result: HeatmapPointsByDate = {}
-
-    # If metric is average_temperature_c, local_temperature_c do this
-    # If metric is average_temperature_f, local_temperature_f, perform operations for
-    # average_temperature_c, local_temperature_c and convert it to f at the end
 
     for date, points in points_by_date.items():
         simulated_points: list[HeatmapMetricValue] = []
@@ -981,6 +1050,10 @@ def run_diminishing_return_simulation(
                 temperature_c = source_point["value"]
             relative_humidity = parsed_humidity
 
+            # Points that fell back to CHANGE_IN_TEMP_ASSUMED_C are excluded
+            # from the averages -- the stopgap constant would skew them.
+            has_real_temperature = (not is_change_metric) or parsed_temperature is not None
+
             ceiling = cooling_ceiling_for_point(temperature_c, relative_humidity)
 
             raw: list[_Contribution] = []
@@ -1000,6 +1073,10 @@ def run_diminishing_return_simulation(
                 point = dict(source_point)
                 if is_change_metric:
                     point["value"] = 0
+                if has_real_temperature:
+                    total_baseline_temperature += temperature_c
+                    total_final_temperature += temperature_c
+                    temperature_point_count += 1
                 simulated_points.append(point)
                 continue
 
@@ -1029,11 +1106,20 @@ def run_diminishing_return_simulation(
             feedback.max_capacity_used = max(feedback.max_capacity_used, impact * 100)
             total_cooling += cooling_c
 
+            if has_real_temperature:
+                total_baseline_temperature += temperature_c
+                total_final_temperature += final_temperature
+                temperature_point_count += 1
+
             location = metrics.get("location_name") or f"Point {index + 1}"
-            affected_locations[location] = None
+            key = location_key(source_point)
+            lon, lat = source_point["location_coordinates"]
+            location_entry = {"location": location, "coordinates": [lon, lat]}
+
+            affected_locations.setdefault(key, location_entry)
             if len(raw) > 1:
                 feedback.overlap_points += 1
-                overlap_locations[location] = None
+                overlap_locations.setdefault(key, location_entry)
 
             for item in raw:
                 contributors[item.obj["id"]] = None
@@ -1062,19 +1148,97 @@ def run_diminishing_return_simulation(
             }
             simulated_points.append(point)
 
+            # --- Per-location breakdown (affected locations only) ------------
+            # Reached only when `raw` is non-empty, so untouched locations never
+            # open a row. Totals are accumulated here and averaged at the end.
+            entry = metric_breakdown.get(key)
+            if entry is None:
+                entry = {
+                    "location": location,
+                    "coordinates": [lon, lat],
+                    "metric_name": metric,
+                    "metric": 0.0,
+                    "new_metric": 0.0,
+                    "change_in_metric": 0.0,
+                    "point_count": 0,
+                    "dates": [],
+                    "_objects": {},
+                }
+                metric_breakdown[key] = entry
+
+            # Change metrics are a delta against an untouched baseline of 0,
+            # which is what the no-contribution branch above writes.
+            baseline_value = 0 if is_change_metric else source_point["value"]
+            new_value = point["value"]
+            composed_change = new_value - baseline_value  # negative = cooling
+            standalone_total = sum(item.cooling for item in raw)  # > 0: all raw > 0
+
+            entry["metric"] += baseline_value
+            entry["new_metric"] += new_value
+            entry["change_in_metric"] += composed_change
+            entry["point_count"] += 1
+            if date not in entry["dates"]:
+                entry["dates"].append(date)
+
+            for item in raw:
+                object_id = item.obj["id"]
+                contribution = entry["_objects"].get(object_id)
+                if contribution is None:
+                    contribution = {
+                        "id": object_id,
+                        "label": labels.get(object_id, object_id),
+                        "category": item.category,
+                        "standalone_change": 0.0,
+                        "contribution": 0.0,
+                    }
+                    entry["_objects"][object_id] = contribution
+                # Standalone: what this object alone would deliver, before the
+                # diminishing-returns composition trims overlap.
+                contribution["standalone_change"] += -item.cooling * change_scale
+                # Composed change split proportionally to standalone cooling, so
+                # the shares sum back to change_in_metric.
+                contribution["contribution"] += composed_change * (
+                    item.cooling / standalone_total
+                )
+
         result[date] = simulated_points
 
     feedback.average_cooling_c = (
         total_cooling / feedback.affected_points if feedback.affected_points else 0.0
     )
-    feedback.affected_locations = list(affected_locations)
-    feedback.overlap_locations = list(overlap_locations)
+    feedback.average_temperature_c = (
+        total_final_temperature / temperature_point_count if temperature_point_count else 0.0
+    )
+    feedback.baseline_average_temperature_c = (
+        total_baseline_temperature / temperature_point_count if temperature_point_count else 0.0
+    )
+    feedback.affected_locations = list(affected_locations.values())
+    feedback.overlap_locations = list(overlap_locations.values())
     feedback.contributing_interventions = [
         labels.get(object_id, object_id) for object_id in contributors
     ]
     feedback.interventions_without_effect = [
         label for object_id, label in labels.items() if object_id not in contributors
     ]
+
+    # Flatten the accumulators into per-location averages.
+    feedback.metric_breakdown = []
+    for entry in metric_breakdown.values():
+        count = entry["point_count"]
+        objects = entry.pop("_objects")
+        entry["metric"] /= count
+        entry["new_metric"] /= count
+        entry["change_in_metric"] /= count
+        total_share = sum(abs(o["contribution"]) for o in objects.values())
+        for contribution in objects.values():
+            contribution["standalone_change"] /= count
+            contribution["contribution"] /= count
+            contribution["share_pct"] = (
+                100 * abs(contribution["contribution"]) / total_share if total_share else 0.0
+            )
+        # Most cooling first: contribution is negative when cooling.
+        entry["placed_objects"] = sorted(objects.values(), key=lambda o: o["contribution"])
+        feedback.metric_breakdown.append(entry)
 
     return DiminishingSimulationResult(result, feedback)
 
@@ -1091,10 +1255,7 @@ def get_simulated_points_by_date(
     need the feedback summary. The baseline `points_by_date` is never mutated.
 
     (The TypeScript version awaited a mock latency delay here purely so the
-        metric == "change_in_temperature"
-        or metric == "change_in_average_temperature_c"
-        or metric == "change_in_local_temperature_c"
-    server-side, so it's dropped.)
+    loading state was visible; that has no place server-side, so it's dropped.)
     """
     return run_diminishing_return_simulation(
         metric, points_by_date, placed_objects, mode
