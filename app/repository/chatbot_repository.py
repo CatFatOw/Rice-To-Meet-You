@@ -59,7 +59,7 @@ class ChatbotRepository:
     def client(self) -> anthropic.Anthropic:
         """Lazily built so constructing the repository never requires an API key."""
         if self._client is None:
-            self._client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+            self._client = anthropic.Anthropic(api_key="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")
         return self._client
 
     @staticmethod

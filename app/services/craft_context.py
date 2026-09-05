@@ -17,9 +17,33 @@ an import from the simulation module, so neither has to know about the other.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, List, Optional, Sequence
 
-from services.craft_context import MODEL_RULES
+MODEL_RULES = """MODEL RULES (for reasoning about any what-if the user asks)
+- Treat simulator outputs as authoritative results for the selected scenario.
+- Do not combine cooling effects with simple arithmetic when interventions overlap.
+- State when a proposed change requires a new simulation run.
+"""
+
+
+def craftContext(
+	current_scenarios: Dict[str, Any],
+	top_heat_risk_destinations: List[Dict[str, Any]],
+	all_metrics_by_city_date: Any,
+) -> str:
+	"""Build the briefing used to seed a city heat-mitigation chat session."""
+	return "\n\n".join(
+		[
+			"1. CURRENT SCENARIO\n"
+			+ json.dumps(current_scenarios, indent=2, default=str),
+			"2. TOP HEAT-RISK DESTINATIONS\n"
+			+ json.dumps(top_heat_risk_destinations, indent=2, default=str),
+			"3. METRICS BY CITY AND DATE\n"
+			+ json.dumps(all_metrics_by_city_date, indent=2, default=str),
+			MODEL_RULES,
+		]
+	)
 
 
 # Sentinels bounding the section. Kept deliberately ugly so they cannot collide
