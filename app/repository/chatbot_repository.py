@@ -95,6 +95,27 @@ class ChatbotRepository:
     def craftCurrentScenarios(city: str, date: DateLike) -> Dict[str, Any]:
         return {"city": city, "date": date}
 
+
+    @staticmethod
+    def _is_pending_context(message: Dict[str, Any]) -> bool:
+        """True if a trailing user turn holds only context, not a question.
+
+        A briefing or context update is legal at the end of a session — the next
+        question joins its content list. A trailing turn containing a question is
+        not: it means the previous request died before the answer was recorded.
+        """
+        content = message.get("content")
+        if not isinstance(content, list) or not content:
+            return False
+        return all(
+            isinstance(block, dict)
+            and block.get("type") == "text"
+            and str(block.get("text", "")).lstrip().startswith(
+                ("<briefing>", "<briefing-update>", "<simulation-result>")
+            )
+            for block in content
+        )
+
     async def upload_chatbot_context(
         self,
         context: str | dict[str, Any],
@@ -362,7 +383,7 @@ class ChatbotRepository:
             raise ValueError("malformed session: first message must carry the briefing")
         if len(messages) > MAX_SESSION_MESSAGES:
             raise ValueError("session too long — start a new chat")
-        if messages[-1].get("role") == "user":
+        if messages[-1].get("role") == "user" and not cls._is_pending_context(messages[-1]):
             raise ValueError("malformed session: last turn has no answer")
 
         repo = cls(db)

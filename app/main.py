@@ -13,6 +13,7 @@ import asyncio
 import models
 from database import engine, SessionLocal
 from routers import (
+    chatbot,
     core_poi,
     dataset,
     grid_geometry,
@@ -114,6 +115,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(dataset.router)
+app.include_router(chatbot.router)
 app.include_router(users.router)
 app.include_router(login.router)
 app.include_router(nws_weather.router)
