@@ -42,11 +42,13 @@ import usePlacedObjects from '../hooks/usePlacedObjects';
 
 import { getHeatmapPointsByCityDateMetric, getHeatRiskDataByCityDate, getVisitorDataByCityDate, getLocalTemperatureCByCityDate, getLocalTemperatureFByCityDate } from '../api/map';
 import { getRiskDistributionByCityDate } from '../api/statistics';
+import { useHeatmapSelection } from '../contexts/HeatmapSelectionContext';
 
 
 const SIMULATION_FRAME_INTERVAL_MS = 3000;
 
 const SimulationPage: React.FC = () => {
+  const { setSelection } = useHeatmapSelection();
 
 
 // ======================================================
@@ -89,6 +91,10 @@ const SimulationPage: React.FC = () => {
   const [baselineSelectedDate, setBaselineSelectedDate] = useState<string | null>('2020-01-01');
   const [fromDate, setFromDate] = useState<string | null>('2020-01-01');
   const [toDate, setToDate] = useState<string | null>('2020-01-01');
+
+  useEffect(() => {
+    setSelection(selectedCity, selectedDate);
+  }, [selectedCity, selectedDate, setSelection]);
 
   // --- Simulation state ---
   // Controls simulation data and playback.

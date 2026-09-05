@@ -18,7 +18,7 @@ if __name__ == "__main__":
         )
         for chunk in chatbot.ask_stream(
             "Recommend me 5 urban interventions on specific locations",
-            max_tokens=4000,
+            max_tokens=6000,
         ):
             print(chunk, end="", flush=True)
         print()

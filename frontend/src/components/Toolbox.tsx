@@ -607,7 +607,6 @@ const handleDrawIntervention = React.useCallback(
             setBaselineSelectedDate?.(isoDate);
           }}
           availableDates={availableDates}
-          disabled={!citySelected}
           variant="bare"
           style={{ width: '100%' }}
         />
@@ -756,7 +755,6 @@ const handleDrawIntervention = React.useCallback(
                     value={toolActiveFrom}
                     onChange={handleToolStartDateChange}
                     availableDates={availableDates}
-                    disabled={!citySelected}
                     variant="bare"
                     style={{ width: '100%' }}
                   />
@@ -766,7 +764,6 @@ const handleDrawIntervention = React.useCallback(
                     value={toolActiveTo}
                     onChange={(isoDate) => updatePendingPlacedObject?.({ activeTo: isoDate })}
                     availableDates={availableDates}
-                    disabled={!citySelected}
                     variant="bare"
                     style={{ width: '100%' }}
                   />
