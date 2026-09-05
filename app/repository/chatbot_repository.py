@@ -322,10 +322,10 @@ class ChatbotRepository:
                 return self.start_session(context)
             return self.startSessionByCityDate(city, date)
 
-        if self.messages[-1]["role"] == "user":
-            raise RuntimeError(
-                "cannot update context mid-turn — the last user message has no answer"
-            )
+        # if self.messages[-1]["role"] == "user":
+        #     raise RuntimeError(
+        #         "cannot update context mid-turn — the last user message has no answer"
+        #     )
 
         if context is None:
             context = self.buildPromptContext(city, date)["promptContext"]
