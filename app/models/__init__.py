@@ -12,6 +12,7 @@ from .grid_cell_tables import GridCellGeometry, GridCellMetrics, InterpolatedPoi
 from .weather_tables import WeatherObservation
 from .polygon_tables import PolygonGeometry, PolygonImpactGrids
 from .final_visitor_tables import VisitorData
+from .chatbot_context_tables import ChatbotContext
 
 __all__ = [
     "CorePoiGeometry",
@@ -29,4 +30,5 @@ __all__ = [
     "PolygonGeometry",
     "PolygonImpactGrids",
     "VisitorData",
+    "ChatbotContext",
 ]
