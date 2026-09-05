@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import Chatbot from './components/Chatbot'
 import ExplorePage from './pages/ExplorePage'
 import SimulationPage from './pages/SimulationPage'
 
@@ -13,6 +14,7 @@ function App() {
         <Route path="/simulation" element={<SimulationPage />} />
         <Route path="*" element={<Navigate to="/explore" replace />} />
       </Routes>
+      <Chatbot />
     </BrowserRouter>
   )
 }
