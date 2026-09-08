@@ -88,9 +88,12 @@ export default function SimulatePanel({
 
   return (
     <div className="app-subpanel shrink-0 rounded-xl p-4">
-      <h3 className="mb-4 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
-        {title}
-      </h3>
+      <div className="mb-4 flex items-baseline justify-between gap-3">
+        <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+          {title}
+        </h3>
+        <span className="text-xs text-[var(--text-muted)]">Choose a date range, then run</span>
+      </div>
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-52 flex-1">

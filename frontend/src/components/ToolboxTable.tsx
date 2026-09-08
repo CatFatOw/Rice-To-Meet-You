@@ -1,4 +1,5 @@
-import { Trash2 } from 'lucide-react';
+import { ChevronDown, MapPin, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 import SelectDate from './SelectDate';
 import type { PlacedObject } from '../types/toolbox';
 import { polygonCenter } from '../services/toolbox';
@@ -127,6 +128,7 @@ export default function ToolboxTable({
   title = 'Tools on map'
 }: ToolboxTableProps) {
   const readOnly = !onPlacedObjectsChange;
+  const [isOpen, setIsOpen] = useState(true);
 
   const patchObject = (id: string, patch: Partial<PlacedObject>) => {
     onPlacedObjectsChange?.(
@@ -146,24 +148,37 @@ export default function ToolboxTable({
 
   return (
     <div className="shrink-0">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        aria-expanded={isOpen}
+        className="mb-3 flex w-full items-center justify-between gap-2 text-left"
+      >
+        <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+          <ChevronDown
+            size={14}
+            className={`transition-transform ${isOpen ? '' : '-rotate-90'}`}
+          />
           {title}
-        </h3>
-        <span className="text-xs text-slate-500">
+        </span>
+        <span className="text-xs text-[var(--text-muted)]">
           {placedObjects.length} placed
         </span>
-      </div>
+      </button>
 
-      <div className="max-h-64 overflow-auto rounded-lg border border-slate-800">
+      {isOpen && (
+      <div className="max-h-64 overflow-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-raised)]">
         {placedObjects.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-slate-500">
-            Drag a tool from the map toolbox to start building a scenario.
-          </p>
+          <div className="flex flex-col items-center gap-2 px-5 py-8 text-center">
+            <MapPin size={20} className="text-[var(--text-muted)]" />
+            <p className="text-sm text-[var(--text-muted)]">
+              Drag a tool from the map toolbox to start building a scenario.
+            </p>
+          </div>
         ) : (
           <table className="w-full border-collapse text-left">
             <thead>
-              <tr className="border-b border-slate-800 text-sm text-slate-400">
+              <tr className="border-b border-[var(--border-subtle)] text-xs uppercase tracking-wide text-[var(--text-muted)]">
                 <th className="px-5 py-3 font-semibold">Id</th>
                 <th className="px-5 py-3 font-semibold">Name</th>
                 <th className="px-5 py-3 font-semibold">Type</th>
@@ -180,10 +195,10 @@ export default function ToolboxTable({
               {placedObjects.map((obj) => (
                 <tr
                   key={obj.id}
-                  className="border-b border-slate-800 align-top last:border-b-0"
+                  className="border-b border-[var(--border-subtle)] align-top transition-colors last:border-b-0 hover:bg-white/4"
                 >
                   {/* Id: stable identifier, read-only */}
-                  <td className="px-5 py-4 text-sm font-mono text-slate-400">
+                  <td className="px-5 py-4 text-sm font-mono text-[var(--text-muted)]">
                     {obj.id}
                   </td>
 
@@ -196,35 +211,35 @@ export default function ToolboxTable({
                       onChange={(e) =>
                         patchObject(obj.id, { name: e.target.value })
                       }
-                      className="w-40 rounded border border-slate-700 bg-slate-900/70 px-2 py-1 text-sm font-medium text-slate-200 outline-none focus:border-blue-500 disabled:opacity-60"
+                      className="w-40 rounded-md border border-[var(--border-strong)] bg-[var(--surface-muted)] px-2 py-1 text-sm font-medium text-[var(--text-primary)] outline-none transition-colors focus:border-sky-400 disabled:opacity-60"
                     />
                   </td>
 
                   {/* Type: fixed intervention type */}
-                  <td className="px-5 py-4 text-sm uppercase tracking-wide text-slate-500">
+                  <td className="px-5 py-4 text-sm uppercase tracking-wide text-[var(--text-muted)]">
                     {obj.type}
                   </td>
 
                   {/* Destination: centroid for polygons, coords for points */}
-                  <td className="px-5 py-4 text-sm text-slate-400">
+                  <td className="px-5 py-4 text-sm text-[var(--text-secondary)]">
                     {describeDestination(obj.geometry)}
                   </td>
 
                   {/* Geometry: edited on the map, shown here for orientation */}
-                  <td className="px-5 py-4 text-sm text-slate-400">
+                  <td className="px-5 py-4 text-sm text-[var(--text-secondary)]">
                     {describeGeometry(obj.geometry)}
                   </td>
 
                   {/* Params: shape varies by type, so render one labelled input per key */}
                   <td className="px-5 py-4">
                     {paramEntries(obj.params).length === 0 ? (
-                      <span className="text-sm text-slate-500">—</span>
+                      <span className="text-sm text-[var(--text-muted)]">—</span>
                     ) : (
                       <div className="flex flex-col gap-1.5">
                         {paramEntries(obj.params).map(([key, value]) => (
                           <label
                             key={key}
-                            className="flex items-center gap-2 text-xs text-slate-400"
+                            className="flex items-center gap-2 text-xs text-[var(--text-secondary)]"
                           >
                             <span className="w-28 shrink-0">
                               {humanizeKey(key)}
@@ -238,7 +253,7 @@ export default function ToolboxTable({
                                 onChange={(e) =>
                                   patchParam(obj.id, key, e.target.checked)
                                 }
-                                className="h-4 w-4 accent-blue-500"
+                                className="h-4 w-4 accent-sky-400"
                               />
                             ) : (
                               <input
@@ -254,7 +269,7 @@ export default function ToolboxTable({
                                       : e.target.value,
                                   )
                                 }
-                                className="w-24 rounded border border-slate-700 bg-slate-900/70 px-2 py-1 text-sm text-slate-200 outline-none focus:border-blue-500 disabled:opacity-60"
+                                className="w-24 rounded-md border border-[var(--border-strong)] bg-[var(--surface-muted)] px-2 py-1 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-sky-400 disabled:opacity-60"
                               />
                             )}
                           </label>
@@ -298,7 +313,7 @@ export default function ToolboxTable({
                         /* TODO: wire up delete */
                       }}
                       aria-label={`Remove ${obj.name ?? obj.type}`}
-                      className="text-slate-400 transition hover:text-red-400 disabled:opacity-40"
+                      className="text-[var(--text-muted)] transition-colors hover:text-red-400 disabled:opacity-40"
                     >
                       <Trash2 size={18} />
                     </button>
@@ -309,6 +324,7 @@ export default function ToolboxTable({
           </table>
         )}
       </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { Users, Sun, Wind, type LucideIcon } from "lucide-react";
+import { Users, Sun, Wind, PieChart, TrendingUp, type LucideIcon } from "lucide-react";
 import type {
   DistributionBucket,
   OverallStatisticsProps,
@@ -100,12 +100,15 @@ export default function OverallStatistics({
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="app-subpanel rounded-xl p-4">
-          <h3 className="mb-4 text-sm font-semibold">{topRiskHeading}</h3>
-          <div className="space-y-3">
+          <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold">
+            <TrendingUp size={15} className="text-sky-300" />
+            {topRiskHeading}
+          </h3>
+          <div className="space-y-1">
             {topDestinations.map((city, index) => (
               <div
                 key={`${city.name}-${index}`}
-                className="grid grid-cols-[24px_100px_1fr_36px] items-center gap-4"
+                className="grid grid-cols-[24px_100px_1fr_36px] items-center gap-4 rounded-lg px-2 py-1.5 -mx-2 transition-colors hover:bg-white/5"
               >
                 <span className="text-[var(--text-muted)]">{index + 1}</span>
                 <span>{city.name}</span>
@@ -124,7 +127,10 @@ export default function OverallStatistics({
         </div>
 
         <div className="app-subpanel rounded-xl p-4">
-          <h3 className="mb-4 text-sm font-semibold">Risk Distribution</h3>
+          <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold">
+            <PieChart size={15} className="text-sky-300" />
+            Risk Distribution
+          </h3>
 
           <div className="flex flex-col items-center gap-4 md:flex-row">
             <div
@@ -141,7 +147,7 @@ export default function OverallStatistics({
               {distribution.map((item) => (
                 <div
                   key={item.label}
-                  className="flex items-center justify-between gap-6"
+                  className="flex items-center justify-between gap-6 rounded-lg px-2 py-1 -mx-2 transition-colors hover:bg-white/5"
                 >
                   <div className="flex items-center gap-3">
                     <span
@@ -173,7 +179,7 @@ function StatCard({
   const Icon: LucideIcon = ICONS[icon];
 
   return (
-    <div className="flex items-center gap-4">
+    <div className="flex items-center gap-4 rounded-lg px-2 py-1 -mx-2 transition-colors hover:bg-white/5">
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/5">
         <Icon className={`h-5 w-5 ${iconClassName}`} />
       </span>

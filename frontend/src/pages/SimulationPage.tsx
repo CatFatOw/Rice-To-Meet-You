@@ -540,7 +540,7 @@ useEffect(() => {
 // ======================================================
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-[#020817] text-white">
+    <div className="app-shell flex h-screen w-full overflow-hidden text-[var(--text-primary)]">
       <div className="shrink-0">
         <NavigationBar />
       </div>
@@ -550,9 +550,9 @@ useEffect(() => {
         isMapLoading={isPOIAreasLoading || isHeatmapPointsLoading}
       />
 
-      <main className="flex-1 overflow-hidden p-3">
-        <div className="grid h-full grid-cols-[minmax(0,1fr)_360px] grid-rows-[minmax(0,1fr)_minmax(180px,24vh)] gap-3">
-          <section className="min-h-0 overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+      <main className="flex-1 overflow-hidden p-4 lg:p-5">
+        <div className="grid h-full grid-cols-[minmax(0,1fr)_360px] grid-rows-[minmax(0,1fr)_minmax(180px,24vh)] gap-4">
+          <section className="app-panel min-h-0 overflow-hidden rounded-2xl">
             <Heatmap
               viewState={viewState}
               setViewState={setViewState}
@@ -604,22 +604,22 @@ useEffect(() => {
 
           <div className="min-h-0 flex h-full flex-col gap-3">
             <section
-              className="flex shrink-0 items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/80 p-3"
+              className="app-panel flex shrink-0 items-center justify-between gap-3 rounded-xl p-3"
               aria-labelledby="simulation-map-overview-title"
             >
               <div className="min-w-0">
                 <h2
                   id="simulation-map-overview-title"
-                  className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400"
+                  className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]"
                 >
                   Map overview
                 </h2>
-                <p className="mt-1 text-xs text-slate-500">2D · synced</p>
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">2D · synced</p>
               </div>
               <div
                 ref={minimapContainerRef}
                 aria-hidden="true"
-                className="h-24 w-40 shrink-0 overflow-hidden rounded-lg border border-slate-700 bg-slate-950 pointer-events-none"
+                className="h-24 w-40 shrink-0 overflow-hidden rounded-lg border border-[var(--border-strong)] bg-slate-950 pointer-events-none"
               />
             </section>
 
@@ -644,7 +644,7 @@ useEffect(() => {
             </section>
           </div>
 
-          <section className="col-span-2 min-h-0 overflow-auto">
+          <section className="col-span-2 min-h-0 overflow-auto rounded-2xl">
             <OverallStatistics
               {...summaryHeader}
               topDestinations={topDestinations}
