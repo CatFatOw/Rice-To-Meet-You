@@ -260,17 +260,17 @@ export function useHeatmapLayers({
       getWeight: (d) => -d.value,
 
       aggregation: 'MEAN',
-      radiusPixels: 60,
-      intensity: 1,
-      threshold: 0.08,
+      radiusPixels: 100,  // bigger kernel → larger, more visible blobs
+      intensity: 2.4,     // brighter overall glow
+      threshold: 0.04,    // lower cutoff → color reaches further out
 
-      colorDomain: [0, 5],
+      colorDomain: [0, 3.5],  // saturates sooner → brighter for the same delta
       colorRange: [
         [219, 234, 254, 0],   // 0: transparent
-        [147, 197, 253, 100],
-        [96, 165, 250, 160],
-        [59, 130, 246, 210],
-        [30, 64, 175, 240],   // -5°C: strong blue
+        [147, 197, 253, 170],
+        [96, 165, 250, 220],
+        [56, 133, 255, 245],
+        [30, 111, 255, 255],   // strong, vivid blue
       ],
 
       pickable: false,
@@ -288,17 +288,17 @@ const warmingHeatmapLayer = useMemo(
       getWeight: (d) => d.value,
 
       aggregation: 'MEAN',
-      radiusPixels: 60,
-      intensity: 1,
-      threshold: 0.08,
+      radiusPixels: 100,  // bigger kernel → larger, more visible blobs
+      intensity: 2.4,     // brighter overall glow
+      threshold: 0.04,    // lower cutoff → color reaches further out
 
-      colorDomain: [0, 5],
+      colorDomain: [0, 3.5],  // saturates sooner → brighter for the same delta
       colorRange: [
         [254, 226, 226, 0],   // 0: transparent
-        [252, 165, 165, 100],
-        [248, 113, 113, 160],
-        [239, 68, 68, 210],
-        [153, 27, 27, 240],   // +5°C: strong red
+        [252, 165, 165, 170],
+        [248, 113, 113, 220],
+        [255, 79, 60, 245],
+        [255, 45, 32, 255],   // strong, vivid red
       ],
 
       pickable: false,
@@ -323,8 +323,9 @@ const visibleMetricLayers = useMemo(
   // above is the visible surface; this layer exists only so hovering a point
   // returns its true value (via info.object) instead of the interpolated
   // surface value. Sits just above the heatmap and below every interactive
-  // vector layer, so POI / placed-object / city clicks still win. Bump the
-  // fill alpha if you'd like the raw readings to be visible.
+  // vector layer, so POI / placed-object / city clicks still win — except for
+  // change metrics, where the layer stack below reorders this on top of POIs
+  // and placed objects (and it's rendered bigger) so hover always wins there.
   const pointPickLayer = useMemo(
     () =>
       new ScatterplotLayer<HeatmapMetricValue>({
@@ -337,11 +338,11 @@ const visibleMetricLayers = useMemo(
         getFillColor: [0, 0, 0, 1],
         opacity: 0.01,
         radiusUnits: 'pixels',
-        getRadius: 8,
-        radiusMinPixels: 6,
-        radiusMaxPixels: 14,
+        getRadius: isTemperatureChange ? 20 : 8,
+        radiusMinPixels: isTemperatureChange ? 16 : 6,
+        radiusMaxPixels: isTemperatureChange ? 32 : 14,
       }),
-    [displayedHeatmapPoints, isDrawing],
+    [displayedHeatmapPoints, isDrawing, isTemperatureChange],
   );
 
   // Placed objects with point/line geometry, rendered as toolbox marker icons
@@ -585,10 +586,12 @@ const visibleMetricLayers = useMemo(
     [draftPoints, draftRgb],
   );
 
-  return useMemo(
-    () => [
-      ...visibleMetricLayers,
-      pointPickLayer,
+  return useMemo(() => {
+    // For change metrics, hovering a reading should win over POIs and placed
+    // urban interventions, so the pick layer renders after (on top of) them
+    // instead of before. Every other metric keeps the original stacking,
+    // where POI / placed-object / city clicks take priority.
+    const poiAndInterventionLayers = [
       poiAreaLayer,
       placedObjectPolygonLayer,
       placedObjectPolygonIconLayer,
@@ -596,21 +599,23 @@ const visibleMetricLayers = useMemo(
       draftPathLayer,
       draftPointsLayer,
       placedObjectPointLayer,
-      cityIconLayer,
-      cityLabelLayer,
-    ],
-    [
-      visibleMetricLayers,
-      pointPickLayer,
-      poiAreaLayer,
-      placedObjectPolygonLayer,
-      placedObjectPolygonIconLayer,
-      draftPolygonLayer,
-      draftPathLayer,
-      draftPointsLayer,
-      placedObjectPointLayer,
-      cityIconLayer,
-      cityLabelLayer,
-    ],
-  );
+    ];
+
+    return isTemperatureChange
+      ? [...visibleMetricLayers, ...poiAndInterventionLayers, pointPickLayer, cityIconLayer, cityLabelLayer]
+      : [...visibleMetricLayers, pointPickLayer, ...poiAndInterventionLayers, cityIconLayer, cityLabelLayer];
+  }, [
+    isTemperatureChange,
+    visibleMetricLayers,
+    pointPickLayer,
+    poiAreaLayer,
+    placedObjectPolygonLayer,
+    placedObjectPolygonIconLayer,
+    draftPolygonLayer,
+    draftPathLayer,
+    draftPointsLayer,
+    placedObjectPointLayer,
+    cityIconLayer,
+    cityLabelLayer,
+  ]);
 }

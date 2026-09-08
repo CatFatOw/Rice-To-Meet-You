@@ -131,7 +131,7 @@ class HeatmapRepository:
     }
 
     WEATHER_TABLE = "market_daily_weather"
-    HEAT_INDEX_TABLE = "urban_heat_index_updated"
+    HEAT_INDEX_TABLE = "urban_heat_interpolated"
     SYNTHETIC_METRICS = {
         "change_in_temperature",
         "change_in_average_temperature_c",
