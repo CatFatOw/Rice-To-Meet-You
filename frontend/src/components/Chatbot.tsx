@@ -14,13 +14,17 @@ import './Chatbot.css';
 export default function Chatbot() {
   const [isOpen, setIsOpen] = useState(false);
   const [question, setQuestion] = useState('');
-  const [messages, setMessages] = useState<ChatSessionState['messages']>([]);
   const [transcript, setTranscript] = useState<ChatTranscriptEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const { city, date } = useHeatmapSelection();
+  const { city, date, messages, setMessages } = useHeatmapSelection();
   const canChat = Boolean(city && date);
+
+
+  useEffect(() => {
+    console.log(messages)
+  }, [messages])
 
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight });
@@ -50,6 +54,7 @@ export default function Chatbot() {
         if (!cancelled) setIsLoading(false);
       }
     };
+    
 
     void startSession();
     return () => {
@@ -66,6 +71,7 @@ export default function Chatbot() {
     setError(null);
     try {
       const activeState: ChatSessionState = { city, date, messages };
+      console.log(messages)
       const response = await askChat(activeState, trimmedQuestion);
       setMessages(response.state.messages);
       setTranscript(response.transcript);

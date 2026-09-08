@@ -1,9 +1,12 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
+import type { ChatSessionState } from '../api/chat';
 
 interface HeatmapSelectionContextValue {
   city: string | null;
   date: string | null;
+  messages: ChatSessionState['messages'];
   setSelection: (city: string | null, date: string | null) => void;
+  setMessages: (messages: ChatSessionState['messages']) => void;
 }
 
 const HeatmapSelectionContext = createContext<HeatmapSelectionContextValue | null>(null);
@@ -11,6 +14,7 @@ const HeatmapSelectionContext = createContext<HeatmapSelectionContextValue | nul
 export function HeatmapSelectionProvider({ children }: { children: ReactNode }) {
   const [city, setCity] = useState<string | null>(null);
   const [date, setDate] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatSessionState['messages']>([]);
   const setSelection = useCallback((nextCity: string | null, nextDate: string | null) => {
     setCity(nextCity);
     setDate(nextDate);
@@ -21,7 +25,9 @@ export function HeatmapSelectionProvider({ children }: { children: ReactNode }) 
       value={{
         city,
         date,
+        messages,
         setSelection,
+        setMessages,
       }}
     >
       {children}

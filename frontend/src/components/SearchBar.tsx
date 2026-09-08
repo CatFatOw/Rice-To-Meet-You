@@ -112,7 +112,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
 
   const selectPlace = useCallback(
     (place: GeocodeResult) => {
-      flyTo(place.lng, place.lat, 12);
+      flyTo(place.lng, place.lat, 15);
       setSearchQuery(place.label);
       setShowSuggestions(false);
     },
@@ -125,7 +125,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
     if (!q) return;
 
     if (parsedCoords) {
-      flyTo(parsedCoords[0], parsedCoords[1], 12);
+      flyTo(parsedCoords[0], parsedCoords[1], 15);
       setShowSuggestions(false);
       return;
     }
@@ -266,7 +266,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
               type="button"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
-                flyTo(parsedCoords[0], parsedCoords[1], 12);
+                flyTo(parsedCoords[0], parsedCoords[1], 15);
                 setShowSuggestions(false);
               }}
               style={{

@@ -46,7 +46,7 @@ import { useHeatmapSelection } from '../contexts/HeatmapSelectionContext';
 const SIMULATION_FRAME_INTERVAL_MS = 3000;
 
 const ExplorePage: React.FC = () => {
-  const { setSelection } = useHeatmapSelection();
+  const { city, date, messages, setMessages, setSelection } = useHeatmapSelection();
 
 
 // ======================================================
@@ -91,8 +91,8 @@ const ExplorePage: React.FC = () => {
   const [toDate, setToDate] = useState<string | null>('2020-01-01');
 
   useEffect(() => {
-    setSelection(selectedCity, selectedDate);
-  }, [selectedCity, selectedDate, setSelection]);
+    setSelection(selectedCity, baselineSelectedDate);
+  }, [baselineSelectedDate, selectedCity, setSelection]);
 
   // --- Simulation state ---
   // Controls simulation data and playback.
@@ -133,10 +133,14 @@ const ExplorePage: React.FC = () => {
 
   // --- Statistics and UI state ---
   // Controls metric selection and statistics panel data.
-  const [selectedMetric, setSelectedMetric] = useState<Record<string, string[]> | null>(  {
-    avg_daily_visits: [
-      "avg_daily_visits",
-      "heat_risk_score",
+  const [selectedMetric, setSelectedMetric] = useState<Record<string, string[]> | null>({
+    average_temperature_c: [
+      "maximum_temperature_c",
+      "minimum_temperature_c",
+      "average_relative_humidity_pct",
+      "average_wind_speed_knots",
+      "precipitation_3d_sum_mm",
+      "average_temperature_c",
     ],
   });
   const [summaryHeader, setSummaryHeader] =
@@ -193,14 +197,17 @@ const ExplorePage: React.FC = () => {
     try {
 
      
-      const simulatedPointsByDate = await getSimulatedPointsByDate(
+      const simulation = await getSimulatedPointsByDate(
         metric,
         fromDate,
         toDate,
         selectedCity,
         selectedAdditionalMetrics,
+        'standard',
+        { city, date, messages },
       );
-      framesByDate = simulatedPointsByDate;
+      framesByDate = simulation.pointsByDate;
+      if (simulation.messages) setMessages(simulation.messages);
 
      
      
