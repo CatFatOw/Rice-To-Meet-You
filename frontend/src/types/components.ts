@@ -67,19 +67,19 @@ export interface ToolboxProps {
   /**
    * When true, the panel renders the full toolbox: the metric toggle, a palette
    * of placeable objects that can be dragged onto the map, followed by the
-   * Create POI Area section. When false only the metric toggle and Create POI
-   * Area section are shown.
+   * Create POI Area section. When false only the date and metric controls are
+   * shown.
    */
   displayToolbox: boolean;
 
-  // --- Metric toggle ---
+  // --- Metric selection ---
   selectedDate: string | null;
   setSelectedDate: React.Dispatch<React.SetStateAction<string | null>>;
   setBaselineSelectedDate?: React.Dispatch<React.SetStateAction<string | null>>;
   availableDates: string[];
-  metricLabel: string;
-  canToggleMetric: boolean;
-  onToggleMetric: () => void;
+  selectedMetricKey: string;
+  metricOptions: Array<{ value: string; label: string }>;
+  onMetricChange: (metricKey: string) => void;
 
   // --- Placeable objects palette ---
   placedCount: number;
@@ -89,6 +89,8 @@ export interface ToolboxProps {
     placedObjects: ToolboxPlacedObject[];
     setPlacedObjects: React.Dispatch<React.SetStateAction<ToolboxPlacedObject[]>>;
     pendingPlacedObject?: Omit<ToolboxPlacedObject, 'id'> | null;
+    isPickingPoint?: boolean;
+    setIsPickingPoint?: React.Dispatch<React.SetStateAction<boolean>>;
     setPendingPlacedObject?: React.Dispatch<React.SetStateAction<Omit<ToolboxPlacedObject, 'id'> | null>>;
     updatePendingPlacedObject?: (patch: Partial<Omit<ToolboxPlacedObject, 'id'>>) => void;
     commitPendingPlacedObject?: () => Promise<void>;
@@ -137,8 +139,8 @@ export interface SimulateButtonProps {
 // HeatRiskScale props
 // ---------------------------------------------------------------------------
 export interface HeatRiskScaleProps {
-  // Display name of the active metric, e.g. "Heat Risk".
-  label: string;
+  // Active metric key, e.g. "heat_risk_score".
+  metricKey: string;
   // CSS `linear-gradient(...)` string for the active metric's color ramp.
   gradient: string;
 }
@@ -146,9 +148,12 @@ export interface HeatRiskScaleProps {
 // ---------------------------------------------------------------------------
 // TooltipState (used by Heatmap and pages)
 // ---------------------------------------------------------------------------
+import type { PlacedObject } from '../services/toolbox';
 export interface TooltipState {
-  point: HeatmapMetricValue;
-  metric: string;
+  point?: HeatmapMetricValue;
+  metric?: string;
+  object?: PlacedObject;
+  poi?: CityPOIArea;
   x: number;
   y: number;
   coordinates: {
@@ -179,6 +184,8 @@ export interface HeatmapProps {
   isLoading?: boolean;
   isRunning?: boolean;
   mapContainerRef: React.RefObject<HTMLDivElement | null>;
+  /** External dashboard host for the passive 2D overview map. */
+  minimapContainerRef: React.RefObject<HTMLDivElement | null>;
   mapRef: React.MutableRefObject<import('maplibre-gl').Map | null>;
   mapSyncFrameRef: React.MutableRefObject<number | null>;
   fullscreenTargetRef?: React.RefObject<HTMLElement | null>;
@@ -212,6 +219,8 @@ export interface HeatmapProps {
     placedObjects: ToolboxPlacedObject[];
     setPlacedObjects: React.Dispatch<React.SetStateAction<ToolboxPlacedObject[]>>;
     pendingPlacedObject?: Omit<ToolboxPlacedObject, 'id'> | null;
+    isPickingPoint?: boolean;
+    setIsPickingPoint?: React.Dispatch<React.SetStateAction<boolean>>;
     setPendingPlacedObject?: React.Dispatch<React.SetStateAction<Omit<ToolboxPlacedObject, 'id'> | null>>;
     updatePendingPlacedObject?: (patch: Partial<Omit<ToolboxPlacedObject, 'id'>>) => void;
     commitPendingPlacedObject?: () => Promise<void>;
@@ -224,7 +233,7 @@ export interface HeatmapProps {
   };
   /**
    * When true, the left panel renders as a full toolbox. When false (default)
-   * only the metric toggle and Create POI Area are shown.
+   * only the date and metric controls are shown.
    */
   displayToolbox?: boolean;
   drawControls: PolygonDraw;

@@ -17,6 +17,7 @@ Pairs with ``CorePoiGeometryRepository.create``::
         latitude=32.7893,
         longitude=-96.8016,
         market="dallas",
+        color="#22c55e",
     )
     repo.create(poi.to_row())
     db.commit()
@@ -100,6 +101,8 @@ class CorePOICreate(BaseModel):
     latitude: float = Field(..., ge=-90.0, le=90.0)
     longitude: float = Field(..., ge=-180.0, le=180.0)
     market: MarketCode
+    market_code: Optional[MarketCode] = None
+    color: str = Field(..., min_length=1, description="Color hex or rgb string.")
 
     # ------------------------------------------------------------------ #
     # Optional inputs
@@ -164,7 +167,7 @@ class CorePOICreate(BaseModel):
             raise ValueError(f"Expected letters only, got {value!r}.")
         return value.upper()
 
-    @field_validator("market", mode="before")
+    @field_validator("market", "market_code", mode="before")
     @classmethod
     def _normalize_market(cls, value: Any) -> Any:
         """Accept 'Dallas', 'DALLAS', or 'new york nj'."""
@@ -253,6 +256,11 @@ class CorePOICreate(BaseModel):
 
     @model_validator(mode="after")
     def _check_consistency(self) -> "CorePOICreate":
+        if self.market_code is None and self.market is not None:
+            self.market_code = self.market
+        elif self.market is None and self.market_code is not None:
+            self.market = self.market_code
+
         head = self.polygon_wkt.lstrip().upper()
         declared = str(self.geometry_type)
         if declared in ("POLYGON", "MULTIPOLYGON") and not head.startswith(declared):

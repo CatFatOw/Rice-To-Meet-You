@@ -153,7 +153,7 @@ export function useHeatmapLayers({
         data: cities,
         pickable: !isDrawing,
         characterSet: 'auto',
-        fontFamily: '"Inter", system-ui, sans-serif',
+        fontFamily: 'Inter, sans-serif',
         fontWeight: 700,
         getPosition: (d: City) => [d.longitude, d.latitude],
         getText: (d: City) => d.name,
@@ -264,7 +264,7 @@ export function useHeatmapLayers({
       new IconLayer({
         id: 'placed-object-point-layer',
         data: allPlacedObjects.filter((o) => o.geometry.kind !== 'polygon'),
-        pickable: false,
+        pickable: !isDrawing,
         getPosition: (d: PlacedObject) => geometryAnchor(d.geometry),
         getIcon: (d: PlacedObject) => {
           const toolKey = d.type ?? d.intervention ?? 'unknown';
@@ -296,7 +296,7 @@ export function useHeatmapLayers({
       new PolygonLayer({
         id: 'placed-object-polygon-layer',
         data: allPlacedObjects.filter((o) => o.geometry.kind === 'polygon'),
-        pickable: false,
+        pickable: !isDrawing,
         stroked: true,
         filled: true,
         opacity: 0.55,
@@ -331,7 +331,7 @@ export function useHeatmapLayers({
         data: allPlacedObjects.filter(
           (o) => o.geometry.kind === 'polygon' && o.geometry.ring.length >= 3,
         ),
-        pickable: false,
+        pickable: !isDrawing,
         getPosition: (d: PlacedObject) =>
           d.geometry.kind === 'polygon' ? polygonCenter(d.geometry.ring) : [0, 0],
         getIcon: (d: PlacedObject) => {
@@ -361,7 +361,7 @@ export function useHeatmapLayers({
       new PolygonLayer({
         id: 'poi-area-layer',
         data: displayedPOIAreas,
-        pickable: false,
+        pickable: true,
         stroked: true,
         filled: true,
         opacity: 0.55,

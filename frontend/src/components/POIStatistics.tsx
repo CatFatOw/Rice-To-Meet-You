@@ -1,10 +1,8 @@
 import { useRef } from "react";
 import {
   ArrowRight,
-  Building2,
   Expand,
   ExternalLink,
-  MapPin,
   Shrink,
   SlidersHorizontal,
 } from "lucide-react";
@@ -22,36 +20,7 @@ export function riskColor(score: number) {
 }
 
 const DEFAULT_POIS: POI[] = [
-  {
-    name: "NRG Stadium",
-    type: "Stadium (711310)",
-    heatRisk: 95,
-    visitors: "72,000",
-  },
-  {
-    name: "George R. Brown Conv. Center",
-    type: "Convention (561920)",
-    heatRisk: 83,
-    visitors: "18,000",
-  },
-  {
-    name: "Discovery Green",
-    type: "Park (811210)",
-    heatRisk: 62,
-    visitors: "9,500",
-  },
-  {
-    name: "The Galleria",
-    type: "Shopping Center (531120)",
-    heatRisk: 78,
-    visitors: "35,000",
-  },
-  {
-    name: "Houston Methodist Hospital",
-    type: "Hospital (622110)",
-    heatRisk: 70,
-    visitors: "6,200",
-  },
+
 ];
 
 const DEFAULT_COLUMNS: Column[] = [
@@ -61,7 +30,7 @@ const DEFAULT_COLUMNS: Column[] = [
     className: "font-medium text-slate-200",
   },
   {
-    header: "Type (NAICS)",
+    header: "Street Address",
     cell: (poi) => poi.type,
     className: "text-slate-400",
   },
@@ -96,19 +65,6 @@ function resolveClassName(className: Column["className"], poi: POI): string {
   return typeof className === "function" ? className(poi) : className;
 }
 
-function formatDetailValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "Unknown";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "number") return Number.isInteger(value) ? value.toString() : value.toFixed(2);
-  return String(value);
-}
-
-function humanizeKey(key: string): string {
-  return key
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
 export default function POIStatistics({
   pois = DEFAULT_POIS,
   columns = DEFAULT_COLUMNS,
@@ -127,34 +83,15 @@ export default function POIStatistics({
   onStopSimulation,
   isRunning,
   loadingSimulation,
-  selectedPOI = null,
 }: POIStatisticsProps) {
   const panelRef = useRef<HTMLElement>(null);
   const { isFullscreen, toggleFullscreen } = useFullscreen(panelRef);
   const handleStartSimulation = onStartSimulation ?? onSimulate;
 
-  // Detail rows for the POI the user clicked on the map. Anything the backend
-  // did not send is dropped rather than rendered as an empty row.
-  const selectedStats = selectedPOI?.properties?.statistics ?? {};
-  const selectedDetails: [string, unknown][] = (
-    [
-      ["Category", selectedPOI?.category],
-      ["Address", selectedStats.address],
-      ["City", selectedStats.city ?? selectedPOI?.cityName],
-      ["State", selectedStats.region ?? selectedPOI?.stateName],
-      ["NAICS", selectedStats.naics_code],
-      ["Area sq m", selectedStats.wkt_area_sq_meters],
-      ["Parking lot", selectedStats.includes_parking_lot],
-      ["Enclosed", selectedStats.enclosed],
-      ["Website", selectedStats.website],
-      ["Phone", selectedStats.phone_number],
-    ] as [string, unknown][]
-  ).filter(([, value]) => value !== undefined && value !== null && value !== "");
-
   return (
     <section
       ref={panelRef}
-      className={`relative flex h-full w-full flex-col border-slate-800 bg-[#07111f] p-5 text-white shadow-lg ${
+      className={`app-panel relative flex h-full w-full flex-col p-5 text-[var(--text-primary)] ${
         isFullscreen ? 'rounded-none border-0' : 'rounded-xl border'
       }`}
     >
@@ -164,14 +101,14 @@ export default function POIStatistics({
         onClick={toggleFullscreen}
         aria-label={isFullscreen ? 'Exit fullscreen' : 'View fullscreen'}
         title={isFullscreen ? 'Exit fullscreen' : 'View fullscreen'}
-        className="absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-lg border border-slate-600/60 bg-slate-950/85 text-slate-100 shadow-md transition hover:border-slate-500 hover:bg-slate-900"
+        className="absolute right-4 top-4 z-20 flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border-strong)] bg-[var(--surface-raised)] text-[var(--text-secondary)] shadow-sm transition-colors hover:border-sky-400/70 hover:text-[var(--text-primary)]"
       >
         {isFullscreen ? <Shrink size={18} /> : <Expand size={18} />}
       </button>
 
       {/* Fixed header - stays put while the body below it scrolls. pr-12 keeps
           the title clear of the corner button. */}
-      <h2 className="mb-4 shrink-0 pr-12 text-lg font-semibold">{title}</h2>
+      <h2 className="mb-4 shrink-0 pr-12 text-lg font-semibold tracking-tight">{title}</h2>
 
       {/* Scroll container: everything else lives in here */}
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
@@ -197,42 +134,15 @@ export default function POIStatistics({
           </>
         )}
 
-        {selectedPOI && (
-          <div className="shrink-0 rounded-lg border border-sky-500/25 bg-sky-950/15 p-3">
-            <div className="flex items-start gap-2">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-sky-400/25 bg-sky-400/10">
-                <Building2 size={16} className="text-sky-200" />
-              </div>
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-sky-100">{selectedPOI.name}</div>
-                <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-400">
-                  <MapPin size={12} />
-                  <span className="truncate">
-                    {formatDetailValue(selectedStats.address ?? selectedPOI.cityName)}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-              {selectedDetails.map(([label, value]) => (
-                <div key={label} className="min-w-0">
-                  <div className="text-slate-500">{humanizeKey(label)}</div>
-                  <div className="truncate font-medium text-slate-200">{formatDetailValue(value)}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         <div className="flex shrink-0 flex-col">
-          <h3 className="mb-3 shrink-0 text-sm font-semibold uppercase tracking-wide text-slate-300">
+          <h3 className="mb-3 shrink-0 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
             Key POIs in View
           </h3>
 
-          <div className="overflow-x-auto rounded-lg border border-slate-800">
+          <div className="overflow-x-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-raised)]">
             <table className="w-full border-collapse text-left">
               <thead>
-                <tr className="border-b border-slate-800 text-sm text-slate-400">
+                <tr className="border-b border-[var(--border-subtle)] text-xs uppercase tracking-wide text-[var(--text-muted)]">
                   {columns.map((column) => (
                     <th key={column.header} className="px-5 py-4 font-semibold">
                       {column.header}
@@ -245,7 +155,7 @@ export default function POIStatistics({
                 {pois.map((poi) => (
                   <tr
                     key={poi.name}
-                    className="border-b border-slate-800 last:border-b-0"
+                    className="border-b border-[var(--border-subtle)] transition-colors last:border-b-0 hover:bg-white/4"
                   >
                     {columns.map((column) => (
                       <td
@@ -265,7 +175,7 @@ export default function POIStatistics({
           </div>
         </div>
 
-        <button className="shrink-0 flex items-center gap-2 font-semibold text-blue-400 transition hover:text-blue-300">
+        <button className="shrink-0 flex items-center gap-2 text-sm font-semibold text-sky-300 transition-colors hover:text-sky-200">
           View all POIs in {cityName}
           <ArrowRight size={20} />
         </button>

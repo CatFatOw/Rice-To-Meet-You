@@ -16,6 +16,10 @@ export type ArchetypeType =
 type ToolboxItemBase = {
   intervention: string;
   color: string;
+  market_code?: string;
+  geometry?: Geometry;
+  activeFrom?: string;
+  activeTo?: string;
   Icon: React.ComponentType<{ size?: number | string; color?: string }>;
   category: ArchetypeType;
   kind: 'polygon' | 'point';
@@ -47,6 +51,7 @@ export interface PlacedObject {
   intervention?: string;
   category?: string;
   color?: string;
+  market_code?: string;
   geometry: Geometry;
   params?: Record<string, number>;
   activeFrom?: string;

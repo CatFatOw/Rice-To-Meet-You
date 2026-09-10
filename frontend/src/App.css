@@ -3,6 +3,27 @@
     transform: rotate(360deg);
   }
 }
+
+.app-shell {
+  background:
+    radial-gradient(circle at 82% -15%, rgb(55 126 202 / 0.13), transparent 31rem),
+    var(--surface-canvas);
+}
+
+.app-panel {
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-panel);
+}
+
+.app-panel.border-0 {
+  border: 0;
+}
+
+.app-subpanel {
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+}
 .counter {
   font-size: 16px;
   padding: 5px 10px;

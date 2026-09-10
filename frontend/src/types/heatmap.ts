@@ -1,28 +1,11 @@
 export type Polygon = [number, number][];
 
 export interface CityPOIArea {
-
   id: string;
-
   name: string;
-
   color: [number, number, number, number];
-
   polygon: Polygon;
-
-  // Optional fields returned by the backend POI/simulation routes. They are
-  // absent on the built-in demo areas, so every one of them is optional.
-  poi_id?: number;
-  cityName?: string;
-  stateName?: string | null;
-  category?: string | null;
-  properties?: {
-    statistics?: Record<string, string | number | boolean | null>;
-    [key: string]: unknown;
-  } | null;
-  polygon_geometry_id?: number;
-  impacted_count?: number;
-  impacted_grid_cell_ids?: number[];
+  [key: string]: any;
 }
 
 export type CityPOIAreaMap = Record<string, CityPOIArea[]>;

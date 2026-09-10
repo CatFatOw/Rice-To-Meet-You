@@ -18,7 +18,7 @@ import type {
   HeatmapPointsByDate,
 } from '../types/heatmap';
 
-
+import { polygonCenter } from '../services/toolbox';
 
 export type {
   CityPOIArea,
@@ -35,21 +35,7 @@ export type {
   LocationReading,
 };
 
-// Centralizing the base URL makes it easy to point a build at a deployed API
-// via VITE_API_BASE_URL without touching call sites.
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
-
-async function fetchBackendJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { Accept: 'application/json' },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Backend request failed: ${response.status} ${response.statusText}`);
-  }
-
-  return response.json() as Promise<T>;
-}
+const BASE_URL = "http://127.0.0.1:8000";
 
 // ============================================================================
 // Houston POIs
@@ -122,7 +108,7 @@ export async function callMockCityPOIs(
   return cityPOIAreas[cityName] ?? [];
 }
 
-interface CorePOIResponse {
+export interface CorePOIResponse {
   id: number | string;
   location_name: string;
   city: string;
@@ -130,15 +116,117 @@ interface CorePOIResponse {
   polygon_wkt: string;
 }
 
-function parseRGBColor(value: string): [number, number, number, number] {
+// ============================================================================
+// Polygon / Color Parsing
+// ============================================================================
+
+function parseRGBColor(value?: string | null): [number, number, number, number] {
+  if (!value) {
+    return [34, 197, 94, 160];
+  }
   const match = value.match(/^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/i);
-  if (!match) {
-    throw new Error(`Invalid POI color: ${value}`);
+  if (match) {
+    return [Number(match[1]), Number(match[2]), Number(match[3]), 160];
+  }
+  const matchRgba = value.match(/^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)$/i);
+  if (matchRgba) {
+    const a = parseFloat(matchRgba[4]);
+    return [Number(matchRgba[1]), Number(matchRgba[2]), Number(matchRgba[3]), a <= 1 ? Math.round(a * 255) : Number(a)];
+  }
+  if (value.startsWith('#')) {
+    const hex = value.slice(1);
+    const expanded = hex.length === 3 ? hex.split('').map((c) => c + c).join('') : hex;
+    const int = parseInt(expanded, 16);
+    if (!Number.isNaN(int)) {
+      return [(int >> 16) & 255, (int >> 8) & 255, int & 255, 160];
+    }
   }
 
-  return [Number(match[1]), Number(match[2]), Number(match[3]), 160];
+  return [34, 197, 94, 160];
 }
 
+/**
+ * Parses a bare coordinate list — no WKT keyword or parentheses — into a ring.
+ *
+ * Accepts both shapes people actually type:
+ *   "-96.80 32.78, -96.79 32.79, -96.78 32.77"   (space between lng/lat)
+ *   "-96.80,32.78,-96.79,32.79,-96.78,32.77"     (flat comma-separated list)
+ */
+function parsePolygonBody(value: string): Polygon {
+  // Tolerate a caller who wrapped the list in its own parens.
+  const cleaned = value.trim().replace(/^\(+/, '').replace(/\)+$/, '').trim();
+
+  if (!cleaned) {
+    throw new Error('Invalid POI polygon: coordinate list is empty');
+  }
+
+  const chunks = cleaned
+    .split(',')
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+
+  if (chunks.length === 0) {
+    throw new Error('Invalid POI polygon: coordinate list is empty');
+  }
+
+  const ring: Polygon = [];
+
+  // If no chunk holds two numbers, this is a flat list and pairs straddle commas.
+  const isFlatList = chunks.every((chunk) => !/\s/.test(chunk));
+
+  if (isFlatList) {
+    if (chunks.length % 2 !== 0) {
+      throw new Error(
+        `Invalid POI polygon: expected an even number of values, got ${chunks.length}`,
+      );
+    }
+
+    for (let i = 0; i < chunks.length; i += 2) {
+      ring.push(toCoordinate(chunks[i], chunks[i + 1], `${chunks[i]},${chunks[i + 1]}`));
+    }
+  } else {
+    for (const chunk of chunks) {
+      const parts = chunk.split(/\s+/);
+      if (parts.length !== 2) {
+        throw new Error(`Invalid POI polygon coordinate: ${chunk}`);
+      }
+      ring.push(toCoordinate(parts[0], parts[1], chunk));
+    }
+  }
+
+  // A closing vertex is optional on input, so count distinct points.
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  const distinct =
+    ring.length > 1 && first[0] === last[0] && first[1] === last[1]
+      ? ring.length - 1
+      : ring.length;
+
+  if (distinct < 3) {
+    throw new Error(
+      `Invalid POI polygon: a ring needs at least 3 distinct points, got ${distinct}`,
+    );
+  }
+
+  return ring;
+}
+
+function toCoordinate(
+  rawLongitude: string,
+  rawLatitude: string,
+  context: string,
+): [number, number] {
+  const longitude = Number(rawLongitude);
+  const latitude = Number(rawLatitude);
+
+  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+    throw new Error(`Invalid POI polygon coordinate: ${context}`);
+  }
+
+  return [longitude, latitude];
+}
+
+/** Strips the POLYGON/MULTIPOLYGON wrapper, then parses the outer ring. */
 function parsePolygonWKT(value: string): Polygon {
   const trimmed = value.trim();
   const match = trimmed.match(
@@ -150,16 +238,25 @@ function parsePolygonWKT(value: string): Polygon {
     throw new Error(`Invalid POI polygon: ${value}`);
   }
 
-  return body.split(',').map((coordinate) => {
-    const [longitude, latitude] = coordinate
-      .trim()
-      .split(/\s+/)
-      .map(Number);
-    if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
-      throw new Error(`Invalid POI polygon coordinate: ${coordinate}`);
-    }
-    return [longitude, latitude];
-  });
+  return parsePolygonBody(body);
+}
+
+/** Accepts either a WKT string or a bare coordinate list. */
+export function toPolygonRing(value: string): Polygon {
+  return /^\s*(?:MULTI)?POLYGON/i.test(value)
+    ? parsePolygonWKT(value)
+    : parsePolygonBody(value);
+}
+
+/** Serializes a ring as `POLYGON((lng lat, ...))`, closing it if needed. */
+export function toPolygonWKT(ring: Polygon): string {
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  const closed =
+    first[0] === last[0] && first[1] === last[1] ? ring : [...ring, first];
+
+  const body = closed.map(([lng, lat]) => `${lng} ${lat}`).join(', ');
+  return `POLYGON((${body}))`;
 }
 
 export async function callAllCityPOIs(): Promise<CityPOIAreaMap> {
@@ -168,37 +265,31 @@ export async function callAllCityPOIs(): Promise<CityPOIAreaMap> {
     headers: { Accept: "application/json" },
   });
 
+
+
   if (!response.ok) {
     throw new Error(`POI request failed: ${response.status} ${response.statusText}`);
   }
 
-  const rows = (await response.json()) as CorePOIResponse[];
+  const rows = (await response.json()) as (CorePOIResponse & Record<string, any>)[];
+
   return rows.reduce<CityPOIAreaMap>((areasByCity, row) => {
     const area: CityPOIArea = {
+      ...row,
       id: String(row.id),
       name: row.location_name,
       color: parseRGBColor(row.color),
       polygon: parsePolygonWKT(row.polygon_wkt),
     };
-   
+
     (areasByCity[row.city] ??= []).push(area);
     return areasByCity;
   }, {});
 }
 
-
-
 // ============================================================================
-
-
-const BASE_URL = "http://127.0.0.1:8000";
-
-export interface HeatmapMetricOptions {
-  /** Column names to include in `individual_metrics`. Omit for all of them;
-   *  pass [] for none. The chosen `metric` is always excluded. */
-  additionalMetrics?: string[];
-  signal?: AbortSignal;
-}
+// Market Codes
+// ============================================================================
 
 function toMarketCode(city: string): string {
   const normalized = city.trim().toLowerCase();
@@ -212,6 +303,142 @@ function toMarketCode(city: string): string {
     'new york/new jersey': 'new_york_nj',
   };
   return aliases[normalized] ?? normalized.replace(/\s+/g, '_');
+}
+
+// ============================================================================
+// POI Creation
+// ============================================================================
+
+const HEX_COLOR = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+/**
+ * "#ff0000" | "#f00" -> "rgb(255, 0, 0)".
+ * Existing rgb()/rgba() strings pass through unchanged.
+ */
+function toRgbColor(color: string): string {
+  const value = color.trim();
+  if (/^rgba?\(/i.test(value)) return value;
+
+  const match = HEX_COLOR.exec(value);
+  if (!match) {
+    throw new Error(`POI color must be a hex or rgb color: ${color}`);
+  }
+
+  const hex =
+    match[1].length === 3 ? match[1].replace(/./g, (c) => c + c) : match[1];
+
+  const int = parseInt(hex, 16);
+  return `rgb(${(int >> 16) & 255}, ${(int >> 8) & 255}, ${int & 255})`;
+}
+
+/** Optional columns the endpoint accepts. Passed through untouched. */
+export interface CreatePOIOptionalFields {
+  brands?: string[];
+  category_tags?: string[];
+  domains?: string[];
+  enclosed?: boolean;
+  naics_code?: number;
+  naics_code_2022?: number;
+  /** "YYYY-MM-DD" */
+  opened_on?: string;
+  /** e.g. { Mon: [["9:00", "17:00"]] } */
+  open_hours?: Record<string, string[][]>;
+  phone_number?: string;
+  postal_code?: string;
+  street_address?: string;
+  sub_category?: string;
+  sub_category_2022?: string;
+  top_category?: string;
+  top_category_2022?: string;
+  website?: string;
+  wkt_area_sq_meters?: number;
+  /** Hex ("#ff0000" or "#f00") or an rgb() string. Sent as "rgb(r, g, b)". */
+  color?: string;
+}
+
+export interface CreatePOIInput extends CreatePOIOptionalFields {
+  /** Display city, e.g. "Kansas City". `market` is derived from this. */
+  city: string;
+  /** "-96.80 32.78, -96.79 32.79, ..." or a full POLYGON/MULTIPOLYGON WKT. */
+  polygon: string;
+  location_name: string;
+  /** Two-letter state/region code. */
+  region: string;
+  includes_parking_lot: boolean;
+  signal?: AbortSignal;
+}
+
+export async function createPOI(
+  input: CreatePOIInput,
+): Promise<CorePOIResponse> {
+  const { city, polygon, region, location_name, signal, color, ...rest } =
+    input;
+
+  const ring = toPolygonRing(polygon);
+  const [longitude, latitude] = polygonCenter(ring);
+
+  if (!Number.isFinite(longitude) || Math.abs(longitude) > 180) {
+    throw new Error(`POI longitude out of range: ${longitude}`);
+  }
+  if (!Number.isFinite(latitude) || Math.abs(latitude) > 90) {
+    throw new Error(`POI latitude out of range: ${latitude}`);
+  }
+
+  const normalizedRegion = region.trim().toUpperCase();
+  if (normalizedRegion.length !== 2) {
+    throw new Error(`POI region must be a two-letter code: ${region}`);
+  }
+
+  const trimmedName = location_name.trim();
+  if (!trimmedName) {
+    throw new Error('POI location_name is required');
+  }
+
+  const payload = {
+    ...rest,
+    ...(color === undefined ? {} : { color: toRgbColor(color) }),
+    location_name: trimmedName,
+    city: city.trim(),
+    market: toMarketCode(city),
+    region: normalizedRegion,
+    polygon_wkt: toPolygonWKT(ring),
+    latitude,
+    longitude,
+  };
+  console.log(payload)
+
+  const response = await fetch(`${BASE_URL}/core_poi/create-poi`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(payload),
+    signal,
+  });
+
+  if (!response.ok) {
+    // FastAPI puts validation errors in `detail`; surface it when present.
+    const detail = await response.text().catch(() => '');
+    throw new Error(
+      `POI creation failed: ${response.status} ${response.statusText}${
+        detail ? ` — ${detail}` : ''
+      }`,
+    );
+  }
+
+  return (await response.json()) as CorePOIResponse;
+}
+
+// ============================================================================
+// Heatmap
+// ============================================================================
+
+export interface HeatmapMetricOptions {
+  /** Column names to include in `individual_metrics`. Omit for all of them;
+   *  pass [] for none. The chosen `metric` is always excluded. */
+  additionalMetrics?: string[];
+  signal?: AbortSignal;
 }
 
 export async function getHeatmapPointsByCityDateMetric(
@@ -229,7 +456,6 @@ export async function getHeatmapPointsByCityDateMetric(
   );
 
   const url = `${BASE_URL}/heatmap/get-heatmap-points-by-city-date-metric?${params}`;
-  console.log(url)
   const res = await fetch(url, {
     method: "GET",
     headers: { Accept: "application/json" },
@@ -251,13 +477,174 @@ export async function getHeatmapPointsByCityDateMetric(
   return { points: raw[date] ?? [], raw };
 }
 
+async function getFinalVisitorPointsByCityDate(
+  path: string,
+  city: string,
+  date: string,
+): Promise<HeatmapMetricValue[]> {
+  const cityVariants = Array.from(new Set([city, toMarketCode(city)]));
+
+  for (const cityVariant of cityVariants) {
+    const params = new URLSearchParams({ city: cityVariant, date });
+    const response = await fetch(`${BASE_URL}${path}?${params}`);
+
+    if (response.status === 404) {
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to load final visitor data: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    const raw = (await response.json()) as HeatmapPointsByDate;
+    const points = raw[date] ?? [];
+    if (points.length > 0) {
+      return points;
+    }
+  }
+
+  return [];
+}
+
+export async function getVisitorDataByCityDate(
+  city: string,
+  date: string,
+): Promise<HeatmapMetricValue[]> {
+  return getFinalVisitorPointsByCityDate(
+    "/final_visitor/get-visitor-by-city-date",
+    city,
+    date,
+  );
+}
+
+export async function getHeatRiskDataByCityDate(
+  city: string,
+  date: string,
+): Promise<HeatmapMetricValue[]> {
+  return getFinalVisitorPointsByCityDate(
+    "/final_visitor/get-heat-risk-score-by-city-date",
+    city,
+    date,
+  );
+}
+
 export const availableMetrics = [
   {
-  "average_temperature_c": ["maximum_temperature_c", "minimum_temperature_c", "average_relative_humidity_pct", "average_wind_speed_knots", "precipitation_3d_sum_mm", "average_temperature_c"]
+    average_temperature_c: [
+      "maximum_temperature_c",
+      "minimum_temperature_c",
+      "average_relative_humidity_pct",
+      "average_wind_speed_knots",
+      "precipitation_3d_sum_mm",
+      "average_temperature_c",
+    ],
   },
   {
-  "change_in_temperature": ["maximum_temperature_c", "minimum_temperature_c", "average_relative_humidity_pct", "average_wind_speed_knots", "precipitation_3d_sum_mm", "average_temperature_c"]
-  }
+    average_temperature_f: [
+      "maximum_temperature_c",
+      "minimum_temperature_c",
+      "average_relative_humidity_pct",
+      "average_wind_speed_knots",
+      "precipitation_3d_sum_mm",
+      "average_temperature_f",
+    ],
+  },
+  {
+    heat_index_f: [
+      "average_temperature_f",
+      "average_relative_humidity_pct",
+      "heat_index_f",
+    ],
+  },
+  {
+    heat_index_c: [
+      "average_temperature_c",
+      "average_relative_humidity_pct",
+      "heat_index_c",
+    ],
+  },
+  {
+    average_relative_humidity_pct: [
+      "average_temperature_c",
+      "average_temperature_f",
+      "average_dew_point_f",
+      "dew_point_depression_c",
+      "average_relative_humidity_pct",
+    ],
+  },
+  {
+    change_in_temperature: [
+      "maximum_temperature_c",
+      "minimum_temperature_c",
+      "average_relative_humidity_pct",
+      "average_wind_speed_knots",
+      "precipitation_3d_sum_mm",
+      "average_temperature_c",
+    ],
+  },
+  {
+    change_in_average_temperature_c: [
+      "maximum_temperature_c",
+      "minimum_temperature_c",
+      "average_relative_humidity_pct",
+      "average_wind_speed_knots",
+      "precipitation_3d_sum_mm",
+      "average_temperature_c",
+    ],
+  },
+  {
+    change_in_average_temperature_f: [
+      "average_relative_humidity_pct",
+      "average_wind_speed_knots",
+      "precipitation_3d_sum_mm",
+      "average_temperature_f",
+    ],
+  },
+  {
+    change_in_local_temperature_c: [
+      "maximum_temperature_c",
+      "minimum_temperature_c",
+      "average_relative_humidity_pct",
+      "average_wind_speed_knots",
+      "precipitation_3d_sum_mm",
+      "average_temperature_c",
+    ],
+  },
+  {
+    change_in_local_temperature_f: [
+      "average_relative_humidity_pct",
+      "average_wind_speed_knots",
+      "precipitation_3d_sum_mm",
+      "average_temperature_f",
+    ],
+  },
+
+  {
+    avg_daily_visits: [
+      "avg_daily_visits",
+      "heat_risk_score",
+    ],
+  },
+  {
+    heat_risk_score: [
+      "heat_risk_score",
+      "avg_daily_visits",
+    ],
+  },
+  {
+    local_temperature_c: [
+      "average_temperature_c",
+      "average_relative_humidity_pct",
+    ],
+  },
+  {
+    local_temperature_f: [
+      "average_temperature_f",
+      "average_relative_humidity_pct",
+    ],
+  },
 ];
 
 const generateAvailableDates = (): string[] => {
@@ -275,123 +662,77 @@ const generateAvailableDates = (): string[] => {
 
 export const availableDates = generateAvailableDates();
 
-// ============================================================================
-// POI import + simulation writes
-// ============================================================================
-
-export interface SimulationPlacedObject {
-  id: string;
-  type: string;
-  longitude: number;
-  latitude: number;
+export interface LocalTemperatureOptions {
+  /** Temperature column the backend reads from. Defaults to `average_temperature_c`. */
+  metric?: string;
+  /** Humidity column the backend reads from. Defaults to `average_relative_humidity_pct`. */
+  humidityMetric?: string;
+  signal?: AbortSignal;
 }
 
-export interface SimulationPolygonCreateRequest {
-  name?: string;
-  cityName: string;
-  stateName?: string | null;
-  color?: [number, number, number, number];
-  polygon: Polygon;
-}
+async function getLocalTemperaturePointsByCityDate(
+  city: string,
+  date: string, // "YYYY-MM-DD"
+  temperatureUnit: 'c' | 'f',
+  options: LocalTemperatureOptions = {},
+): Promise<HeatmapMetricValue[]> {
+  const {
+    metric = "average_temperature_c",
+    humidityMetric = "average_relative_humidity_pct",
+    signal,
+  } = options;
 
-export interface SimulationApplyRequest {
-  cityName?: string;
-  stateName?: string | null;
-  polygonGeometryId?: number;
-  impactedGridCellIds?: number[];
-  placedObjects: SimulationPlacedObject[];
-  timestamp?: string;
-}
+  const params = new URLSearchParams({
+    city: toMarketCode(city),
+    date,
+    metric,
+    humidity_metric: humidityMetric,
+    temperature_unit: temperatureUnit,
+  });
 
-export interface SimulationApplyResponse {
-  timestamp: string;
-  objects_applied: number;
-  adjustments: Record<string, number>;
-  metrics_created: number;
-  impacted_count: number;
-  impacted_grid_cell_ids: number[];
-}
+  const response = await fetch(`${BASE_URL}/heatmap/get-local-temperature-by-city-date?${params}`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    signal,
+  });
 
-export interface CorePOIImportResponse {
-  filename: string;
-  imported_count: number;
-  skipped_count: number;
-  total_rows: number;
-  errors: string[];
-}
-
-/** Saved POI polygons for the map. Falls back to the legacy route, then none. */
-export async function callCorePOIAreas(): Promise<CityPOIArea[]> {
-  try {
-    const backendPOIs = await fetchBackendJson<CityPOIArea[]>('/heatmap/core-pois?limit=500');
-    if (backendPOIs.length > 0) return backendPOIs;
-  } catch (error) {
-    console.warn('Falling back to saved location POIs', error);
-  }
-
-  try {
-    return await fetchBackendJson<CityPOIArea[]>('/heatmap/location-pois');
-  } catch {
+  // 404 means no rows matched, which is an empty result rather than a failure.
+  if (response.status === 404) {
     return [];
   }
-}
-
-export async function importCorePOIFile(file: File): Promise<CorePOIImportResponse> {
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const response = await fetch(`${API_BASE_URL}/core_poi_polygons/import`, {
-    method: 'POST',
-    body: formData,
-  });
 
   if (!response.ok) {
-    throw new Error(`Core POI import failed: ${response.status} ${response.statusText}`);
+    throw new Error(
+      `Local temperature request failed: ${response.status} ${response.statusText}`,
+    );
   }
 
-  return response.json() as Promise<CorePOIImportResponse>;
+  const raw = (await response.json()) as HeatmapPointsByDate;
+  return raw[date] ?? [];
 }
 
-export async function createSimulationPolygon(
-  payload: SimulationPolygonCreateRequest,
-): Promise<CityPOIArea> {
-  // Save the drawn polygon and let the backend compute impacted grid cells. The
-  // response extends CityPOIArea with polygon_geometry_id and impacted ids so
-  // later simulation apply calls can target the same grid subset.
-  const response = await fetch(`${API_BASE_URL}/heatmap/simulation/polygon`, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Create simulation polygon failed: ${response.status} ${response.statusText}`);
-  }
-
-  return response.json() as Promise<CityPOIArea>;
+export async function getLocalTemperatureCByCityDate(
+  city: string,
+  date: string,
+  options: LocalTemperatureOptions = {},
+): Promise<HeatmapMetricValue[]> {
+  return getLocalTemperaturePointsByCityDate(
+    city,
+    date,
+    'c',
+    options,
+  );
 }
 
-export async function applySimulation(
-  payload: SimulationApplyRequest,
-): Promise<SimulationApplyResponse> {
-  // Apply the placed toolbox interventions to the affected metrics. The backend
-  // writes a new timestamped metric snapshot rather than mutating the previous
-  // one, which keeps before/after comparison possible.
-  const response = await fetch(`${API_BASE_URL}/heatmap/simulation/apply`, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Apply simulation failed: ${response.status} ${response.statusText}`);
-  }
-
-  return response.json() as Promise<SimulationApplyResponse>;
+export async function getLocalTemperatureFByCityDate(
+  city: string,
+  date: string,
+  options: LocalTemperatureOptions = {},
+): Promise<HeatmapMetricValue[]> {
+  return getLocalTemperaturePointsByCityDate(
+    city,
+    date,
+    'f',
+    options,
+  );
 }

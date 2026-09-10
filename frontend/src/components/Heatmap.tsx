@@ -1,9 +1,18 @@
 import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
 import { Expand, Shrink } from 'lucide-react';
 import DeckGL from '@deck.gl/react';
-import { type CityPOIArea } from '../api/map';
+import maplibregl from 'maplibre-gl';
+import {
+  type CityPOIArea,
+  type HeatmapMetricValue,
+} from '../api/map';
 import { type City } from '../data/hostCities';
-import { getColor, getSmoothColor, hasSmoothRamp, rampDomain } from '../services/colors';
+import {
+  hexToRgb,
+  metricLabel,
+  metricLegendGradient,
+  metricUnit,
+} from '../services/colors';
 import {
   buildMetricRaster,
   isInsideRaster,
@@ -16,158 +25,193 @@ import Toolbox from './Toolbox';
 import HeatRiskScale from './Heatriskscale';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { SurfaceType } from '../services/map';
-import { classifySurface } from '../services/map';
-import type { GeocodeResult } from '../types/search';
+import { classifySurface, formatMetricName } from '../services/map';
 import type {
   HeatmapProps,
   MetricSurfaceRaster,
-  TooltipState,
 } from '../types/components';
-import type { HeatmapMetricValue as MetricValue } from '../types/heatmap';
 import type { ViewState } from '../types/viewState';
-import { fetchPlacedObjects } from '../api/tool';
+import { fetchPlacedObjectsByCityDate } from '../api/tool';
 import type { Geometry } from '../types/simulation';
 import { isPolygonSimple } from '../services/polygon';
 import { availableMetrics, availableDates } from '../api/map';
-
-
-
-
-// Re-exported so existing imports (`import Heatmap, { type GeocodeResult }`)
-// keep working now that the search UI lives in its own component.
-export type { GeocodeResult, TooltipState };
+import type { PlacedObject } from '../services/toolbox';
 
 // ======================================================
 // Formatting helpers
 // Pure functions: raw metric keys -> human-readable text.
 // ======================================================
 
-/**
- * Short display name for a raw sub-metric key, used in the tooltip's
- * `individual_metrics` breakdown (e.g. 'heatIndexF' -> 'Heat Index').
- * Unknown keys fall through unchanged so new metrics still render.
- */
-function metricLabel(metricKey: string): string {
-  switch (metricKey) {
-    case 'temperatureF':
-      return 'Air Temp';
-    case 'heatIndexF':
-      return 'Heat Index';
-    case 'relativeHumidityPct':
-      return 'Humidity';
-    case 'landSurfaceTempF':
-      return 'Surface Temp';
-    case 'nighttimeTempF':
-      return 'Night Temp';
-    case 'treeCanopyPct':
-      return 'Tree Canopy';
-    case 'imperviousSurfacePct':
-      return 'Impervious';
-    default:
-      return metricKey;
-  }
-}
+function formatPoiFieldKey(key: string): string {
+  const customLabels: Record<string, string> = {
+    location_name: 'Location Name',
+    polygon_wkt: 'Polygon WKT',
+    includes_parking_lot: 'Includes Parking Lot',
+    naics_code: 'NAICS Code',
+    naics_code_2022: 'NAICS Code (2022)',
+    sub_category_2022: 'Sub Category (2022)',
+    top_category_2022: 'Top Category (2022)',
+    wkt_area_sq_meters: 'Area (sq m)',
+    average_uhi: 'Average UHI',
+    matched_uhi_count: 'Matched UHI Count',
+    safegraph_place_id: 'SafeGraph ID',
+    iso_country_code: 'Country Code',
+    is_synthetic: 'Synthetic',
+    geometry_type: 'Geometry Type',
+    polygon_class: 'Polygon Class',
+    open_hours: 'Open Hours',
+    opened_on: 'Opened On',
+    closed_on: 'Closed On',
+    tracking_closed_since: 'Closed Since',
+    street_address: 'Address',
+    postal_code: 'Postal Code',
+    phone_number: 'Phone',
+    market_code: 'Market Code',
+    created_at: 'Created At',
+  };
 
-/**
- * Unit suffix inferred from the metric key's naming convention:
- * a trailing 'F' means Fahrenheit, a trailing 'Pct' means percent.
- * Returns an empty string for unitless metrics.
- */
-function metricUnit(metricKey: string): string {
-  if (metricKey.endsWith('F')) return ' deg F';
-  if (metricKey.endsWith('Pct')) return '%';
-  return '';
-}
+  if (customLabels[key]) return customLabels[key];
 
-// Convert a #rrggbb hex string to an [r, g, b] tuple for deck.gl color props.
-// Malformed components degrade to 0 rather than NaN, which deck.gl would
-// otherwise render as a transparent/black fill.
-function hexToRgb(hex: string): [number, number, number] {
-  const normalized = hex.replace('#', '');
-  const r = parseInt(normalized.substring(0, 2), 16);
-  const g = parseInt(normalized.substring(2, 4), 16);
-  const b = parseInt(normalized.substring(4, 6), 16);
-  return [
-    Number.isNaN(r) ? 0 : r,
-    Number.isNaN(g) ? 0 : g,
-    Number.isNaN(b) ? 0 : b,
-  ];
-}
-
-// ======================================================
-// Colour helpers
-// Map a metric onto the shared palette in utils/colors.
-// ======================================================
-
-/** Maps a metric to the palette name the colour helpers understand. */
-function colorMetricKey(metric: string): string {
-  return metric;
-}
-
-/**
- * Colour lookup for the legend. The two surface metrics have their own
- * continuous ramp, so the legend samples the *same* function the raster
- * renderer uses and therefore always matches what is drawn. Everything else
- * keeps the banded getColor.
- */
-function legendColor(value: number, metric: string): [number, number, number] {
-  return hasSmoothRamp(metric) ? getSmoothColor(value, metric) : getColor(value, metric);
-}
-
-/** Format an [r, g, b] tuple plus an alpha as a CSS rgba() string. */
-function rgbaCss(rgb: [number, number, number], alpha: number): string {
-  return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
-}
-
-
-/**
- * Stops (in each metric's own units) used to sample getColor for both the
- * heatmap colour range and the legend gradient. Temperature is in °C and
- * spans ~10–44; visitor density is a 0–100 index.
- */
-function metricStops(colorMetric: string): number[] {
-  // Sample the metric's own continuous ramp end to end, so the legend spans
-  // exactly the range the surface can paint.
-  const domain = rampDomain(colorMetric);
-  if (domain) {
-    const [lo, hi] = domain;
-    const steps = 12;
-    return Array.from({ length: steps + 1 }, (_, i) => lo + ((hi - lo) * i) / steps);
-  }
-  return [0, 20, 40, 60, 80, 100];
-}
-
-/**
- * CSS linear-gradient for the HeatRiskScale legend, using the same stops as
- * `metricColorRange` so the legend always matches the rendered heatmap.
- * Alpha is near-opaque here (unlike the layer ramp) so the legend stays legible.
- */
-function metricLegendGradient(metric: string): string {
-  const colorMetric = colorMetricKey(metric);
-  const stops = metricStops(colorMetric);
-  const pctStep = 100 / (stops.length - 1);
-
-  const segments = stops.map((value, index) => {
-    const color = legendColor(value, colorMetric);
-    const pct = Math.round(index * pctStep);
-    return `${rgbaCss(color, 0.95)} ${pct}%`;
-  });
-
-  return `linear-gradient(to right, ${segments.join(', ')})`;
-}
-
-/**
- * Title-cased display name for a top-level metric key, used in the legend,
- * the Toolbox toggle and the tooltip header. Two keys are special-cased;
- * anything else is snake_case -> Title Case.
- */
-function formatMetricName(metricKey: string): string {
-  if (metricKey === 'average_temperature_c') return 'Average Temperature';
-  if (metricKey === 'change_in_temperature') return 'Change In Temperature';
-  return metricKey
+  return key
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+function formatPoiFieldValue(value: any): string {
+  if (typeof value === 'boolean') {
+    return value ? 'Yes' : 'No';
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '';
+    return value
+      .map((item) => (typeof item === 'object' && item !== null ? JSON.stringify(item) : String(item)))
+      .join(', ');
+  }
+  if (typeof value === 'object' && value !== null) {
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
+type MapMode = '2d' | '3d';
+type BasemapId = 'dark' | 'streets' | 'satellite';
+
+const mapModeCamera: Record<MapMode, Pick<ViewState, 'pitch' | 'bearing'>> = {
+  '2d': { pitch: 0, bearing: 0 },
+  // A restrained oblique angle keeps the heat surface legible while adding
+  // enough depth to distinguish terrain and building context.
+  '3d': { pitch: 55, bearing: -20 },
+};
+
+const basemapStyles: Record<BasemapId, string | maplibregl.StyleSpecification> = {
+  dark: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+  streets: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+  satellite: {
+    version: 8,
+    name: 'Satellite imagery',
+    sources: {
+      'satellite-imagery': {
+        type: 'raster',
+        tiles: [
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        ],
+        tileSize: 256,
+        attribution: 'Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community',
+      },
+    },
+    layers: [
+      {
+        id: 'satellite-imagery',
+        type: 'raster',
+        source: 'satellite-imagery',
+      },
+    ],
+  },
+};
+const defaultBasemapId: BasemapId = 'dark';
+const buildingExtrusionLayerId = 'rice-map-3d-buildings';
+const minimapViewportSourceId = 'main-map-viewport';
+
+/**
+ * Add the optional 3D-building presentation using the source identifiers in
+ * the currently loaded style. Raster-only styles (including satellite) have
+ * no compatible layer and are intentionally left unchanged.
+ */
+function applyBuildingPresentation(map: maplibregl.Map, mode: MapMode, basemap: BasemapId): void {
+  if (map.getLayer(buildingExtrusionLayerId)) {
+    map.removeLayer(buildingExtrusionLayerId);
+  }
+
+  if (mode !== '3d') return;
+
+  const style = map.getStyle();
+  const buildingLayer = style.layers.find((layer) => {
+    const sourceLayer = 'source-layer' in layer ? layer['source-layer'] : undefined;
+    const source = 'source' in layer ? layer.source : undefined;
+
+    return (
+      (layer.type === 'fill' || layer.type === 'fill-extrusion') &&
+      typeof sourceLayer === 'string' &&
+      sourceLayer.toLowerCase().includes('building') &&
+      typeof source === 'string' &&
+      style.sources[source]?.type === 'vector'
+    );
+  });
+
+  if (!buildingLayer || !('source' in buildingLayer) || typeof buildingLayer.source !== 'string') {
+    return;
+  }
+
+  const sourceLayer = 'source-layer' in buildingLayer ? buildingLayer['source-layer'] : undefined;
+  if (typeof sourceLayer !== 'string') return;
+
+  const firstLabelLayerId = style.layers.find((layer) => layer.type === 'symbol')?.id;
+  const buildingFilter: maplibregl.FilterSpecification =
+    buildingLayer.filter ?? ['!=', 'hide_3d', true];
+
+  map.addLayer(
+    {
+      id: buildingExtrusionLayerId,
+      type: 'fill-extrusion',
+      source: buildingLayer.source,
+      'source-layer': sourceLayer,
+      minzoom: 14,
+      filter: buildingFilter,
+      paint: {
+        'fill-extrusion-color': basemap === 'dark' ? '#64748b' : '#cbd5e1',
+        'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 8],
+        'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+        'fill-extrusion-opacity': 0.78,
+        'fill-extrusion-vertical-gradient': true,
+      },
+    },
+    firstLabelLayerId,
+  );
+}
+
+function minimapZoom(mainZoom: number): number {
+  return Math.max(0, Math.min(16, mainZoom - 5));
+}
+
+function viewportOutline(bounds: maplibregl.LngLatBounds) {
+  const southWest = bounds.getSouthWest();
+  const northEast = bounds.getNorthEast();
+
+  return {
+    type: 'Feature' as const,
+    properties: {},
+    geometry: {
+      type: 'Polygon' as const,
+      coordinates: [[
+        [southWest.lng, southWest.lat],
+        [northEast.lng, southWest.lat],
+        [northEast.lng, northEast.lat],
+        [southWest.lng, northEast.lat],
+        [southWest.lng, southWest.lat],
+      ]],
+    },
+  };
 }
 
 const Heatmap: React.FC<HeatmapProps> = ({
@@ -184,6 +228,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
   isLoading = false,
   isRunning = false,
   mapContainerRef,
+  minimapContainerRef,
   mapRef,
   mapSyncFrameRef,
   fullscreenTargetRef,
@@ -220,6 +265,188 @@ const Heatmap: React.FC<HeatmapProps> = ({
   // Fallback fullscreen target when the parent doesn't supply one: the root
   // element of this component.
   const heatmapRootRef = useRef<HTMLDivElement>(null);
+  const minimapRef = useRef<maplibregl.Map | null>(null);
+  const [mapMode, setMapMode] = useState<MapMode>('2d');
+  const [basemapId, setBasemapId] = useState<BasemapId>(defaultBasemapId);
+  const latestViewStateRef = useRef(viewState);
+  const latestMapModeRef = useRef<MapMode>('2d');
+  const latestBasemapIdRef = useRef<BasemapId>(defaultBasemapId);
+  const pendingStyleLoadRef = useRef<{
+    map: maplibregl.Map;
+    loadHandler: () => void;
+    errorHandler: () => void;
+  } | null>(null);
+
+  useEffect(() => {
+    latestViewStateRef.current = viewState;
+  }, [viewState]);
+
+  /**
+   * Keep the MapLibre basemap locked to deck.gl's camera. The update is
+   * throttled to one animation frame because deck.gl emits camera changes more
+   * often than the browser paints; jumpTo prevents basemap easing lag.
+   */
+  const syncMapCamera = useCallback(
+    (nextState: ViewState) => {
+      if (!mapRef.current) return;
+
+      if (mapSyncFrameRef.current !== null) {
+        cancelAnimationFrame(mapSyncFrameRef.current);
+      }
+
+      mapSyncFrameRef.current = requestAnimationFrame(() => {
+        if (!mapRef.current) return;
+        mapRef.current.jumpTo({
+          center: [nextState.longitude, nextState.latitude],
+          zoom: nextState.zoom,
+          pitch: nextState.pitch,
+          bearing: nextState.bearing,
+        });
+        mapSyncFrameRef.current = null;
+      });
+    },
+    [mapRef, mapSyncFrameRef],
+  );
+
+  const clearPendingStyleLoad = useCallback((expectedRequest?: typeof pendingStyleLoadRef.current) => {
+    const pending = pendingStyleLoadRef.current;
+    if (!pending || (expectedRequest && pending !== expectedRequest)) return false;
+
+    pending.map.off('style.load', pending.loadHandler);
+    pending.map.off('error', pending.errorHandler);
+    pendingStyleLoadRef.current = null;
+    return true;
+  }, []);
+
+  const restoreMapPresentation = useCallback(
+    (map: maplibregl.Map) => {
+      if (mapRef.current !== map || !map.isStyleLoaded()) return;
+
+      const camera = latestViewStateRef.current;
+      map.jumpTo({
+        center: [camera.longitude, camera.latitude],
+        zoom: camera.zoom,
+        pitch: camera.pitch,
+        bearing: camera.bearing,
+      });
+      applyBuildingPresentation(map, latestMapModeRef.current, latestBasemapIdRef.current);
+    },
+    [mapRef],
+  );
+
+  const waitForStyleLoad = useCallback(
+    (map: maplibregl.Map) => {
+      clearPendingStyleLoad();
+
+      const request = {
+        map,
+        loadHandler: () => {
+          if (!clearPendingStyleLoad(request)) return;
+          restoreMapPresentation(map);
+        },
+        errorHandler: () => {
+          clearPendingStyleLoad(request);
+        },
+      };
+
+      pendingStyleLoadRef.current = request;
+      map.on('style.load', request.loadHandler);
+      map.on('error', request.errorHandler);
+    },
+    [clearPendingStyleLoad, restoreMapPresentation],
+  );
+
+  useEffect(
+    () => () => {
+      clearPendingStyleLoad();
+    },
+    [clearPendingStyleLoad],
+  );
+
+  /**
+   * Keep the overview map observational: it reads the main camera but never
+   * emits events or writes shared page state. The viewport source is added on
+   * the minimap's load event, so this is also safe during its initial render.
+   */
+  const syncMinimapCamera = useCallback(
+    (nextState: ViewState) => {
+      const minimap = minimapRef.current;
+      if (!minimap) return;
+
+      minimap.jumpTo({
+        center: [nextState.longitude, nextState.latitude],
+        zoom: minimapZoom(nextState.zoom),
+        pitch: 0,
+        bearing: 0,
+      });
+
+      const source = minimap.getSource(minimapViewportSourceId) as maplibregl.GeoJSONSource | undefined;
+      const mainBounds = mapRef.current?.getBounds();
+      if (source && mainBounds) {
+        source.setData(viewportOutline(mainBounds));
+      }
+    },
+    [mapRef],
+  );
+
+  // The minimap is intentionally self-contained: no controls, handlers, or
+  // callbacks are registered, keeping it a read-only overview of the main map.
+  useEffect(() => {
+    const container = minimapContainerRef.current;
+    if (!container || minimapRef.current) return;
+
+    const minimap = new maplibregl.Map({
+      container,
+      style: basemapStyles[defaultBasemapId],
+      center: [latestViewStateRef.current.longitude, latestViewStateRef.current.latitude],
+      zoom: minimapZoom(latestViewStateRef.current.zoom),
+      pitch: 0,
+      bearing: 0,
+      interactive: false,
+      attributionControl: false,
+      fadeDuration: 0,
+    });
+    minimapRef.current = minimap;
+
+    const addViewportOutline = () => {
+      if (!minimap.getSource(minimapViewportSourceId)) {
+        const bounds = mapRef.current?.getBounds();
+        if (!bounds) return;
+
+        minimap.addSource(minimapViewportSourceId, {
+          type: 'geojson',
+          data: viewportOutline(bounds),
+        });
+        minimap.addLayer({
+          id: `${minimapViewportSourceId}-fill`,
+          type: 'fill',
+          source: minimapViewportSourceId,
+          paint: { 'fill-color': '#5aa6f8', 'fill-opacity': 0.08 },
+        });
+        minimap.addLayer({
+          id: `${minimapViewportSourceId}-line`,
+          type: 'line',
+          source: minimapViewportSourceId,
+          paint: { 'line-color': '#bfdbfe', 'line-width': 2, 'line-opacity': 0.95 },
+        });
+      }
+
+      syncMinimapCamera(latestViewStateRef.current);
+    };
+
+    minimap.once('load', addViewportOutline);
+
+    return () => {
+      minimap.remove();
+      if (minimapRef.current === minimap) {
+        minimapRef.current = null;
+      }
+    };
+  }, [mapRef, syncMinimapCamera]);
+
+  useEffect(() => {
+    syncMinimapCamera(viewState);
+  }, [syncMinimapCamera, viewState]);
 
   // Drawing state lives in the usePolygonDraw hook; aliased here for brevity.
   const isDrawing = drawControls.isDrawing;
@@ -236,6 +463,10 @@ const Heatmap: React.FC<HeatmapProps> = ({
         : [],
     [placedObjectsControls?.pendingPlacedObject],
   );
+
+  useEffect(() => {
+    console.log('Heatmap placedObjects changed:', currentPlacedObjects);
+  }, [currentPlacedObjects]);
 
 
 
@@ -261,15 +492,21 @@ const Heatmap: React.FC<HeatmapProps> = ({
    */
   const handleDeckClick = useCallback(
     (info: any) => {
-      if (!info?.coordinate) return;
-      const [lng, lat] = info.coordinate;
+      if (placedObjectsControls?.isPickingPoint && info?.coordinate) {
+        const [lng, lat] = info.coordinate;
+        placedObjectsControls.updatePendingPlacedObject?.({
+          geometry: { kind: 'point', longitude: lng, latitude: lat },
+        });
+        placedObjectsControls.setIsPickingPoint?.(false);
+        return;
+      }
 
       // Add vertices while drawing
-      if (isDrawing) {
-        drawControls.addDraftPoint(lng, lat);
-      }
+      if (!isDrawing || !info?.coordinate) return;
+      const [lng, lat] = info.coordinate;
+      drawControls.addDraftPoint(lng, lat);
     },
-    [isDrawing, drawControls],
+    [isDrawing, drawControls, placedObjectsControls],
   );
 
   // Fly the map + shared view state to a location. Pass cityName to also mark a
@@ -278,15 +515,13 @@ const Heatmap: React.FC<HeatmapProps> = ({
   // so the basemap and the overlays stay in sync.
   const flyTo = useCallback(
     (lng: number, lat: number, zoom: number, cityName?: string) => {
-      const newState: ViewState = { longitude: lng, latitude: lat, zoom, pitch: 0, bearing: 0 };
+      const newState: ViewState = { longitude: lng, latitude: lat, zoom, ...mapModeCamera[mapMode] };
+      latestViewStateRef.current = newState;
       setViewState(newState);
       if (cityName !== undefined) setSelectedCity(cityName);
-
-      if (mapRef.current) {
-        mapRef.current.flyTo({ center: [lng, lat], zoom, duration: 1200 });
-      }
+      syncMapCamera(newState);
     },
-    [setViewState, setSelectedCity, mapRef],
+    [setViewState, setSelectedCity, syncMapCamera, mapMode],
   );
 
   /**
@@ -298,24 +533,18 @@ const Heatmap: React.FC<HeatmapProps> = ({
       // While drawing, map clicks add vertices instead of switching cities.
       if (isDrawing) return;
 
-      setViewState({
+      const newState: ViewState = {
         longitude: city.longitude,
         latitude: city.latitude,
         zoom: 10,
-        pitch: 0,
-        bearing: 0,
-      });
+        ...mapModeCamera[mapMode],
+      };
+      latestViewStateRef.current = newState;
+      setViewState(newState);
       setSelectedCity(city.name);
-
-      if (mapRef.current) {
-        mapRef.current.flyTo({
-          center: [city.longitude, city.latitude],
-          zoom: 10,
-          duration: 1000,
-        });
-      }
+      syncMapCamera(newState);
     },
-    [isDrawing, setViewState, setSelectedCity, mapRef],
+    [isDrawing, setViewState, setSelectedCity, syncMapCamera, mapMode],
   );
 
   // ======================================================
@@ -351,7 +580,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
     ? Object.keys(selectedMetric)[0]
     : availableMetricLayers[0]
       ? Object.keys(availableMetricLayers[0])[0]
-      : 'average_temperature_c';
+      : 'heat_risk_score';
   const metricLabelText = formatMetricName(activeMetricKey);
   const activeMetricLegendGradient = useMemo(
     () => metricLegendGradient(activeMetricKey),
@@ -392,7 +621,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
    * coordinate under the cursor rather than the nearest measured reading.
    */
   const sampleRasterPoint = useCallback(
-    (lon: number, lat: number): MetricValue | null => {
+    (lon: number, lat: number): HeatmapMetricValue | null => {
       for (const { surface, raster } of metricSurfaceRasters) {
         if (!isInsideRaster(raster, lon, lat)) continue;
 
@@ -424,7 +653,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
     [metricSurfaceRasters],
   );
 
-  // Load mock placed-object tools for the selected city + date and push them
+  // Load placed-object tools for the selected city + date and push them
   // into placedObjectsControls. Re-runs on city/date change; clears when either
   // is missing. The ignore flag drops a stale response if the selection changes
   // mid-fetch.
@@ -446,11 +675,11 @@ const Heatmap: React.FC<HeatmapProps> = ({
 
     let ignore = false;
     setIsPlacedObjectsLoading(true);
+    const marketCode = selectedCity.trim().toLowerCase().replace(/\s+/g, '_');
 
-    fetchPlacedObjects()
-      .then((byDateCity) => {
+    fetchPlacedObjectsByCityDate(selectedDate, marketCode)
+      .then((tools) => {
         if (ignore) return;
-        const tools = byDateCity[selectedDate]?.[selectedCity] ?? [];
         setPlacedObjects(tools);
         setIsPlacedObjectsLoading(false);
       })
@@ -483,29 +712,23 @@ const Heatmap: React.FC<HeatmapProps> = ({
       }
 
       return {
+        ...prev,
         type: prev?.type ?? 'polygon',
         name: prev?.name ?? 'polygon',
-        color: prev?.color,
-        params: prev?.params,
-        activeFrom: prev?.activeFrom,
-        activeTo: prev?.activeTo,
         geometry: { kind: 'polygon', ring: draftPoints } as Geometry,
       };
     });
   }, [draftPoints, isDrawing, placedObjectsControls?.setPendingPlacedObject]);
 
-  // Cycle to the next available metric (drives the Toolbox metric toggle).
-  // Wraps around at the end of the list; no-op when there's nothing to cycle to.
-  const cycleMetric = useCallback(() => {
-    if (availableMetricLayers.length <= 1) return;
-    const selectedMetricKey = selectedMetric ? Object.keys(selectedMetric)[0] : null;
-    const idx = availableMetricLayers.findIndex(
-      (metric) => Object.keys(metric)[0] === selectedMetricKey,
-    );
-    const next =
-      availableMetricLayers[(idx + 1 + availableMetricLayers.length) % availableMetricLayers.length];
-    setSelectedMetric(next);
-  }, [availableMetricLayers, selectedMetric, setSelectedMetric]);
+  const selectMetric = useCallback(
+    (metricKey: string) => {
+      const metric = availableMetricLayers.find(
+        (candidate) => Object.keys(candidate)[0] === metricKey,
+      );
+      if (metric) setSelectedMetric(metric);
+    },
+    [availableMetricLayers, setSelectedMetric],
+  );
 
   /** Server-provided POI areas for the city, plus any the user drew themselves. */
   const displayedPOIAreas: CityPOIArea[] = useMemo(() => {
@@ -557,7 +780,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
   const handleDeckHover = useCallback(
     (info: {
       coordinate?: number[];
-      object?: MetricValue | null;
+      object?: HeatmapMetricValue | PlacedObject | CityPOIArea | null;
       x: number;
       y: number;
       layer?: { id?: string } | null;
@@ -569,8 +792,35 @@ const Heatmap: React.FC<HeatmapProps> = ({
       }
 
       const [lon, lat] = info.coordinate as [number, number];
+      const pickedLayerId = info.layer?.id;
 
-      const publish = (point: MetricValue) => {
+      // Toolbox markers and POI polygons own their own tooltips and take
+      // precedence over the surface reading underneath them.
+      if (pickedLayerId?.startsWith('placed-object-') && info.object) {
+        const object = info.object as PlacedObject;
+        setHoveringHeatmap(false);
+        setTooltip({
+          object,
+          x: info.x,
+          y: info.y,
+          coordinates: { longitude: lon, latitude: lat },
+        });
+        return;
+      }
+
+      if (pickedLayerId === 'poi-area-layer' && info.object) {
+        const poi = info.object as unknown as CityPOIArea;
+        setHoveringHeatmap(false);
+        setTooltip({
+          poi,
+          x: info.x,
+          y: info.y,
+          coordinates: { longitude: lon, latitude: lat },
+        });
+        return;
+      }
+
+      const publish = (point: HeatmapMetricValue) => {
         setHoveringHeatmap(true);
         setTooltip({
           point,
@@ -598,8 +848,8 @@ const Heatmap: React.FC<HeatmapProps> = ({
 
       // Outside every raster: fall back to a picked measured reading, which is
       // all there is for cities the backend has no grid for.
-      if (info.layer?.id === 'heatmap-point-pick-layer' && info.object) {
-        publish(info.object as MetricValue);
+      if (pickedLayerId === 'heatmap-point-pick-layer' && info.object) {
+        publish(info.object as HeatmapMetricValue);
         return;
       }
 
@@ -622,10 +872,12 @@ const Heatmap: React.FC<HeatmapProps> = ({
     ({ isDragging }: { isDragging: boolean }) =>
       isDragging || isAreaDragging
         ? 'grabbing'
-        : isDrawing || hoveringHeatmap || !!editingAreaId
+        : placedObjectsControls?.isPickingPoint || isDrawing || hoveringHeatmap || !!editingAreaId
           ? 'crosshair'
-          : 'grab',
-    [isDrawing, hoveringHeatmap, editingAreaId, isAreaDragging],
+          : tooltip?.poi || tooltip?.object
+            ? 'pointer'
+            : 'grab',
+    [isDrawing, hoveringHeatmap, editingAreaId, isAreaDragging, placedObjectsControls?.isPickingPoint, tooltip?.poi, tooltip?.object],
   );
 
   // Mirror the browser's fullscreen state into React. Needed because the user
@@ -665,16 +917,59 @@ const Heatmap: React.FC<HeatmapProps> = ({
     }
   }, [fullscreenTargetRef]);
 
-  /**
-   * Keep the MapLibre basemap locked to deck.gl's camera as the user pans/zooms.
-   *
-   * Two guards matter here:
-   *  - The epsilon comparison returns the previous state object when the camera
-   *    hasn't meaningfully moved, so React can bail out of a re-render.
-   *  - The basemap sync is throttled to one rAF frame (cancelling any pending
-   *    one) because deck.gl fires this far more often than the browser paints.
-   * jumpTo (not flyTo) is used so the basemap tracks the drag with no easing lag.
-   */
+  const handleMapModeChange = useCallback(
+    (nextMode: MapMode) => {
+      const nextState: ViewState = {
+        ...latestViewStateRef.current,
+        ...mapModeCamera[nextMode],
+      };
+
+      latestViewStateRef.current = nextState;
+      latestMapModeRef.current = nextMode;
+      setMapMode(nextMode);
+      setViewState(nextState);
+      syncMapCamera(nextState);
+
+      const map = mapRef.current;
+      if (!map) return;
+
+      if (map.isStyleLoaded()) {
+        clearPendingStyleLoad();
+        restoreMapPresentation(map);
+      } else {
+        waitForStyleLoad(map);
+      }
+    },
+    [
+      setViewState,
+      syncMapCamera,
+      mapRef,
+      clearPendingStyleLoad,
+      restoreMapPresentation,
+      waitForStyleLoad,
+    ],
+  );
+
+  const handleBasemapChange = useCallback(
+    (event: React.ChangeEvent<HTMLSelectElement>) => {
+      const nextBasemap = event.target.value as BasemapId;
+      const map = mapRef.current;
+
+      latestBasemapIdRef.current = nextBasemap;
+      setBasemapId(nextBasemap);
+      if (!map) return;
+
+      waitForStyleLoad(map);
+      try {
+        map.setStyle(basemapStyles[nextBasemap], { diff: false });
+      } catch (error) {
+        clearPendingStyleLoad();
+        console.error('Failed to change basemap style', error);
+      }
+    },
+    [mapRef, waitForStyleLoad, clearPendingStyleLoad],
+  );
+
   const handleViewStateChange = useCallback(
     (e: any) => {
       const nextState = e.viewState as ViewState;
@@ -685,6 +980,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
         pitch: nextState.pitch,
         bearing: nextState.bearing,
       };
+      latestViewStateRef.current = newState;
 
       setViewState((prev) => {
         if (
@@ -699,23 +995,9 @@ const Heatmap: React.FC<HeatmapProps> = ({
         return newState;
       });
 
-      if (!mapRef.current) return;
-
-      if (mapSyncFrameRef.current !== null) {
-        cancelAnimationFrame(mapSyncFrameRef.current);
-      }
-
-      mapSyncFrameRef.current = requestAnimationFrame(() => {
-        if (!mapRef.current) return;
-        mapRef.current.jumpTo({
-          center: [newState.longitude, newState.latitude],
-          zoom: newState.zoom,
-          pitch: newState.pitch,
-          bearing: newState.bearing,
-        });
-      });
+      syncMapCamera(newState);
     },
-    [setViewState, mapRef, mapSyncFrameRef],
+    [setViewState, syncMapCamera],
   );
 
   // ======================================================
@@ -817,9 +1099,12 @@ const Heatmap: React.FC<HeatmapProps> = ({
         setSelectedDate={setSelectedDate}
         setBaselineSelectedDate={setBaselineSelectedDate}
         availableDates={availableDates}
-        metricLabel={metricLabelText}
-        canToggleMetric={availableMetricLayers.length > 1}
-        onToggleMetric={cycleMetric}
+        selectedMetricKey={activeMetricKey}
+        metricOptions={availableMetricLayers.map((metric) => {
+          const metricKey = Object.keys(metric)[0];
+          return { value: metricKey, label: formatMetricName(metricKey) };
+        })}
+        onMetricChange={selectMetric}
         placedCount={currentPlacedObjects.length}
         onClearObjects={() => placedObjectsControls?.setPlacedObjects([])}
         placedObjectsControls={placedObjectsControls}
@@ -868,6 +1153,80 @@ const Heatmap: React.FC<HeatmapProps> = ({
         }}
       />
 
+      <div
+        role="group"
+        aria-label="Map presentation"
+        style={{
+          position: 'absolute',
+          top: 68,
+          right: 20,
+          zIndex: 30,
+          display: 'flex',
+          gap: 2,
+          padding: 3,
+          border: '1px solid var(--border-strong, rgba(148, 163, 184, 0.55))',
+          borderRadius: 9,
+          backgroundColor: 'var(--surface-panel, rgba(2, 8, 23, 0.88))',
+          boxShadow: 'var(--shadow-panel, 0 8px 24px rgba(0, 0, 0, 0.28))',
+        }}
+      >
+        <select
+          value={basemapId}
+          onChange={handleBasemapChange}
+          aria-label="Basemap"
+          title="Choose basemap"
+          style={{
+            width: 136,
+            height: 32,
+            border: 0,
+            borderRadius: 6,
+            padding: '0 8px',
+            backgroundColor: 'rgba(15, 23, 42, 0.72)',
+            color: 'var(--text-primary, #f8fafc)',
+            fontSize: 12,
+            fontWeight: 650,
+            cursor: 'pointer',
+          }}
+        >
+          <option value="dark">Dark</option>
+          <option value="streets">Streets</option>
+          <option value="satellite">Satellite imagery</option>
+        </select>
+
+        <span
+          aria-hidden="true"
+          style={{ width: 1, margin: '5px 2px', backgroundColor: 'rgba(148, 163, 184, 0.35)' }}
+        />
+
+        {(['2d', '3d'] as const).map((mode) => {
+          const isActive = mapMode === mode;
+          return (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => handleMapModeChange(mode)}
+              aria-pressed={isActive}
+              aria-label={`Show ${mode.toUpperCase()} map view`}
+              style={{
+                minWidth: 38,
+                height: 32,
+                border: 0,
+                borderRadius: 6,
+                backgroundColor: isActive ? 'var(--accent, #5aa6f8)' : 'transparent',
+                color: isActive ? '#07101d' : 'var(--text-secondary, #cbd5e1)',
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: '0.04em',
+                cursor: 'pointer',
+              }}
+              title={`Switch to ${mode.toUpperCase()} map view`}
+            >
+              {mode.toUpperCase()}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Fullscreen toggle, floating top-right over the map. */}
       <button
         type="button"
@@ -895,11 +1254,131 @@ const Heatmap: React.FC<HeatmapProps> = ({
       </button>
 
       {/* Legend. Shares its gradient with the active layer's colour ramp. */}
-      <HeatRiskScale label={metricLabelText} gradient={activeMetricLegendGradient} />
+      <HeatRiskScale metricKey={activeMetricKey} gradient={activeMetricLegendGradient} />
+
+      {/* POI Tooltip: displays any non-null information for the hovered POI */}
+      {tooltip?.poi && (
+        <div
+          style={{
+            position: 'absolute',
+            left: tooltip.x + 14,
+            top: tooltip.y - 14,
+            backgroundColor: 'rgba(2, 8, 23, 0.94)',
+            border: '1px solid rgba(100, 116, 139, 0.6)',
+            borderRadius: '8px',
+            padding: '12px 14px',
+            pointerEvents: 'none',
+            zIndex: 20,
+            minWidth: '240px',
+            maxWidth: '380px',
+            maxHeight: '440px',
+            overflowY: 'auto',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+            color: 'white',
+            fontSize: '13px',
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 8, fontSize: '14px', color: '#f1f5f9' }}>
+            {tooltip.poi.location_name || tooltip.poi.name || 'Point of Interest'}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {Object.entries(tooltip.poi)
+              .filter(([key, val]) => {
+                if (key === 'polygon' || key === 'polygon_geom' || key === 'raw' || key === 'name' || key === 'location_name') return false;
+                if (val === null || val === undefined || val === '') return false;
+                if (Array.isArray(val) && val.length === 0) return false;
+                return true;
+              })
+              .map(([key, val]) => {
+                if (key === 'color' && Array.isArray(val) && val.length >= 3) {
+                  const colorStr = `rgb(${val[0]}, ${val[1]}, ${val[2]})`;
+                  return (
+                    <div key={key} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#cbd5e1' }}>
+                      <span style={{ color: '#94a3b8', flexShrink: 0 }}>Color</span>
+                      <span style={{ fontWeight: 600, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: colorStr, display: 'inline-block', border: '1px solid rgba(255,255,255,0.4)' }} />
+                        {colorStr}
+                      </span>
+                    </div>
+                  );
+                }
+                const formattedVal = formatPoiFieldValue(val);
+                return (
+                  <div key={key} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#cbd5e1', wordBreak: 'break-word' }}>
+                    <span style={{ color: '#94a3b8', flexShrink: 0 }}>{formatPoiFieldKey(key)}</span>
+                    <span style={{ fontWeight: 600, color: '#e2e8f0', textAlign: 'right', maxWidth: '65%' }}>
+                      {formattedVal}
+                    </span>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
 
       {/* Hover tooltip, positioned in screen space from the deck.gl pixel
           coordinates. pointerEvents: none so it never swallows map hovers. */}
-      {tooltip && (
+      {tooltip?.object && (
+        <div
+          style={{
+            position: 'absolute',
+            left: tooltip.x + 14,
+            top: tooltip.y - 14,
+            backgroundColor: 'rgba(2, 8, 23, 0.92)',
+            border: '1px solid rgba(100, 116, 139, 0.6)',
+            borderRadius: '8px',
+            padding: '10px 14px',
+            pointerEvents: 'none',
+            zIndex: 20,
+            minWidth: '220px',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+            color: 'white',
+            fontSize: '13px',
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 6, fontSize: '14px', color: '#f1f5f9' }}>
+            {tooltip.object.name || formatMetricName(tooltip.object.intervention ?? tooltip.object.type ?? 'urban intervention')}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: '#cbd5e1' }}>
+            <span>Type</span>
+            <span style={{ fontWeight: 600, color: '#e2e8f0' }}>
+              {formatMetricName(tooltip.object.intervention ?? tooltip.object.type ?? 'unknown')}
+            </span>
+          </div>
+          {tooltip.object.category && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: '#cbd5e1', marginTop: 4 }}>
+              <span>Category</span>
+              <span style={{ fontWeight: 600, color: '#94a3b8' }}>{tooltip.object.category}</span>
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: '#cbd5e1', marginTop: 4 }}>
+            <span>Coordinates</span>
+            <span style={{ fontWeight: 600, color: '#e2e8f0' }}>
+              {tooltip.coordinates.latitude.toFixed(6)}, {tooltip.coordinates.longitude.toFixed(6)}
+            </span>
+          </div>
+          {(tooltip.object.activeFrom || tooltip.object.activeTo) && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: '#cbd5e1', marginTop: 4 }}>
+              <span>Active</span>
+              <span style={{ fontWeight: 600, color: '#94a3b8' }}>
+                {tooltip.object.activeFrom ?? 'Any'} to {tooltip.object.activeTo ?? 'Any'}
+              </span>
+            </div>
+          )}
+          {tooltip.object.params && Object.keys(tooltip.object.params).length > 0 && (
+            <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(148, 163, 184, 0.35)' }}>
+              {Object.entries(tooltip.object.params).map(([key, value]) => (
+                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: '#cbd5e1', marginTop: 4 }}>
+                  <span>{formatMetricName(key)}</span>
+                  <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tooltip && !tooltip.object && tooltip.point && (
         <div
           style={{
             position: 'absolute',
@@ -966,7 +1445,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
           >
             <span>Metric</span>
             <span style={{ fontWeight: 600, color: '#94a3b8' }}>
-              {formatMetricName(tooltip.metric)}
+              {formatMetricName(tooltip.metric ?? '')}
             </span>
           </div>
 

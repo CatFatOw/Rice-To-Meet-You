@@ -1,6 +1,6 @@
 import React from 'react';
-import { Pencil, Check, Undo2, X, Trash2, Crosshair, MapPin, type LucideIcon } from 'lucide-react';
-import { TOOLBOX_DRAG_MIME } from '../services/toolbox';
+import { Pencil, Check, Undo2, X, Trash2, MapPin, type LucideIcon } from 'lucide-react';
+import { TOOLBOX_DRAG_MIME, polygonParseFromRingToComma } from '../services/toolbox';
 import {
   TOOLBOX_ICONS,
   ARCHETYPE_PARAMS,
@@ -14,7 +14,8 @@ import type { ToolboxProps } from '../types/components';
 import SelectDate from './SelectDate';
 import { createNewUrbanIntervention, fetchCustomUrbanInterventions } from '../api/tool';
 import { TOOLBOX_ITEMS } from '../data/toolboxItems';
-import { createPOIArea } from '../api/statistics';
+import { cities } from '../data/hostCities';
+import { createPOI, type CreatePOIInput } from '../api/map';
 
 const toolbarButtonStyle: React.CSSProperties = {
   display: 'flex',
@@ -73,6 +74,27 @@ const ARCHETYPE_KEYS: ArchetypeKey[] = [
 ];
 const CUSTOM_CATEGORY_KEYS = Object.keys(ARCHETYPE_PARAMS) as CustomCategoryKey[];
 const ICON_ENTRIES = Object.entries(TOOLBOX_ICONS) as [string, LucideIcon][];
+const US_STATE_CODES = [
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN',
+  'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV',
+  'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN',
+  'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
+];
+function normalizePolygonWkt(value: string): string {
+  const text = value.trim();
+  if (/^(POLYGON|MULTIPOLYGON)\s*\(/i.test(text)) return text;
+
+  const pairs = text.split(',').map((pair) => pair.trim().split(/\s+/));
+  if (pairs.length < 3 || pairs.some((pair) => pair.length !== 2 || pair.some((part) => !Number.isFinite(Number(part))))) {
+    return '';
+  }
+
+  const coordinates = pairs.map(([longitude, latitude]) => `${longitude} ${latitude}`);
+  if (coordinates[0] !== coordinates[coordinates.length - 1]) {
+    coordinates.push(coordinates[0]);
+  }
+  return `POLYGON((${coordinates.join(', ')}))`;
+}
 
 function formatInterventionLabel(intervention: string): string {
   return intervention
@@ -106,9 +128,9 @@ const Toolbox: React.FC<ToolboxProps> = ({
   setSelectedDate,
   setBaselineSelectedDate,
   availableDates,
-  metricLabel,
-  canToggleMetric,
-  onToggleMetric,
+  selectedMetricKey,
+  metricOptions,
+  onMetricChange,
   selectedCity,
   draftName,
   setDraftName,
@@ -135,11 +157,22 @@ const Toolbox: React.FC<ToolboxProps> = ({
   const pointCount = draftPointCount;
   const citySelected = Boolean(selectedCity);
   const pendingPlacedObject = placedObjectsControls?.pendingPlacedObject ?? null;
+  const setIsPickingPoint = placedObjectsControls?.setIsPickingPoint;
   const setPendingPlacedObject = placedObjectsControls?.setPendingPlacedObject;
   const updatePendingPlacedObject = placedObjectsControls?.updatePendingPlacedObject;
   const toolColor = pendingPlacedObject?.color ?? '';
   const toolActiveFrom = pendingPlacedObject?.activeFrom ?? null;
   const toolActiveTo = pendingPlacedObject?.activeTo ?? null;
+  const handleToolStartDateChange = React.useCallback(
+    (isoDate: string) => {
+      updatePendingPlacedObject?.({ activeFrom: isoDate });
+      if (toolActiveTo && isoDate > toolActiveTo) {
+        updatePendingPlacedObject?.({ activeTo: isoDate });
+      }
+    },
+    [toolActiveTo, updatePendingPlacedObject],
+  );
+
 
   // --- Urban-interventions selection state ----------------------------------
   // Which archetype the dropdown points at, and which intervention icon within
@@ -160,6 +193,38 @@ const Toolbox: React.FC<ToolboxProps> = ({
   const [customCategory, setCustomCategory] = React.useState<CustomCategoryKey | ''>('');
   const [customParams, setCustomParams] = React.useState<Record<string, number>>({});
   const [customColor, setCustomColor] = React.useState<string>('#22c55e');
+  const [commitSuccess, setCommitSuccess] = React.useState(false);
+  const [isPOIDraw, setIsPOIDraw] = React.useState(false);
+  const [poi, setPoi] = React.useState<CreatePOIInput>({
+    polygon: '',
+    city: selectedCity ?? '',
+    location_name: '',
+    region: '',
+    includes_parking_lot: false,
+    color: draftColorHex ?? '#22c55e',
+  });
+  const [showOptionalPoiFields, setShowOptionalPoiFields] = React.useState(false);
+
+  React.useEffect(() => {
+    console.log('poi:', poi);
+  }, [poi]);
+
+  React.useEffect(() => {
+    if (draftColorHex) {
+      setPoi((previous) => ({ ...previous, color: draftColorHex }));
+    }
+  }, [draftColorHex]);
+
+  React.useEffect(() => {
+    if (selectedCity) setPoi((previous) => ({ ...previous, city: selectedCity }));
+  }, [selectedCity]);
+
+  const updatePoi = React.useCallback(
+    <K extends keyof CreatePOIInput>(field: K, value: CreatePOIInput[K]) => {
+      setPoi((previous) => ({ ...previous, [field]: value }));
+    },
+    [],
+  );
 
   React.useEffect(() => {
     let ignore = false;
@@ -255,9 +320,15 @@ const Toolbox: React.FC<ToolboxProps> = ({
     [interventions, selectedIntervention],
   );
 
+  const isWaterArchetype = selectedArchetype === 'Evaporative / water';
+
   // Polygon tools are the only ones whose ring can self-intersect; point tools
   // are never blocked by the simple-polygon check below.
-  const isPolygonTool = selectedTool?.kind === 'polygon';
+  const isPolygonTool = selectedTool?.kind === 'polygon' && !isWaterArchetype;
+  const pointGeometry =
+    pendingPlacedObject?.geometry?.kind === 'point' ? pendingPlacedObject.geometry : null;
+  const hasPointCoordinates =
+    pointGeometry !== null && (pointGeometry.longitude !== 0 || pointGeometry.latitude !== 0);
 
   // Keep the map's draft color in step with the (editable) polygon color.
   React.useEffect(() => {
@@ -271,33 +342,69 @@ const Toolbox: React.FC<ToolboxProps> = ({
     });
   }, [isDrawing, isPolygonTool, draftPoints, updatePendingPlacedObject]);
 
+  React.useEffect(() => {
+    if (!isPOIDraw) return;
+    if (draftPoints.length === 0) {
+      setPoi((previous) => ({ ...previous, polygon: '' }));
+      return;
+    }
+    try {
+      const polygonStr = polygonParseFromRingToComma(draftPoints);
+      setPoi((previous) => ({ ...previous, polygon: polygonStr }));
+    } catch {
+      // ignore
+    }
+  }, [isPOIDraw, draftPoints]);
+
+  React.useEffect(() => {
+    if (!isDrawing && isPOIDraw) {
+      setIsPOIDraw(false);
+    }
+  }, [isDrawing, isPOIDraw]);
+
+  React.useEffect(() => {
+    if (!selectedCity) {
+      updatePendingPlacedObject?.({ market_code: undefined });
+      return;
+    }
+
+    const marketCode = selectedCity.trim().toLowerCase().replace(/\s+/g, '_');
+    updatePendingPlacedObject?.({ market_code: marketCode });
+  }, [selectedCity, updatePendingPlacedObject]);
+
   // Stage a fresh pending object for the clicked intervention. Dates already
   // entered are carried across so switching interventions doesn't wipe them.
   const handleSelectIntervention = React.useCallback(
     (item: ToolboxItemDef) => {
       if (!citySelected || !selectedArchetype) return;
       setSelectedIntervention(item.intervention);
+      
       setPendingPlacedObject?.({
         intervention: item.intervention,
         category: selectedArchetype,
         name: formatInterventionLabel(item.intervention),
         color: item.color,
+        market_code: selectedCity ? selectedCity.trim().toLowerCase().replace(/\s+/g, '_') : undefined,
         params: { ...item.params },
-        activeFrom: pendingPlacedObject?.activeFrom ?? '',
-        activeTo: pendingPlacedObject?.activeTo ?? '',
+        activeFrom: pendingPlacedObject?.activeFrom || '2020-01-01',
+        activeTo: pendingPlacedObject?.activeTo || '2020-01-01',
         geometry:
-          item.kind === 'polygon'
+          item.kind === 'polygon' && !isWaterArchetype
             ? { kind: 'polygon', ring: [] }
             : { kind: 'point', longitude: 0, latitude: 0 },
       });
 
     },
-    [citySelected, selectedArchetype, setPendingPlacedObject, pendingPlacedObject, onStartDrawing, onSetDraftColor],
+    [citySelected, selectedArchetype, isWaterArchetype, setPendingPlacedObject, pendingPlacedObject],
   );
 
 const handleDrawIntervention = React.useCallback(
   (item: ToolboxItemDef) => {
-    if (item.kind !== 'polygon') return;
+    if (isWaterArchetype || item.kind !== 'polygon') {
+      handleSelectIntervention(item);
+      setIsPickingPoint?.(true);
+      return;
+    }
 
     onStartDrawing();               // enter draw mode on the map
     onSetDraftColor(item.color);    // match the draft outline to the tool color
@@ -305,7 +412,7 @@ const handleDrawIntervention = React.useCallback(
       geometry: { kind: 'polygon', ring: [] },
     });
   },
-  [onStartDrawing, onSetDraftColor, updatePendingPlacedObject],
+  [handleSelectIntervention, isWaterArchetype, onStartDrawing, onSetDraftColor, updatePendingPlacedObject, setIsPickingPoint],
 );
 
   const handleClearObject = React.useCallback(() => {
@@ -315,26 +422,17 @@ const handleDrawIntervention = React.useCallback(
   }, [placedObjectsControls, onCancelDrawing]);
 
 
-  const handlePOISubmit = React.useCallback(async () => {
-    try {
-      await createPOIArea(draftName, draftColorHex, draftPoints);
-      // Resolve logic: the create succeeded, so tear the draft down here.
-      // draftPoints and drawing mode are parent-owned, so onCancelDrawing is
-      // what clears the placed points and exits the draw flow.
-      setDraftName('');
-      setDraftColorHex('#2563eb');
-      onCancelDrawing();
-    } catch (error) {
-      console.error('Failed to create POI area', error);
-    }
-  }, [draftName, draftColorHex, draftPoints, setDraftName, setDraftColorHex, onCancelDrawing]);
-
-
   React.useEffect(() => {
     placedObjectsControls?.clearPendingPlacedObject?.();
     onCancelDrawing();
+  }, [selectedArchetype])
 
-  }, [selectedArchetype, selectedIntervention])
+  React.useEffect(() => {
+    if (!commitSuccess) return;
+
+    const timeoutId = window.setTimeout(() => setCommitSuccess(false), 2500);
+    return () => window.clearTimeout(timeoutId);
+  }, [commitSuccess]);
 
   // Save gate for the selected intervention: a city, an intervention, both
   // dates, and — for polygons only — a color plus a valid (simple, 3+ point)
@@ -345,6 +443,28 @@ const handleDrawIntervention = React.useCallback(
     (toolActiveFrom ?? '').trim() !== '' &&
     (toolActiveTo ?? '').trim() !== '' &&
     (isPolygonTool ? toolColor.trim() !== '' && pointCount >= 3 && draftIsSimple : true);
+
+  const normalizedPoiPolygonWkt = normalizePolygonWkt(poi.polygon);
+  const canCreateCorePoi =
+    normalizedPoiPolygonWkt.length >= 10 &&
+    poi.city.trim() !== '' &&
+    poi.location_name.trim() !== '' &&
+    poi.region.trim().length >= 2;
+
+  const handleCreateCorePoi = React.useCallback(async () => {
+    if (!canCreateCorePoi) return;
+
+    try {
+      await createPOI({ ...poi, polygon: normalizedPoiPolygonWkt });
+      setCommitSuccess(true);
+    } catch (error) {
+      console.error('Failed to create new POI', error);
+    }
+  }, [
+    canCreateCorePoi,
+    poi,
+    normalizedPoiPolygonWkt,
+  ]);
 
   // --- Custom intervention validity -----------------------------------------
   const customParamKeys: readonly string[] = customCategory ? ARCHETYPE_PARAMS[customCategory] : [];
@@ -493,23 +613,25 @@ const handleDrawIntervention = React.useCallback(
         />
         <div style={dividerStyle} />
 
-        {/* --- Metric toggle (always visible, regardless of selected city) --- */}
+        {/* --- Metric selector --- */}
         <div style={{ fontSize: 13, fontWeight: 700 }}>Metric</div>
-        <button
-          type="button"
-          onClick={onToggleMetric}
-          disabled={!citySelected || !canToggleMetric}
-          title="Toggle metric"
+        <select
+          value={selectedMetricKey}
+          onChange={(event) => onMetricChange(event.target.value)}
+          disabled={!citySelected || metricOptions.length === 0}
           style={{
-            ...toolbarButtonStyle,
+            ...fieldStyle,
             backgroundColor: 'rgba(15, 23, 42, 0.9)',
             color: '#e2e8f0',
-            cursor: citySelected && canToggleMetric ? 'pointer' : 'not-allowed',
+            cursor: citySelected && metricOptions.length > 0 ? 'pointer' : 'not-allowed',
           }}
         >
-          <Crosshair size={14} />
-          <span>{metricLabel}</span>
-        </button>
+          {metricOptions.map((metric) => (
+            <option key={metric.value} value={metric.value}>
+              {metric.label}
+            </option>
+          ))}
+        </select>
         <div style={dividerStyle} />
 
         {/* --- Urban Interventions (full toolbox layout only) --- */}
@@ -557,7 +679,7 @@ const handleDrawIntervention = React.useCallback(
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                     {interventions.map((item) => {
                       const Icon = item.Icon;
-                      const isPoint = item.kind === 'point';
+                      const isPoint = isWaterArchetype || item.kind === 'point';
                       const isSelected = selectedIntervention === item.intervention;
                       return (
                         <div
@@ -632,7 +754,7 @@ const handleDrawIntervention = React.useCallback(
                   <SelectDate
                     label="Start date"
                     value={toolActiveFrom}
-                    onChange={(isoDate) => updatePendingPlacedObject?.({ activeFrom: isoDate })}
+                    onChange={handleToolStartDateChange}
                     availableDates={availableDates}
                     disabled={!citySelected}
                     variant="bare"
@@ -653,7 +775,7 @@ const handleDrawIntervention = React.useCallback(
                 {/* Polygon coordinates. draftPoints are stored [lng, lat] and
                     displayed "lat, lng" to match the hover tooltip. */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ fontSize: 12, color: '#cbd5e1' }}>Polygon Coordinates</div>
+                  <div style={{ fontSize: 12, color: '#cbd5e1' }}>Coordinates</div>
                   <div
                     style={{
                       maxHeight: 132,
@@ -661,11 +783,30 @@ const handleDrawIntervention = React.useCallback(
                       border: '1px solid rgba(148, 163, 184, 0.35)',
                       borderRadius: 6,
                       padding: '6px 8px',
-                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                      fontFamily: 'Inter, sans-serif',
                       fontSize: 12,
                     }}
                   >
-                    {draftPoints.length === 0 ? (
+                    {!isPolygonTool ? (
+                      hasPointCoordinates && pointGeometry ? (
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            gap: 12,
+                            color: '#cbd5e1',
+                            padding: '1px 0',
+                          }}
+                        >
+                          <span style={{ color: '#64748b' }}>Point</span>
+                          <span>
+                            {pointGeometry.latitude.toFixed(6)}, {pointGeometry.longitude.toFixed(6)}
+                          </span>
+                        </div>
+                      ) : (
+                        <div style={{ color: '#64748b' }}>No coordinate selected</div>
+                      )
+                    ) : draftPoints.length === 0 ? (
                       <div style={{ color: '#64748b' }}>No points yet</div>
                     ) : (
                       draftPoints.map(([lng, lat], i) => (
@@ -721,12 +862,12 @@ const handleDrawIntervention = React.useCallback(
                     }}
                     title={!citySelected ? 'Select a city on the map first' : undefined}
                   >
-                    <Pencil size={15} /> Draw POI
+                    <Pencil size={15} /> Draw Urban Intervention
                   </button>
                 ) : (
                   <button
                     type="button"
-                    onClick={() => handleSelectIntervention(selectedTool)}
+                    onClick={() => handleDrawIntervention(selectedTool)}
                     disabled={!citySelected}
                     style={{
                       ...toolbarButtonStyle,
@@ -736,7 +877,7 @@ const handleDrawIntervention = React.useCallback(
                     }}
                     title={!citySelected ? 'Select a city on the map first' : undefined}
                   >
-                    <MapPin size={15} /> Choose Point
+                    <MapPin size={15} /> Choose A Coordinate on Map
                   </button>
                 )}
 
@@ -780,7 +921,9 @@ const handleDrawIntervention = React.useCallback(
                   }}
                   onClick={() => {
                     if (!canSaveTool) return;
-                    void placedObjectsControls?.commitPendingPlacedObject?.();
+                    void placedObjectsControls?.commitPendingPlacedObject?.().then(() => {
+                      setCommitSuccess(true);
+                    });
                   }}
                   disabled={!canSaveTool}
                   title={
@@ -795,6 +938,29 @@ const handleDrawIntervention = React.useCallback(
                 >
                   <Check size={15} /> Save Changes
                 </button>
+
+                {commitSuccess && (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    style={{
+                      position: 'fixed',
+                      right: 20,
+                      bottom: 20,
+                      zIndex: 40,
+                      padding: '10px 14px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(74, 222, 128, 0.6)',
+                      backgroundColor: 'rgba(20, 83, 45, 0.95)',
+                      color: '#dcfce7',
+                      boxShadow: '0 4px 14px rgba(0, 0, 0, 0.35)',
+                      fontSize: 13,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Urban intervention saved successfully.
+                  </div>
+                )}
 
                 <button
                   type="button"
@@ -815,6 +981,9 @@ const handleDrawIntervention = React.useCallback(
 
             <div style={dividerStyle} />
 
+            {/* Custom interventions are temporarily disabled. */}
+            {false && (
+              <>
             {/* --- Custom interventions --- */}
             <div style={{ fontSize: 13, fontWeight: 700 }}>Custom Interventions</div>
 
@@ -922,10 +1091,10 @@ const handleDrawIntervention = React.useCallback(
             </label>
 
             {/* Params for the chosen category */}
-            {customCategory && (
+            {customCategory !== '' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <div style={{ fontSize: 12, color: '#cbd5e1' }}>Params</div>
-                {ARCHETYPE_PARAMS[customCategory].map((paramKey) => {
+                {ARCHETYPE_PARAMS[customCategory as CustomCategoryKey].map((paramKey) => {
                   const raw = customParams[paramKey];
                   const isBlank = typeof raw !== 'number' || !Number.isFinite(raw);
                   return (
@@ -988,9 +1157,13 @@ const handleDrawIntervention = React.useCallback(
             </button>
 
             <div style={dividerStyle} />
+              </>
+            )}
           </>
         )}
 
+        {displayToolbox && (
+          <>
         {/* --- Create POI Area --- */}
         <div style={{ fontSize: 13, fontWeight: 700 }}>Create POI Area</div>
 
@@ -1053,21 +1226,115 @@ const handleDrawIntervention = React.useCallback(
           />
         </label>
 
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
+          Polygon coordinates
+          <input
+            type="text"
+            value={poi.polygon}
+            onChange={(e) => updatePoi('polygon', e.target.value)}
+            placeholder="Enter coordinates comma-separated: -96.80 32.78, -96.79 32.79, ..."
+            style={fieldStyle}
+          />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
+          City
+          <select value={poi.city} onChange={(e) => updatePoi('city', e.target.value)} style={fieldStyle}>
+            <option value="">Select a US city</option>
+            {cities.map((city) => <option key={city.name} value={city.name}>{city.name}</option>)}
+          </select>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
+          Location name
+          <input type="text" value={poi.location_name} onChange={(e) => updatePoi('location_name', e.target.value)} style={fieldStyle} />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
+          Region
+          <select value={poi.region} onChange={(e) => updatePoi('region', e.target.value)} style={fieldStyle}>
+            <option value="">Select a state</option>
+            {US_STATE_CODES.map((state) => <option key={state} value={state}>{state}</option>)}
+          </select>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#cbd5e1' }}>
+          <input type="checkbox" checked={poi.includes_parking_lot} onChange={(e) => updatePoi('includes_parking_lot', e.target.checked)} />
+          Includes parking lot
+        </label>
+        <button
+          type="button"
+          onClick={() => setShowOptionalPoiFields((visible) => !visible)}
+          style={{ ...toolbarButtonStyle, backgroundColor: 'rgba(30, 41, 59, 0.9)', color: '#e2e8f0' }}
+        >
+          {showOptionalPoiFields ? 'Hide optional POI fields' : 'Show optional POI fields'}
+        </button>
+        {showOptionalPoiFields && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
+              Brands <input type="text" value={poi.brands?.join(', ') ?? ''} onChange={(e) => updatePoi('brands', e.target.value.split(',').map((value) => value.trim()).filter(Boolean))} placeholder="Comma-separated" style={fieldStyle} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
+              Category tags <input type="text" value={poi.category_tags?.join(', ') ?? ''} onChange={(e) => updatePoi('category_tags', e.target.value.split(',').map((value) => value.trim()).filter(Boolean))} placeholder="Comma-separated" style={fieldStyle} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
+              Domains <input type="text" value={poi.domains?.join(', ') ?? ''} onChange={(e) => updatePoi('domains', e.target.value.split(',').map((value) => value.trim()).filter(Boolean))} placeholder="Comma-separated" style={fieldStyle} />
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#cbd5e1' }}>
+              <input type="checkbox" checked={poi.enclosed ?? false} onChange={(e) => updatePoi('enclosed', e.target.checked)} />
+              Enclosed
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
+              NAICS code <input type="number" value={poi.naics_code ?? ''} onChange={(e) => updatePoi('naics_code', e.target.value === '' ? undefined : Number(e.target.value))} min={100000} max={999999} style={fieldStyle} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
+              NAICS code 2022 <input type="number" value={poi.naics_code_2022 ?? ''} onChange={(e) => updatePoi('naics_code_2022', e.target.value === '' ? undefined : Number(e.target.value))} min={100000} max={999999} style={fieldStyle} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
+              Opened on <input type="date" value={poi.opened_on ?? ''} onChange={(e) => updatePoi('opened_on', e.target.value || undefined)} style={fieldStyle} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
+              Open hours (JSON) <input type="text" value={poi.open_hours ? JSON.stringify(poi.open_hours) : ''} onChange={(e) => { try { updatePoi('open_hours', e.target.value ? JSON.parse(e.target.value) : undefined); } catch { /* Wait for valid JSON. */ } }} placeholder='{"Mon":[["9:00","17:00"]]}' style={fieldStyle} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
+              Phone number <input type="tel" value={poi.phone_number ?? ''} onChange={(e) => updatePoi('phone_number', e.target.value || undefined)} style={fieldStyle} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
+              Postal code <input type="text" value={poi.postal_code ?? ''} onChange={(e) => updatePoi('postal_code', e.target.value || undefined)} style={fieldStyle} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
+              Street address <input type="text" value={poi.street_address ?? ''} onChange={(e) => updatePoi('street_address', e.target.value || undefined)} style={fieldStyle} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
+              Sub-category <input type="text" value={poi.sub_category ?? ''} onChange={(e) => updatePoi('sub_category', e.target.value || undefined)} style={fieldStyle} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
+              Top category <input type="text" value={poi.top_category ?? ''} onChange={(e) => updatePoi('top_category', e.target.value || undefined)} style={fieldStyle} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
+              Website <input type="url" value={poi.website ?? ''} onChange={(e) => updatePoi('website', e.target.value || undefined)} style={fieldStyle} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}>
+              Area in square meters <input type="number" value={poi.wkt_area_sq_meters ?? ''} onChange={(e) => updatePoi('wkt_area_sq_meters', e.target.value === '' ? undefined : Number(e.target.value))} min={0} step="any" style={fieldStyle} />
+            </label>
+          </div>
+        )}
         {!isDrawing || isPolygonTool ? (
-          <button
-            type="button"
-            onClick={onStartDrawing}
-            disabled={!selectedCity}
-            style={{
-              ...toolbarButtonStyle,
-              backgroundColor: selectedCity ? '#2563eb' : 'rgba(71, 85, 105, 0.6)',
-              color: '#f8fafc',
-              cursor: selectedCity ? 'pointer' : 'not-allowed',
-            }}
-            title={!citySelected ? 'Select a city on the map first' : undefined}
-          >
-            <Pencil size={15} /> Draw new area
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setIsPOIDraw(true);
+                onStartDrawing();
+              }}
+              disabled={!selectedCity || isPOIDraw}
+              style={{
+                ...toolbarButtonStyle,
+                backgroundColor: selectedCity ? '#2563eb' : 'rgba(71, 85, 105, 0.6)',
+                color: '#f8fafc',
+                cursor: selectedCity ? 'pointer' : 'not-allowed',
+              }}
+              title={!citySelected ? 'Select a city on the map first' : undefined}
+            >
+              <Pencil size={15} /> Draw new area
+            </button>
+          </>
         ) : (
           <>
             <div style={{ fontSize: 12, color: '#cbd5e1' }}>
@@ -1096,34 +1363,6 @@ const handleDrawIntervention = React.useCallback(
             <div style={{ display: 'flex', gap: 8 }}>
               <button
                 type="button"
-                onClick={() => {
-                  void handlePOISubmit();
-                }}
-                disabled={!citySelected || pointCount < 3 || !draftIsSimple}
-                style={{
-                  ...toolbarButtonStyle,
-                  backgroundColor:
-                    citySelected && pointCount >= 3 && draftIsSimple
-                      ? '#16a34a'
-                      : 'rgba(71, 85, 105, 0.6)',
-                  color: '#f8fafc',
-                  cursor:
-                    citySelected && pointCount >= 3 && draftIsSimple
-                      ? 'pointer'
-                      : 'not-allowed',
-                }}
-                title={
-                  !citySelected
-                    ? 'Select a city on the map first'
-                    : pointCount >= 3 && !draftIsSimple
-                      ? 'Fix the self-intersecting area before finishing'
-                      : undefined
-                }
-              >
-                <Check size={15} /> Finish
-              </button>
-              <button
-                type="button"
                 onClick={onUndoLastPoint}
                 disabled={!citySelected || pointCount === 0}
                 style={{
@@ -1139,7 +1378,10 @@ const handleDrawIntervention = React.useCallback(
             </div>
             <button
               type="button"
-              onClick={onCancelDrawing}
+              onClick={() => {
+                setIsPOIDraw(false);
+                onCancelDrawing();
+              }}
               disabled={!citySelected}
               style={{
                 ...toolbarButtonStyle,
@@ -1153,6 +1395,21 @@ const handleDrawIntervention = React.useCallback(
             </button>
           </>
         )}
+
+        <button
+          type="button"
+          onClick={() => void handleCreateCorePoi()}
+          disabled={!canCreateCorePoi}
+          style={{
+            ...toolbarButtonStyle,
+            backgroundColor: canCreateCorePoi ? '#16a34a' : 'rgba(71, 85, 105, 0.6)',
+            color: '#f8fafc',
+            cursor: canCreateCorePoi ? 'pointer' : 'not-allowed',
+            opacity: canCreateCorePoi ? 1 : 0.6,
+          }}
+        >
+          <Check size={15} /> Create New POI
+        </button>
 
         {hasUserAreasInCity && (
           <button
@@ -1186,6 +1443,8 @@ const handleDrawIntervention = React.useCallback(
           >
             <Check size={15} /> Finish Edit
           </button>
+        )}
+          </>
         )}
       </div>
 

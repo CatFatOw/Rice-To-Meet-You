@@ -7,6 +7,7 @@ from repository.final_visitor_repository import VisitorRepository
 
 import redis.asyncio as redis
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import OperationalError
 import database
 import asyncio
 import models
@@ -67,8 +68,10 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Core POI preload failed; falling back to queries")
 
+    # The simulation endpoint needs this cache to build baseline points. Wait
+    # here so its first request does not block behind a full cache preload.
+    await preload_heatmap()
     tasks = [
-        asyncio.create_task(preload_heatmap(), name="preload-heatmap"),
         asyncio.create_task(preload_core_poi(), name="preload-core-poi"),
     ]
 
@@ -80,7 +83,12 @@ async def lifespan(app: FastAPI):
             VisitorRepository.initialize_table(db)
             print("Visitor information pre-loading complete.")
         finally:
-            db.close()
+            try:
+                db.close()
+            except OperationalError:
+                # The provider may close an idle SSL connection before the
+                # session's final rollback. The preload itself can succeed.
+                logger.warning("Startup database connection was already closed")
 
     # Do not create a background task for this cache. The API must not serve
     # visitor lookups until every visitor row has been loaded into memory.

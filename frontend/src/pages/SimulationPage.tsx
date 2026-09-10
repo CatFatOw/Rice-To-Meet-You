@@ -1,10 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { usePolygonDraw, type Ring } from '../hooks/usePolygonDraw';
 import maplibregl from 'maplibre-gl';
 import Heatmap from '../components/Heatmap';
 import NavigationBar from '../components/NavigationBar';
 import OverallStatistics from '../components/OverallStatistics';
 import POIStatistics from '../components/POIStatistics';
+import ActivityStatusPill from '../components/ActivityStatusPill';
+import { SimulationProgressProvider } from '../components/SimulatePanel';
 import {
   availableDates,
   availableMetrics,
@@ -13,7 +15,11 @@ import {
   type CityPOIAreaMap,
   type HeatmapMetricValue,
 } from '../api/map';
-import { callMockStatistics } from '../api/statistics';
+import {
+  callMockStatistics,
+  fetchTopDestinations,
+  getStatsInfo,
+} from '../api/statistics';
 import {
   fetchCitySurface,
   fetchInterpolatedCitySurfaces,
@@ -24,42 +30,26 @@ import { eachDay } from '../services/simulation';
 import type { ViewState } from '../types/viewState';
 import type { GeocodeResult } from '../types/search';
 import type { TooltipState } from '../types/components';
-import type { OverallStatisticsProps, POIStatisticsProps } from '../types/statistics';
+import type {
+  DistributionBucket,
+  POIStatisticsProps,
+  SimulationProgressDisplay,
+  StatCardInfo,
+  TopDestination,
+} from '../types/statistics';
 import useSimulationRunner from '../hooks/useSimulationRunner';
 import { getSimulatedPointsByDate } from '../api/simulation';
+import { fetchVisitorPOIs } from '../api/statistics';
 
 
 
-import usePlacedObjects, {
-  PLACED_OBJECT_CATEGORIES,
-  type BasePlacedObject,
-  type BasePlacedObjectCategorized,
-  type PlacedObjectCategory,
-} from '../hooks/usePlacedObjects';
+import usePlacedObjects from '../hooks/usePlacedObjects';
 
-import { getHeatmapPointsByCityDateMetric } from '../api/map';
-import { fetchPlacedObjectsForCity } from '../api/tool';
+import { getHeatmapPointsByCityDateMetric, getHeatRiskDataByCityDate, getVisitorDataByCityDate, getLocalTemperatureCByCityDate, getLocalTemperatureFByCityDate } from '../api/map';
+import { getRiskDistributionByCityDate } from '../api/statistics';
 
-function isPlacedObjectCategory(value: string): value is PlacedObjectCategory {
-  return (PLACED_OBJECT_CATEGORIES as readonly string[]).includes(value);
-}
 
-function toCategorizedPlacedObjects(
-  placedObjects: BasePlacedObject[],
-): BasePlacedObjectCategorized {
-  const categorized = Object.fromEntries(
-    PLACED_OBJECT_CATEGORIES.map((category) => [category, [] as BasePlacedObject[]]),
-  ) as BasePlacedObjectCategorized;
-
-  for (const object of placedObjects) {
-    const category = object.category;
-    if (!category || !isPlacedObjectCategory(category)) continue;
-    categorized[category].push(object);
-  }
-
-  return categorized;
-}
-
+const SIMULATION_FRAME_INTERVAL_MS = 3000;
 
 const SimulationPage: React.FC = () => {
 
@@ -79,6 +69,7 @@ const SimulationPage: React.FC = () => {
   });
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
+  const minimapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const mapSyncFrameRef = useRef<number | null>(null);
 
@@ -153,42 +144,53 @@ const SimulationPage: React.FC = () => {
 
   // --- Statistics and UI state ---
   // Controls metric selection and statistics panel data.
-  const [selectedMetric, setSelectedMetric] = useState<Record<string, string[]> | null>(null);
+  const [selectedMetric, setSelectedMetric] = useState<Record<string, string[]> | null>(  {
+    avg_daily_visits: [
+      "avg_daily_visits",
+      "heat_risk_score",
+    ],
+  });
+  const [summaryHeader, setSummaryHeader] =
+    useState<{ title?: string; donutLabel?: string }>();
+  const [topDestinations, setTopDestinations] = useState<TopDestination[]>();
+  const [distribution, setDistribution] = useState<DistributionBucket[]>();
+  const [statCardsInfo, setStatCardsInfo] = useState<StatCardInfo[]>();
+  const [poiStatisticsProps, setPOIStatisticsProps] = useState<POIStatisticsProps>({ pois: [] });
 
-  const [overallStatisticsProps, setOverallStatisticsProps] =
-    useState<OverallStatisticsProps>();
-  const [poiStatisticsProps, setPOIStatisticsProps] = useState<POIStatisticsProps>();
+  const { runTimeline, stop, isRunning } = useSimulationRunner({
+    intervalMs: SIMULATION_FRAME_INTERVAL_MS,
+  });
 
-  const { runTimeline, stop, isRunning } = useSimulationRunner({intervalMs: 3000});
+  const simulationProgress = useMemo<SimulationProgressDisplay>(() => {
+    const timelineDates = fromDate && toDate ? eachDay(fromDate, toDate) : [];
+    const currentFrameIndex = isRunning && selectedDate
+      ? timelineDates.indexOf(selectedDate)
+      : -1;
+    const completedFrames = currentFrameIndex >= 0 ? currentFrameIndex + 1 : 0;
+    const totalFrames = timelineDates.length;
+    // The runner stops on the interval tick after its last rendered frame, so
+    // an active timeline includes one final display-only dwell step.
+    const progressSteps = totalFrames + (isRunning ? 1 : 0);
+
+    return {
+      fraction: progressSteps > 0 ? completedFrames / progressSteps : 0,
+      completedFrames,
+      totalFrames,
+      etaMs: Math.max(0, progressSteps - completedFrames) * SIMULATION_FRAME_INTERVAL_MS,
+    };
+  }, [fromDate, isRunning, selectedDate, toDate]);
 
   const selectedMetricKey = selectedMetric ? Object.keys(selectedMetric)[0] : null;
   const selectedAdditionalMetrics = selectedMetric ? Object.values(selectedMetric)[0] : [];
 
-
+  useEffect(() => {
+    console.log(placedObjectsControls.pendingPlacedObject)
+  }, [placedObjectsControls.pendingPlacedObject])
   const onStopSimulation = () => {
     stop();
     setSelectedDate(baselineSelectedDate);
     setDisplayedHeatmapPoints(baselineHeatmapPoints);
   };
-  
-  const getBaselinePointsByDate = async (
-    fromDate: string,
-    toDate: string,
-    city: string,
-    metric: string,
-    selectedAdditionalMetrics: string[],
-  ): Promise<Record<string, HeatmapMetricValue[]>> => {
-    const baselinePointsByDate: Record<string, HeatmapMetricValue[]> = {};
-    const dateList = eachDay(fromDate, toDate);
-    for (const date of dateList){
-      const result = await getHeatmapPointsByCityDateMetric(city, date, metric, {
-        additionalMetrics: selectedAdditionalMetrics
-    });
-      baselinePointsByDate[date] = result.points;
-      
-    }
-    return baselinePointsByDate;
-  }
 
   const onStartSimulation = async () => {
     if (!selectedCity || !fromDate || !toDate) return;
@@ -204,22 +206,18 @@ const SimulationPage: React.FC = () => {
     setLoadingSimulation(true);
     try {
 
-      const baselinePointsByDate = await getBaselinePointsByDate(fromDate, toDate, selectedCity, metric, selectedAdditionalMetrics)
-      const placedObjects = placedObjectsControls.placedObjects.length > 0
-        ? placedObjectsControls.placedObjects
-        : await fetchPlacedObjectsForCity(fromDate, toDate, selectedCity);
-      console.log('[Simulation] placed objects selected', {
-        fromDate,
-        toDate,
-        city: selectedCity,
-        count: placedObjects.length,
-      });
+     
       const simulatedPointsByDate = await getSimulatedPointsByDate(
         metric,
-        baselinePointsByDate,
-        toCategorizedPlacedObjects(placedObjects),
+        fromDate,
+        toDate,
+        selectedCity,
+        selectedAdditionalMetrics,
       );
       framesByDate = simulatedPointsByDate;
+
+     
+     
       
     } catch (error) {
       console.error('Failed to simulate points by date', error);
@@ -370,50 +368,81 @@ const SimulationPage: React.FC = () => {
     };
   }, []);
 
-  // --- Update heatmap visualization ---
-  // Load the current city/date/metric slice from the backend.
-  useEffect(() => {
-    if (!selectedCity || !selectedMetricKey || !selectedDate) {
-      setIsHeatmapPointsLoading(false);
+// --- Update heatmap visualization ---
+// Load the current city/date/metric slice from the backend.
+useEffect(() => {
+  if (!selectedCity || !selectedMetricKey || !selectedDate) {
+    setIsHeatmapPointsLoading(false);
+    setBaselineHeatmapPoints([]);
+    setDisplayedHeatmapPoints([]);
+    return;
+  }
+
+  const controller = new AbortController();
+  let ignore = false;
+
+  setIsHeatmapPointsLoading(true);
+
+  const request =
+    selectedMetricKey === "heat_risk_score"
+      ? getHeatRiskDataByCityDate(
+          selectedCity,
+          selectedDate,
+        ).then((points) => ({ points }))
+      : selectedMetricKey === "avg_daily_visits"
+        ? getVisitorDataByCityDate(
+            selectedCity,
+            selectedDate,
+          ).then((points) => ({ points }))
+        : selectedMetricKey === "local_temperature_c"
+          ? getLocalTemperatureCByCityDate(selectedCity, selectedDate, {
+              signal: controller.signal,
+            }).then((points) => ({ points }))
+          : selectedMetricKey === "local_temperature_f"
+            ? getLocalTemperatureFByCityDate(selectedCity, selectedDate, {
+                metric: "average_temperature_f",
+                signal: controller.signal,
+              }).then((points) => ({ points }))
+            : getHeatmapPointsByCityDateMetric(
+                selectedCity,
+                selectedDate,
+                selectedMetricKey,
+                {
+                  additionalMetrics: selectedAdditionalMetrics,
+                  signal: controller.signal,
+                },
+              );
+
+  request
+    .then(({ points }) => {
+      if (ignore) return;
+
+      setBaselineHeatmapPoints(points);
+      setDisplayedHeatmapPoints(points);
+    })
+    .catch((error) => {
+      if (ignore || controller.signal.aborted) return;
+
+      console.error("Failed to load baseline heatmap points", error);
       setBaselineHeatmapPoints([]);
       setDisplayedHeatmapPoints([]);
-      return;
-    }
-
-    const controller = new AbortController();
-    let ignore = false;
-    setIsHeatmapPointsLoading(true);
-
-    getHeatmapPointsByCityDateMetric(
-      selectedCity,
-      selectedDate,
-      selectedMetricKey,
-      {
-        additionalMetrics: selectedAdditionalMetrics,
-        signal: controller.signal,
-      },
-    )
-      .then(({ points}) => {
-        if (ignore) return;
-        
-        setBaselineHeatmapPoints(points);
+    })
+    .finally(() => {
+      if (!ignore) {
         setIsHeatmapPointsLoading(false);
-      })
-      .catch((error) => {
-        if (ignore || controller.signal.aborted) return;
-        console.error('Failed to load baseline heatmap point', error);
-        setBaselineHeatmapPoints([]);
-        setDisplayedHeatmapPoints([]);
-        setIsHeatmapPointsLoading(false);
-      });
+      }
+    });
 
-    return () => {
-      ignore = true;
-      controller.abort();
-    };
-  }, [selectedAdditionalMetrics, selectedCity, baselineSelectedDate, selectedMetricKey]);
-
-
+  return () => {
+    ignore = true;
+    controller.abort();
+  };
+}, [
+  selectedAdditionalMetrics,
+  selectedCity,
+  selectedDate,
+  selectedMetricKey,
+]);
   useEffect(() => {
     if (isRunning) return;
     setDisplayedHeatmapPoints(baselineHeatmapPoints);
@@ -462,12 +491,46 @@ const SimulationPage: React.FC = () => {
       try {
         const cityQuery = selectedCity ?? 'Nationally';
         const statistics = await callMockStatistics(cityQuery);
+        
+        
         if (isMounted) {
-          setOverallStatisticsProps(statistics.overallStatistics);
-          setPOIStatisticsProps(statistics.poiStatistics);
+          setSummaryHeader({
+            title: statistics.overallStatistics.title,
+            donutLabel: statistics.overallStatistics.donutLabel,
+          });
+
+          const liveTopDestinations = selectedCity && selectedDate
+            ? await fetchTopDestinations(selectedCity, selectedDate)
+            : statistics.overallStatistics.topDestinations;
+
+          setTopDestinations(
+            liveTopDestinations && liveTopDestinations.length > 0
+              ? liveTopDestinations
+              : statistics.overallStatistics.topDestinations,
+          );
+
+          setPOIStatisticsProps({ ...statistics.poiStatistics, pois: [] });
+
+          if (selectedCity && selectedDate) {
+            const visitorPOIs = await fetchVisitorPOIs(selectedCity, selectedDate);
+            if (isMounted) {
+              setPOIStatisticsProps((prev) => ({
+                ...prev,
+                pois: visitorPOIs.map((poi) => ({
+                  name: poi.name,
+                  type: poi.streetAddress,
+                  heatRisk: poi.heatRisk ?? 0,
+                  visitors: poi.visitors,
+                })),
+              }));
+            }
+          }
         }
       } catch (error) {
         console.error('Failed to load city statistics', error);
+        if (isMounted) {
+          setPOIStatisticsProps((prev) => ({ ...prev, pois: [] }));
+        }
       }
     };
 
@@ -476,7 +539,59 @@ const SimulationPage: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [selectedCity]);
+  }, [selectedCity, selectedDate]);
+
+  // --- Load live summary cards ---
+  // Keep card values tied to the selected city and date.
+  useEffect(() => {
+    if (!selectedCity || !selectedDate) {
+      setStatCardsInfo(undefined);
+      return;
+    }
+
+    const controller = new AbortController();
+    let isMounted = true;
+
+    getStatsInfo(selectedCity, selectedDate, controller.signal)
+      .then((statsInfo) => {
+        if (isMounted) setStatCardsInfo(statsInfo);
+      })
+      .catch((error) => {
+        if (isMounted && !controller.signal.aborted) {
+          console.error('Failed to load summary statistics', error);
+          setStatCardsInfo(undefined);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
+  }, [selectedCity, selectedDate]);
+
+  // --- Load heat-risk distribution ---
+  // Keep the donut distribution tied to the selected city and date.
+  useEffect(() => {
+    if (!selectedCity || !selectedDate) {
+      setDistribution(undefined);
+      return;
+    }
+
+    let isMounted = true;
+
+    getRiskDistributionByCityDate(selectedCity, selectedDate)
+      .then((riskDistribution) => {
+        if (isMounted) setDistribution(riskDistribution);
+      })
+      .catch((error) => {
+        console.error('Failed to load heat-risk distribution', error);
+        if (isMounted) setDistribution(undefined);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedCity, selectedDate]);
 
   // --- Reset POI area editing state ---
   // Clear any active POI area edits when user switches cities
@@ -495,6 +610,11 @@ const SimulationPage: React.FC = () => {
       <div className="shrink-0">
         <NavigationBar />
       </div>
+      <ActivityStatusPill
+        isSimulationActive={isRunning || loadingSimulation}
+        simulationProgress={simulationProgress}
+        isMapLoading={isPOIAreasLoading || isHeatmapPointsLoading}
+      />
 
       <main className="flex-1 overflow-hidden p-3">
         <div className="grid h-full grid-cols-[minmax(0,1fr)_360px] grid-rows-[minmax(0,1fr)_minmax(180px,24vh)] gap-3">
@@ -513,6 +633,7 @@ const SimulationPage: React.FC = () => {
               isLoading={!isRunning && (isPOIAreasLoading || isHeatmapPointsLoading)}
               isRunning={isRunning}
               mapContainerRef={mapContainerRef}
+              minimapContainerRef={minimapContainerRef}
               mapRef={mapRef}
               mapSyncFrameRef={mapSyncFrameRef}
               tooltip={tooltip}
@@ -549,27 +670,54 @@ const SimulationPage: React.FC = () => {
           </section>
 
           <div className="min-h-0 flex h-full flex-col gap-3">
-            <section className="min-h-0 flex-1">
-              <POIStatistics
-                {...poiStatisticsProps}
-                containSimulation={containSimulation}
-                fromDate={fromDate}
-                toDate={toDate}
-                availableDates={availableDates}
-                onFromDateChange={setFromDate}
-                onToDateChange={setToDate}
-                placedObjects={placedObjectsControls.placedObjects}
-                onPlacedObjectsChange={(placedObjects) => placedObjectsControls.setPlacedObjects(placedObjects)}
-                onStartSimulation={onStartSimulation}
-                onStopSimulation={onStopSimulation}
-                isRunning={isRunning}
-                loadingSimulation={loadingSimulation}
+            <section
+              className="flex shrink-0 items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/80 p-3"
+              aria-labelledby="simulation-map-overview-title"
+            >
+              <div className="min-w-0">
+                <h2
+                  id="simulation-map-overview-title"
+                  className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400"
+                >
+                  Map overview
+                </h2>
+                <p className="mt-1 text-xs text-slate-500">2D · synced</p>
+              </div>
+              <div
+                ref={minimapContainerRef}
+                aria-hidden="true"
+                className="h-24 w-40 shrink-0 overflow-hidden rounded-lg border border-slate-700 bg-slate-950 pointer-events-none"
               />
+            </section>
+
+            <section className="min-h-0 flex-1">
+              <SimulationProgressProvider value={simulationProgress}>
+                <POIStatistics
+                  {...poiStatisticsProps}
+                  containSimulation={containSimulation}
+                  fromDate={fromDate}
+                  toDate={toDate}
+                  availableDates={availableDates}
+                  onFromDateChange={setFromDate}
+                  onToDateChange={setToDate}
+                  placedObjects={placedObjectsControls.placedObjects}
+                  onPlacedObjectsChange={(placedObjects) => placedObjectsControls.setPlacedObjects(placedObjects)}
+                  onStartSimulation={onStartSimulation}
+                  onStopSimulation={onStopSimulation}
+                  isRunning={isRunning}
+                  loadingSimulation={loadingSimulation}
+                />
+              </SimulationProgressProvider>
             </section>
           </div>
 
           <section className="col-span-2 min-h-0 overflow-auto">
-            <OverallStatistics {...overallStatisticsProps} />
+            <OverallStatistics
+              {...summaryHeader}
+              topDestinations={topDestinations}
+              distribution={distribution}
+              statCardsInfo={statCardsInfo}
+            />
           </section>
         </div>
       </main>

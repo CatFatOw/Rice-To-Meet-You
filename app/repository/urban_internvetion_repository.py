@@ -23,6 +23,7 @@ from schemas.urban_intervention import (
     InterventionStatus,
     InterventionType,
     UrbanInterventionCreate,
+    validate_parameters,
 )
 
 SRID: Final[int] = 4326
@@ -31,28 +32,12 @@ SRID: Final[int] = 4326
 # (``status``) or accepts NULL (``active_from`` / ``active_to``).
 _OPTIONAL_COLUMNS: Final[tuple[str, ...]] = ("status", "active_from", "active_to")
 
-_REQUIRED_PARAM_KEYS: Final[Mapping[InterventionType, frozenset[str]]] = {
-    "cool_roof": frozenset({"albedo", "emissivity"}),
-    "misting_station": frozenset(
-        {
-            "nozzleCount",
-            "flowRate_L_per_min",
-            "dropletDiameter_um",
-            "mountHeight_m",
-        }
-    ),
-    "street_tree": frozenset(
-        {"canopyRadius_m", "canopyHeight_m", "lai", "deciduous"}
-    ),
-    "shade_structure": frozenset({"transmissivity", "height_m"}),
-    "cool_pavement": frozenset({"albedo", "width_m"}),
-}
-
 # The projection every read and write shares, so ``_to_record`` can map either.
 _COLUMNS: Final[str] = """
     id,
     market_code,
     name,
+    color,
     archetype_code,
     intervention_type,
     geometry_kind,
@@ -79,6 +64,7 @@ class UrbanInterventionRecord:
     id: UUID
     market_code: str
     name: str
+    color: str
     archetype_code: str
     intervention_type: InterventionType
     geometry_kind: GeometryKind
@@ -149,16 +135,9 @@ def _validate_parameters(
     intervention_type: InterventionType,
     parameters: Mapping[str, Any],
 ) -> None:
-    expected = _REQUIRED_PARAM_KEYS.get(intervention_type)
-    if expected is None:
-        raise InvalidParametersError(
-            f"Unknown intervention type: {intervention_type!r}"
-        )
-    missing = expected - parameters.keys()
-    if missing:
-        raise InvalidParametersError(
-            f"{intervention_type!r} is missing parameters: {sorted(missing)}"
-        )
+    problems = validate_parameters(intervention_type, dict(parameters))
+    if problems:
+        raise InvalidParametersError("; ".join(problems))
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +205,69 @@ class UrbanInterventionRepository:
     # Convenience alias for callers using the camelCase name.
     getManyByCityAndDate = get_many_by_city_and_date  # noqa: N815
 
+    def get_all_by_city_between_date(
+        self,
+        city: str,
+        from_date: datetime | date,
+        to_date: datetime | date,
+        *,
+        statuses: Sequence[InterventionStatus] | None = None,
+    ) -> list[UrbanInterventionRecord]:
+        """Return every intervention in ``city`` active at any point in a range.
+
+        A row matches when its activity window overlaps the inclusive range
+        ``[from_date, to_date]`` — not only when it is contained by it. As in
+        :meth:`get_many_by_city_and_date`, a NULL ``active_from`` or
+        ``active_to`` is an open-ended bound.
+
+        Args:
+            city: value matched against ``market_code``.
+            from_date: start of the range, inclusive.
+            to_date: end of the range, inclusive.
+            statuses: optional status whitelist; omit to include all statuses.
+
+        Returns:
+            Records ordered by name, empty if nothing matches.
+
+        Raises:
+            ValueError: ``from_date`` is later than ``to_date``.
+        """
+        if from_date > to_date:
+            raise ValueError(
+                f"from_date ({from_date!r}) must not be after to_date ({to_date!r})."
+            )
+
+        bindings: dict[str, Any] = {
+            "city": city,
+            "from_date": from_date,
+            "to_date": to_date,
+        }
+
+        status_filter = ""
+        if statuses is not None:
+            if not statuses:
+                return []
+            status_filter = "AND status = ANY(:statuses)"
+            bindings["statuses"] = list(statuses)
+
+        statement = text(
+            f"""
+            SELECT {_COLUMNS}
+            FROM urban_interventions
+            WHERE market_code = :city
+              AND (active_from IS NULL OR active_from <= :to_date)
+              AND (active_to   IS NULL OR active_to   >= :from_date)
+              {status_filter}
+            ORDER BY name, id
+            """
+        )
+
+        rows = self._session.execute(statement, bindings).mappings().all()
+        return [self._to_record(row) for row in rows]
+
+    # Convenience alias for callers using the camelCase name.
+    getAllByCityBetweenDate = get_all_by_city_between_date  # noqa: N815
+
     # -- writes -------------------------------------------------------------
 
     def create(self, data: UrbanInterventionCreate) -> UrbanInterventionRecord:
@@ -244,6 +286,7 @@ class UrbanInterventionRepository:
         columns: list[str] = [
             "market_code",
             "name",
+            "color",
             "archetype_code",
             "intervention_type",
             "geometry_kind",
@@ -253,6 +296,7 @@ class UrbanInterventionRepository:
         placeholders: list[str] = [
             ":market_code",
             ":name",
+            ":color",
             ":archetype_code",
             ":intervention_type",
             ":geometry_kind",
@@ -262,6 +306,7 @@ class UrbanInterventionRepository:
         bindings: dict[str, Any] = {
             "market_code": data["market_code"],
             "name": data["name"],
+            "color": data["color"],
             "archetype_code": data["archetype_code"],
             "intervention_type": intervention_type,
             "geometry_kind": geometry_kind,
@@ -305,6 +350,7 @@ class UrbanInterventionRepository:
             id=row["id"],
             market_code=row["market_code"],
             name=row["name"],
+            color=row["color"],
             archetype_code=row["archetype_code"],
             intervention_type=row["intervention_type"],
             geometry_kind=row["geometry_kind"],

@@ -34,3 +34,13 @@ export function classifySurface(
   }
   return { type: 'unknown' };
 }
+
+export function formatMetricName(metricKey: string): string {
+  if (metricKey === 'heat_risk_score') return 'Heat Risk';
+  if (metricKey === 'visitor_activity') return 'Visitor Activity';
+  return metricKey
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
