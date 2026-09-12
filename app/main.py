@@ -21,7 +21,6 @@ from routers import (
     heatmap,
     login,
     nws_weather,
-    poi_polygons,
     polygon,
     urban_intervention,
     users,
@@ -126,7 +125,6 @@ app.include_router(grid_metrics.router)
 app.include_router(grid_interpolation.router)
 app.include_router(heatmap.router)
 app.include_router(core_poi.router)
-app.include_router(poi_polygons.router)
 app.include_router(polygon.router)
 app.include_router(urban_intervention.router)
 
