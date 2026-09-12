@@ -39,7 +39,11 @@ Together, Explore and Simulation modes allow planners to select a host city, int
 
 ### Frontend
 
-<span style="color:red"><strong>NEED teammate to add:</strong> Describe the React, TypeScript, MapLibre, deck.gl, and visualization implementation.</span>
+We built the frontend with React and TypeScript, using Vite for development and bundling and Tailwind CSS for styling. Explore and Simulation share a map-centered interface with city selection, metric controls, date selection, points of interest, and summary statistics.
+
+MapLibre GL renders the basemap, while deck.gl supplies GPU-accelerated heat-map, polygon, point, and icon layers. The map cameras stay synchronized as users pan and zoom. The heat-map layer blends nearby values using weighted-mean aggregation, with fixed color domains for each metric so the scale stays consistent across dates. A separate interactive point layer supports tooltips that show the underlying point values. Temperature-change views use blue for cooling and red for warming.
+
+Custom React hooks organize polygon drawing, intervention placement, map-layer construction, and timeline playback. Planners can place interventions, define their footprints and active dates, and send a scenario to the FastAPI backend. The returned results are grouped by date and played back on the map, making changes over time easier to inspect. TypeScript interfaces define the data exchanged between the interface and API, while memoized layers and cancellation of outdated requests help keep interactions responsive.
 
 ### Backend
 
@@ -49,7 +53,13 @@ To keep the platform responsive with large datasets and to support future multi-
 
 ### Machine Learning and Statistics
 
-<span style="color:red"><strong>NEED teammate to add:</strong> Describe the machine-learning models, statistical methods, source datasets, validation, and how predictions are used in the platform.</span>
+The current prototype combines geospatial statistics, stored visitor and heat-risk data, and weather-aware mathematical simulation. The repository implements Ordinary Kriging through PyKrige for estimating available metrics at unsampled grid-cell centroids. It preserves existing values and calculates interpolation variance, which is converted into a relative confidence score within each interpolation run. This score describes relative interpolation uncertainty; it is not a calibrated probability of predictive accuracy.
+
+The data layer includes daily weather records, urban heat-island measurements, store-visit records, and point-of-interest geometry. The repository also defines spending datasets for additional economic context and includes a National Weather Service integration. Coordinates, city or market identifiers, and dates connect environmental conditions with locations and visitor activity. The visitor API serves stored average daily visits and heat-risk scores and calculates summaries such as total visits, average risk scores, and visit-weighted heat-index categories.
+
+These data support baseline map exploration, while the intervention models estimate temperature changes under a selected scenario. Backend spatial interpolation and frontend heat-map smoothing serve different purposes: kriging estimates missing spatial values, and deck.gl blends values for display.
+
+The repository includes automated tests for visitor aggregation, heat-risk classification, missing-data handling, intervention parameter validation, and geometry conversion, alongside sample simulation scripts. These check software behavior. The published code does not include a reproducible supervised-learning training pipeline, the derivation of the stored heat-risk scores, or held-out accuracy results. Field calibration and comparison with independent observations remain necessary before claiming validated predictive performance.
 
 Rice-To-Meet-You simulates how urban cooling interventions change pedestrian-level temperature across a date-indexed heat map. A planner draws or places an intervention, selects when it is active, and the model recalculates map points inside its footprint, or within its cooling radius for water-based interventions.
 
@@ -250,4 +260,8 @@ This project was ambitious. Four developers contributed around internship schedu
 
 - The hardest part of the hackathon was not only programming or feature development. It was conveying information clearly, managing a four-person team across time zones, and keeping everyone aligned on the same goal.
 - A huge challenge was working around technology constraints: database storage constraints and data-transfer/loading-speed constraints.
-- <span style="color:red"><strong>NEED teammate to add:</strong> Add one or more lessons about the data, simulation design, urban-planning context, or user feedback.</span>
+- **Data context matters as much as data volume:** Connecting weather, visitor activity, and urban heat measurements requires consistent locations, dates, units, and geographic scales. Store visits provide a useful indicator of activity, but they do not directly measure simultaneous crowd density or unique people. Missing observations also need to remain distinguishable from a true zero.
+
+- **Useful simulations need explicit assumptions:** Cooling depends on local weather, intervention coverage, operating dates, and interactions between interventions. Modeling diminishing returns helps prevent overlapping interventions from producing unrealistic benefits. These assumptions make scenario comparisons more interpretable and show where future field measurements would improve calibration.
+
+- **Visualization is part of the analysis:** A smooth heat map can make sparse data appear more precise than they are. Consistent color scales, access to underlying point values, and clear separation between baseline conditions and simulated temperature changes help planners interpret the results responsibly.
