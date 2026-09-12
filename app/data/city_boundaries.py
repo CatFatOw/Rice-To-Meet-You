@@ -58,27 +58,6 @@ def _rectangle(center_lat: float, center_lon: float, half_span: float):
     ]
 
 
-def bounds_to_geojson(bounds) -> dict[str, Any]:
-    """A [minLon, minLat, maxLon, maxLat] rectangle as a GeoJSON Polygon.
-
-    Wound counter-clockwise and closed, so it can be drawn directly by the map's
-    boundary layer.
-    """
-    min_lon, min_lat, max_lon, max_lat = bounds
-    return {
-        "type": "Polygon",
-        "coordinates": [
-            [
-                [min_lon, min_lat],
-                [max_lon, min_lat],
-                [max_lon, max_lat],
-                [min_lon, max_lat],
-                [min_lon, min_lat],
-            ]
-        ],
-    }
-
-
 # City name -> {state, center, bounds}. Built from the specs above so the
 # rectangle and the centre can never drift apart.
 CITY_BOUNDARIES: dict[str, dict[str, Any]] = {
@@ -141,21 +120,6 @@ def get_city_bounds(city: str) -> Optional[list[float]]:
     """Return [minLon, minLat, maxLon, maxLat] for a city, or None."""
     boundary = get_city_boundary(city)
     return list(boundary["bounds"]) if boundary else None
-
-
-def get_city_boundary_geojson(city: str) -> Optional[dict[str, Any]]:
-    """Return the city's rectangle as a GeoJSON Polygon, or None."""
-    bounds = get_city_bounds(city)
-    return bounds_to_geojson(bounds) if bounds else None
-
-
-def is_inside_city(city: str, longitude: float, latitude: float) -> bool:
-    """Whether a coordinate falls inside a city's rectangle (edges included)."""
-    bounds = get_city_bounds(city)
-    if not bounds:
-        return False
-    min_lon, min_lat, max_lon, max_lat = bounds
-    return min_lon <= longitude <= max_lon and min_lat <= latitude <= max_lat
 
 
 def supported_cities() -> list[str]:

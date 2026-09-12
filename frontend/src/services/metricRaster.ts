@@ -34,7 +34,7 @@ function clamp(value: number, lo: number, hi: number): number {
 
 // The contiguous rectangle spanning all lattice centroids: the surface bbox
 // inset by half a cell on every side.
-export function centroidBounds(surface: MetricSurface): [number, number, number, number] {
+function centroidBounds(surface: MetricSurface): [number, number, number, number] {
   const [minLon, minLat, maxLon, maxLat] = surface.bounds;
   const halfLon = (maxLon - minLon) / surface.cols / 2;
   const halfLat = (maxLat - minLat) / surface.rows / 2;

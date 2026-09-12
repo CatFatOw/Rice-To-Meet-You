@@ -1,24 +1,22 @@
 import type { HeatmapMetricValue, MetricSurface } from '../types/heatmap';
 
-export type { MetricSurface };
-
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 
 /**
  * Metrics the backend will krige into a continuous surface: every metric the
- * map can display except avg_daily_visits, which stays a point-density heatmap
- * because visits are a per-POI count rather than a field that exists between
- * the POIs. Kept in sync with SURFACE_METRICS in
+ * map can display except avg_daily_visits and heat_risk_score. Those two are
+ * per-POI records rather than samples of a field that exists between the POIs -
+ * a visit count, and a score carrying its POI's name, brand and address - so
+ * they keep the point-density heatmap. Kept in sync with SURFACE_METRICS in
  * app/services/grid_interpolation_service.py; anything else is rejected with a
  * 400.
  */
-export const SURFACE_METRICS = [
+const SURFACE_METRICS = [
   'average_temperature_c',
   'average_temperature_f',
   'heat_index_c',
   'heat_index_f',
   'average_relative_humidity_pct',
-  'heat_risk_score',
   'local_temperature_c',
   'local_temperature_f',
   'change_in_temperature',
@@ -28,9 +26,9 @@ export const SURFACE_METRICS = [
   'change_in_local_temperature_f',
 ] as const;
 
-export type SurfaceMetric = (typeof SURFACE_METRICS)[number];
+type SurfaceMetric = (typeof SURFACE_METRICS)[number];
 
-export function isSurfaceMetric(metric: string): metric is SurfaceMetric {
+function isSurfaceMetric(metric: string): metric is SurfaceMetric {
   return (SURFACE_METRICS as readonly string[]).includes(metric);
 }
 
@@ -38,7 +36,7 @@ export function isSurfaceMetric(metric: string): metric is SurfaceMetric {
 // every request; 48x48 renders cleanly at city zoom levels.
 const DEFAULT_RESOLUTION = 48;
 
-export interface SurfaceOptions {
+interface SurfaceOptions {
   rows?: number;
   cols?: number;
   bounds?: [number, number, number, number];

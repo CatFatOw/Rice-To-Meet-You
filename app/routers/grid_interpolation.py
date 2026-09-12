@@ -20,13 +20,10 @@ from repository.grid_interpolation_repository import (
     update_interpolated_point,
 )
 from data.city_boundaries import (
-    get_city_boundary,
-    get_city_boundary_geojson,
     get_market_code,
     resolve_city_name,
     supported_cities,
 )
-from repository.final_visitor_repository import VisitorRepository
 from repository.heatmap_repository import HeatmapRepository
 from routers.grid_geometry import get_city_grid_cells
 from schemas import interpolate_schemas
@@ -42,7 +39,6 @@ from services.grid_interpolation_service import (
     interpolated_points_to_geojson,
     interpolated_points_to_heatmap_geojson,
     interpolated_points_to_polygon_geojson,
-    krige_city_surfaces,
     krige_surface,
 )
 
@@ -195,35 +191,18 @@ async def get_interpolated_heatmap(
     return interpolated_points_to_heatmap_geojson(data, metric_key=metric_key)
 
 
-@router.get(
-    "/city_boundary",
-    response_model=interpolate_schemas.CityBoundaryResponse,
-)
-async def get_city_boundary_route(city: str):
-    """Return the rectangle the surface for this city is built over."""
-    validate_surface_city(city)
-    boundary = get_city_boundary(city)
-    if not boundary:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="NO CITY BOUNDARY FOUND",
-        )
-
-    return {
-        "city": resolve_city_name(city),
-        "state": boundary["state"],
-        "bounds": boundary["bounds"],
-        "geometry": get_city_boundary_geojson(city),
-    }
-
-
 # ---------------------------------------------------------------------------
 # Reading sources for a surface
 # ---------------------------------------------------------------------------
-# A metric is not always a column. The map reads its points through three
-# different routes depending on the metric, and a surface has to be kriged from
+# A metric is not always a column. The map reads its points through more than
+# one route depending on the metric, and a surface has to be kriged from
 # exactly those readings, or the surface would describe a different field from
 # the heatmap it replaces. These helpers route a metric name the same way.
+#
+# The visitor cache is deliberately not one of the sources. Its two metrics -
+# avg_daily_visits and heat_risk_score - are per-POI records rather than
+# samples of a field, so neither is kriged and neither appears as a tooltip row
+# under a metric that is.
 
 # Local temperature is computed per point from one market temperature plus that
 # point's urban-heat-island offset, so it has its own repository call and its
@@ -234,25 +213,14 @@ LOCAL_TEMPERATURE_SOURCES = {
     "local_temperature_f": ("average_temperature_f", "f"),
 }
 
-# Metrics the visitor cache owns, and the reader for each. Their values are
-# plain numbers carrying no unit suffix, which is how the map's own visitor
-# routes report them.
-VISITOR_METRIC_READERS = {
-    "heat_risk_score": "getHeatRiskScoreByCityDate",
-    "avg_daily_visits": "getVisitorDataByCityDate",
-}
-
 
 def surface_metric_unit(metric_name: str) -> str:
     """The display suffix the tooltip appends to a metric, e.g. "\u00b0C" or "%".
 
     Same rule the heatmap repository applies when it formats a measured value,
     read off the same hint table, so an interpolated row reads exactly as the
-    measured row it replaces. Visitor metrics are reported as bare numbers by
-    their own routes and so carry no suffix.
+    measured row it replaces.
     """
-    if metric_name in VISITOR_METRIC_READERS:
-        return ""
     lowered = metric_name.lower()
     for fragment, unit in HeatmapRepository.UNIT_HINTS:
         if fragment in lowered:
@@ -279,7 +247,6 @@ def surface_readings_for_metric(
     city: str,
     date: str,
     heatmap_repository: HeatmapRepository,
-    visitor_repository: VisitorRepository,
 ):
     """Return (readings, unit) for one metric, from whichever source owns it.
 
@@ -289,14 +256,6 @@ def surface_readings_for_metric(
 
     Raises ValueError when no source can serve the metric.
     """
-    if metric_name in VISITOR_METRIC_READERS:
-        # Cached under the city string the frontend sends, not the market code.
-        reader = getattr(visitor_repository, VISITOR_METRIC_READERS[metric_name])
-        target_date = datetime.strptime(date, "%Y-%m-%d").date()
-        # Visits and risk scores are emitted as bare numbers by the visitor
-        # routes, so no unit suffix here either.
-        return _flatten_readings(reader(city, target_date)), ""
-
     market_code = get_market_code(city)
 
     if metric_name in LOCAL_TEMPERATURE_SOURCES:
@@ -326,7 +285,6 @@ def collect_extra_readings(
     city: str,
     date: str,
     heatmap_repository: HeatmapRepository,
-    visitor_repository: VisitorRepository,
 ):
     """Readings and units for the tooltip's secondary rows.
 
@@ -343,7 +301,7 @@ def collect_extra_readings(
             continue
         try:
             values, unit = surface_readings_for_metric(
-                name, city, date, heatmap_repository, visitor_repository
+                name, city, date, heatmap_repository
             )
         except (ValueError, KeyError, TypeError):
             logger.warning("Skipping additional metric %r for a surface", name)
@@ -450,11 +408,10 @@ async def get_city_surface(
         )
 
     heatmap_repository = HeatmapRepository(db)
-    visitor_repository = VisitorRepository(db)
 
     try:
         readings, primary_unit = surface_readings_for_metric(
-            metric_key, city, date, heatmap_repository, visitor_repository
+            metric_key, city, date, heatmap_repository
         )
     except ValueError as exc:
         raise HTTPException(
@@ -468,7 +425,7 @@ async def get_city_surface(
         )
 
     extra_readings, extra_units = collect_extra_readings(
-        extra_names, metric_key, city, date, heatmap_repository, visitor_repository
+        extra_names, metric_key, city, date, heatmap_repository
     )
 
     try:
@@ -552,7 +509,6 @@ async def get_interpolated_surface(
             payload.city,
             payload.date,
             HeatmapRepository(db),
-            VisitorRepository(db),
         )
 
     try:
@@ -581,50 +537,6 @@ async def get_interpolated_surface(
     return {"metric_key": payload.metric_key, **surface}
 
 
-@router.post("/surfaces", response_model=interpolate_schemas.CitySurfacesResponse)
-async def get_interpolated_city_surfaces(payload: interpolate_schemas.CitySurfacesRequest):
-    """Krige one independent surface per city.
-
-    Readings are partitioned by city rectangle and each city is fitted on its
-    own readings alone. A city's surface is therefore generated from that city's
-    data, not sliced out of a single wider fit - two cities with different heat
-    regimes cannot flatten each other's detail.
-    """
-    validate_surface_metric(payload.metric_key)
-    for city in payload.cities or []:
-        validate_surface_city(city)
-
-    if not payload.points:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="points cannot be empty.",
-        )
-
-    if payload.rows * payload.cols > SURFACE_MAX_RESOLUTION**2:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"rows * cols cannot exceed {SURFACE_MAX_RESOLUTION**2}.",
-        )
-
-    surfaces, skipped = krige_city_surfaces(
-        [point.model_dump() for point in payload.points],
-        rows=payload.rows,
-        cols=payload.cols,
-        cities=payload.cities,
-        buffer_deg=payload.boundary_buffer_deg,
-    )
-
-    return {
-        "metric_key": payload.metric_key,
-        "surfaces": [
-            {"metric_key": payload.metric_key, **surface}
-            for surface in surfaces.values()
-        ],
-        "skipped": skipped,
-    }
-
-
-# Update/when the user draws polygon/points the area of the polygon impacts these points
 @router.put(
     "/update/{interpolated_id}",
     response_model=interpolate_schemas.InterpolatedPointResponse,

@@ -23,12 +23,6 @@ export interface HeatmapMetricValue {
 // Kriged surfaces (backend POST /grid_interpolation/surface)
 // ---------------------------------------------------------------------------
 
-/** A city's interpolation rectangle, as a closed GeoJSON Polygon ring. */
-export interface BoundaryGeometry {
-  type: 'Polygon';
-  coordinates: number[][][];
-}
-
 /**
  * A continuous value field produced by ordinary kriging, as a regular lattice
  * pinned to geographic bounds. values[row][col] holds the interpolated value at
@@ -47,7 +41,7 @@ export interface BoundaryGeometry {
  * coordinate under the cursor. Same rows/cols/bounds as the parent surface, so
  * the same sampler reads it.
  */
-export interface MetricLayer {
+interface MetricLayer {
   values: number[][];
   min: number;
   max: number;
@@ -72,8 +66,6 @@ export interface MetricSurface {
   source_count: number;
   /** Resolved city name, null when the request carried no city. */
   city: string | null;
-  /** The city rectangle as GeoJSON, for stroking the edge. Null when unscoped. */
-  boundary: BoundaryGeometry | null;
   interpolation_method: string;
   /** Which variogram model fitted, or "constant" for a flat field. */
   variogram_model?: string | null;
@@ -195,10 +187,3 @@ export interface IndividualMetrics {
   [key: string]: string; // tolerate new metrics without a type change
 }
 
-export interface HeatmapPoint {
-  location_coordinates: Coordinates;
-  individual_metrics: IndividualMetrics;
-}
-
-/** Keyed by date, e.g. { "2020-01-01": [...] } */
-export type HeatmapResponse = Record<string, HeatmapPoint[]>;

@@ -4,9 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pykrige.ok import OrdinaryKriging
 from data.city_boundaries import (
     get_city_bounds,
-    get_city_boundary_geojson,
     resolve_city_name,
-    supported_cities,
 )
 
 
@@ -479,53 +477,6 @@ def city_name_from_interpolated_point(point):
     return "Unknown"
 
 
-def interpolated_points_to_metric_layers(interpolated_points, metric_keys=None):
-    """Convert interpolated rows into the frontend heatmap metric layer shape.
-
-    The lower-level interpolation endpoint returns GeoJSON. The React heatmap
-    component expects a city-keyed dictionary of metric layers, with each layer
-    containing normalized 0-100 weighted points. This adapter keeps that frontend
-    contract while reusing the saved interpolation rows as the source of truth.
-    """
-    metric_keys = sorted(metric_keys or INTERPOLATABLE_METRICS)
-    ranges = {
-        metric_key: metric_value_range(interpolated_points, metric_key)
-        for metric_key in metric_keys
-    }
-    layers_by_city = {}
-
-    for metric_key in metric_keys:
-        min_value, max_value = ranges[metric_key]
-        for point in interpolated_points:
-            raw_value = getattr(point, metric_key, None)
-            if raw_value is None:
-                continue
-
-            city_name = city_name_from_interpolated_point(point)
-            city_layers = layers_by_city.setdefault(
-                city_name,
-                {key: {"metric": key, "points": []} for key in metric_keys},
-            )
-            grid_cell = getattr(point, "grid_cell", None)
-            location_name = getattr(grid_cell, "cell_id", None) or f"Grid Cell {point.grid_cell_id}"
-            individual_metrics = {
-                key: getattr(point, key, None)
-                for key in metric_keys
-            }
-
-            city_layers[metric_key]["points"].append({
-                "value": metric_to_intensity(raw_value, min_value, max_value) * 100,
-                "location_name": location_name,
-                "location_coordinates": [point.longitude, point.latitude],
-                "individual_metrics": individual_metrics,
-            })
-
-    return {
-        city_name: [layer for layer in city_layers.values() if layer["points"]]
-        for city_name, city_layers in layers_by_city.items()
-    }
-
-
 def _walk_positions(coordinates):
     """Yield every [lon, lat] pair from nested GeoJSON coordinate arrays."""
     if not coordinates:
@@ -718,16 +669,18 @@ def grid_metrics_to_metric_layers(metrics, metric_keys=None):
 # in INTERPOLATABLE_METRICS, and they are deliberately kept separate: nothing
 # about a surface request touches grid_cell_metrics.
 #
-# avg_daily_visits is excluded on purpose. Visits are a per-POI count, not a
-# sample of a field that exists between the POIs, so kriging one would invent
-# footfall for empty ground. It keeps the point-density heatmap instead.
+# Two metrics are excluded on purpose, and both for the same reason: they are
+# per-POI records rather than samples of a field that exists between the POIs,
+# so kriging one would invent a value for empty ground. avg_daily_visits is a
+# footfall count, and heat_risk_score is scored per POI and carries that POI's
+# name, brand and address - text a coordinate between two POIs cannot have.
+# Both keep the point-density heatmap.
 SURFACE_METRICS = {
     "average_temperature_c",
     "average_temperature_f",
     "heat_index_c",
     "heat_index_f",
     "average_relative_humidity_pct",
-    "heat_risk_score",
     "local_temperature_c",
     "local_temperature_f",
     "change_in_temperature",
@@ -901,74 +854,6 @@ def points_inside_city(points, city: str, buffer_deg: float = SURFACE_BOUNDARY_B
         if min_lon <= float(point["longitude"]) <= max_lon
         and min_lat <= float(point["latitude"]) <= max_lat
     ]
-
-
-def group_points_by_city(points, cities=None, buffer_deg: float = SURFACE_BOUNDARY_BUFFER_DEG):
-    """Partition readings by the city rectangle that contains them.
-
-    Cities with no readings are omitted, and a reading outside every rectangle
-    is dropped - there is no city surface it belongs to.
-
-    Some host-city rectangles genuinely overlap (New York and New Jersey share
-    0.84 x 0.59 degrees, and both overlap Philadelphia), so a reading in an
-    overlap feeds every rectangle containing it. That is correct for building
-    each city's surface independently, but it means two surfaces can cover the
-    same ground - callers that draw the result should pass `cities` to name the
-    one city they want rather than rendering all of them on top of each other.
-    """
-    target_cities = list(cities) if cities else supported_cities()
-    grouped = {}
-
-    for city in target_cities:
-        resolved = resolve_city_name(city)
-        if not resolved:
-            continue
-        city_points = points_inside_city(points, resolved, buffer_deg=buffer_deg)
-        if city_points:
-            grouped[resolved] = city_points
-
-    return grouped
-
-
-def krige_city_surfaces(
-    points,
-    rows: int,
-    cols: int,
-    cities=None,
-    variogram_model=None,
-    buffer_deg: float = SURFACE_BOUNDARY_BUFFER_DEG,
-):
-    """Krige one independent surface per city.
-
-    Each city is fitted and predicted on its own readings only, so the result is
-    a set of separate surfaces rather than slices of a single national one.
-    Returns (surfaces_by_city, skipped), where `skipped` explains every city
-    that could not produce a surface.
-    """
-    grouped = group_points_by_city(points, cities=cities, buffer_deg=buffer_deg)
-    surfaces = {}
-    skipped = {}
-
-    for city, city_points in grouped.items():
-        if len(city_points) < SURFACE_MIN_POINTS:
-            skipped[city] = (
-                f"only {len(city_points)} reading(s) inside the city outline; "
-                f"{SURFACE_MIN_POINTS} are required"
-            )
-            continue
-        try:
-            surfaces[city] = krige_surface(
-                city_points,
-                rows=rows,
-                cols=cols,
-                city=city,
-                variogram_model=variogram_model,
-                buffer_deg=buffer_deg,
-            )
-        except ValueError as exc:
-            skipped[city] = str(exc)
-
-    return surfaces, skipped
 
 
 def _krige_values(x, y, z, target_lons, target_lats, rows, cols, variogram_model=None):
@@ -1155,8 +1040,6 @@ def krige_surface(
         "source_count": len(points),
         "variogram_model": model_used,
         "city": resolved_city,
-        # The same rectangle as `bounds`, as GeoJSON, so the map can stroke it.
-        "boundary": get_city_boundary_geojson(city) if resolved_city else None,
         # Secondary metrics on this same lattice, for the tooltip.
         "metrics": metric_layers,
     }

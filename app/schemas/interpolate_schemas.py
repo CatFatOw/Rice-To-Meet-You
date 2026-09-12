@@ -145,10 +145,8 @@ class SurfaceResponse(BaseModel):
     variance_mean: float
     # Readings inside the city rectangle that fed this surface's fit.
     source_count: int
-    # Resolved city name, and its rectangle as a GeoJSON Polygon for drawing.
-    # Both null when the request carried no city.
+    # Resolved city name; null when the request carried no city.
     city: Optional[str] = None
-    boundary: Optional[dict[str, Any]] = None
     interpolation_method: str = "ordinary_kriging"
     # Which variogram model actually fitted, or "constant" for a flat field.
     # Useful when a surface looks wrong: it says how it was derived.
@@ -156,41 +154,3 @@ class SurfaceResponse(BaseModel):
     # Secondary metrics on the same lattice, keyed by metric name. Interpolated
     # for the tooltip but never coloured.
     metrics: dict[str, MetricLayer] = Field(default_factory=dict)
-
-
-class CityBoundaryResponse(BaseModel):
-    """A city's interpolation rectangle."""
-
-    city: str
-    state: str
-    # [minLon, minLat, maxLon, maxLat].
-    bounds: list[float]
-    # The same rectangle as a GeoJSON Polygon, for drawing.
-    geometry: dict[str, Any]
-
-
-class CitySurfacesRequest(BaseModel):
-    """Request body for kriging one independent surface per city.
-
-    Readings are partitioned by city rectangle and each city is fitted on its
-    own readings alone, so no city's surface is influenced by another's.
-    """
-
-    metric_key: str = "average_temperature_c"
-    points: list[SurfacePoint] = Field(default_factory=list)
-    rows: int = 48
-    cols: int = 48
-    # Cities to build surfaces for. Defaults to every city with a rectangle;
-    # cities with no readings inside them are simply absent from the response.
-    cities: Optional[list[str]] = None
-    boundary_buffer_deg: float = 0.0
-
-
-class CitySurfacesResponse(BaseModel):
-    """One independently kriged surface per city that had enough readings."""
-
-    metric_key: str
-    surfaces: list[SurfaceResponse]
-    # City -> why it produced no surface (too few readings inside its rectangle,
-    # or a fit that failed). Reported rather than silently omitted.
-    skipped: dict[str, str] = Field(default_factory=dict)
