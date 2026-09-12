@@ -440,3 +440,101 @@ export function metricColorDomain(
       return [0, 100];
   }
 }
+// ---------------------------------------------------------------------------
+// Continuous colouring for the interpolated kriged surface
+// ---------------------------------------------------------------------------
+// getColor above returns banded colours - one flat colour per threshold - which
+// is what a legend's discrete stops want. A kriged surface needs a *smooth*
+// lookup instead, or a continuous field comes out as visible contour bands.
+//
+// The stops and colours are not new: they are metricStops + metricColorRange,
+// the very arrays the HeatmapLayer and the legend gradient are built from. Only
+// the lookup differs, so the surface, the legend and the old heatmap all agree
+// on what a given value looks like.
+
+type RGBAColor = [number, number, number, number];
+
+/** Alpha ramp for a diverging delta, as a fraction of the full-scale change.
+ *
+ * The banded palette paints "no change" a light neutral, which as a *surface*
+ * would cover a whole city in near-white. The HeatmapLayer never did that: its
+ * cooling and warming layers faded to fully transparent at zero. These are that
+ * layer's alphas, so no change reads as absence here too.
+ */
+const DELTA_ALPHA_STOPS = [0, 100, 160, 210, 240];
+
+function deltaAlpha(magnitudeFraction: number): number {
+  const position = Math.min(Math.max(magnitudeFraction, 0), 1) * (DELTA_ALPHA_STOPS.length - 1);
+  const lower = Math.floor(position);
+  const upper = Math.min(lower + 1, DELTA_ALPHA_STOPS.length - 1);
+  const t = position - lower;
+  return Math.round(
+    DELTA_ALPHA_STOPS[lower] + (DELTA_ALPHA_STOPS[upper] - DELTA_ALPHA_STOPS[lower]) * t,
+  );
+}
+
+// Building the stop table walks a switch and allocates one colour per stop, and
+// the raster renderer asks for a colour per pixel, so it is memoized per metric.
+const surfaceRampCache = new Map<string, { stops: number[]; colors: RGBAColor[] }>();
+
+function surfaceRamp(metric: string): { stops: number[]; colors: RGBAColor[] } {
+  const cached = surfaceRampCache.get(metric);
+  if (cached) return cached;
+
+  const colorMetric = colorMetricKey(metric);
+  const ramp = {
+    stops: metricStops(colorMetric),
+    colors: metricColorRange(metric),
+  };
+  surfaceRampCache.set(metric, ramp);
+  return ramp;
+}
+
+/**
+ * Colour for one interpolated value, in the metric's own units.
+ *
+ * Linearly blends the two bracketing stops so a smooth field renders as a
+ * smooth gradient rather than contour bands; values past either end clamp to
+ * that end's colour. Returns RGBA - alpha is part of the palette, and for a
+ * diverging delta it is what keeps "no change" invisible.
+ */
+export function metricSurfaceColor(value: number, metric: string): RGBAColor {
+  if (!Number.isFinite(value)) return [128, 128, 128, 0];
+
+  const { stops, colors } = surfaceRamp(metric);
+  const colorMetric = colorMetricKey(metric);
+
+  let red: number;
+  let green: number;
+  let blue: number;
+  let alpha: number;
+
+  if (value <= stops[0]) {
+    [red, green, blue, alpha] = colors[0];
+  } else if (value >= stops[stops.length - 1]) {
+    [red, green, blue, alpha] = colors[colors.length - 1];
+  } else {
+    let index = 0;
+    while (index < stops.length - 2 && value > stops[index + 1]) index += 1;
+
+    const low = stops[index];
+    const high = stops[index + 1];
+    const t = high === low ? 0 : (value - low) / (high - low);
+    const from = colors[index];
+    const to = colors[index + 1];
+
+    red = Math.round(from[0] + (to[0] - from[0]) * t);
+    green = Math.round(from[1] + (to[1] - from[1]) * t);
+    blue = Math.round(from[2] + (to[2] - from[2]) * t);
+    alpha = Math.round(from[3] + (to[3] - from[3]) * t);
+  }
+
+  // A delta's transparency comes from how far the value is from zero, not from
+  // where it sits in the ramp: see DELTA_ALPHA_STOPS.
+  if (colorMetric.startsWith("change_in_")) {
+    const fullScale = Math.max(Math.abs(stops[0]), Math.abs(stops[stops.length - 1]));
+    alpha = deltaAlpha(fullScale === 0 ? 0 : Math.abs(value) / fullScale);
+  }
+
+  return [red, green, blue, alpha];
+}

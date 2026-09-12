@@ -20,6 +20,11 @@ import {
   fetchTopDestinations,
   getStatsInfo,
 } from '../api/statistics';
+import {
+  fetchCitySurface,
+  fetchSimulationSurfaces,
+} from '../api/gridInterpolation';
+import type { MetricSurface } from '../types/heatmap';
 import { determineCityView } from '../services/cityViews';
 import { eachDay } from '../services/simulation';
 import type { ViewState } from '../types/viewState';
@@ -79,6 +84,13 @@ const SimulationPage: React.FC = () => {
   const [isPOIAreasLoading, setIsPOIAreasLoading] = useState(true);
   const [displayedHeatmapPoints, setDisplayedHeatmapPoints] =
     useState<HeatmapMetricValue[]>([]);
+  // One independently kriged surface per city for the active metric; these
+  // drive the continuous map.
+  const [metricSurfaces, setMetricSurfaces] = useState<MetricSurface[]>([]);
+  // Every frame's surface, kriged before playback starts and keyed by frame
+  // date. A ref rather than state because onFrame reads it synchronously, in
+  // the same commit that advances the date and the points.
+  const simulationSurfacesRef = useRef<Record<string, MetricSurface>>({});
   const [isHeatmapPointsLoading, setIsHeatmapPointsLoading] = useState(false);
   const [baselineHeatmapPoints, setBaselineHeatmapPoints] =
     useState<HeatmapMetricValue[]>([]);
@@ -180,6 +192,11 @@ const SimulationPage: React.FC = () => {
   }, [placedObjectsControls.pendingPlacedObject])
   const onStopSimulation = () => {
     stop();
+    // Drop the run's surfaces so the baseline date is never drawn with the last
+    // simulated frame's lattice. The effect below refits the baseline surface
+    // once isRunning clears; until it lands the map falls back to points.
+    simulationSurfacesRef.current = {};
+    setMetricSurfaces([]);
     setSelectedDate(baselineSelectedDate);
     setDisplayedHeatmapPoints(baselineHeatmapPoints);
   };
@@ -208,6 +225,17 @@ const SimulationPage: React.FC = () => {
       );
       framesByDate = simulatedPointsByDate;
 
+      // Krige every frame before playback starts, so the timeline advances the
+      // date, the points and the surface together the way it did when points
+      // were the only thing drawn. A per-frame fetch would always render one
+      // round trip behind the date the frame is labelled with.
+      simulationSurfacesRef.current = await fetchSimulationSurfaces(
+        metric,
+        selectedCity,
+        framesByDate,
+        { additionalMetrics: selectedAdditionalMetrics },
+      );
+
      
      
       
@@ -229,8 +257,14 @@ const SimulationPage: React.FC = () => {
       onFrame: (date, frame) => {
         setSelectedDate(date);
         setDisplayedHeatmapPoints(frame);
+        // Same commit as the date and the points, so the surface on screen
+        // always belongs to the frame the timeline is showing.
+        const surface = simulationSurfacesRef.current[date];
+        setMetricSurfaces(surface ? [surface] : []);
       },
       onComplete: () => {
+        simulationSurfacesRef.current = {};
+        setMetricSurfaces([]);
         setSelectedDate(baselineSelectedDate);
         setDisplayedHeatmapPoints(baselineHeatmapPoints);
       }
@@ -274,6 +308,62 @@ const SimulationPage: React.FC = () => {
       isMounted = false;
     };
   }, []);
+
+  // --- Krige the city's readings into the surface the map draws ---
+  // Exactly one surface is requested: the city the map is currently on. Several
+  // host-city rectangles overlap (New York and New Jersey share 0.84 x 0.59
+  // degrees, and both overlap Philadelphia), so asking for every city whose
+  // rectangle contains a reading would stack two surfaces over the same ground
+  // and let whichever drew last win. Fetching only what is in view also means
+  // no kriging is done for cities nobody is looking at.
+  //
+  // The backend reads the readings, kriges them and returns only the lattice,
+  // so thousands of points never travel to the browser and straight back. The
+  // one exception is a simulation, whose adjusted readings exist only here -
+  // those are posted by fetchSimulationSurfaces before playback starts, not
+  // from this effect.
+  //
+  // A metric with no surface (avg_daily_visits) returns null here and keeps the
+  // point-density heatmap instead.
+  useEffect(() => {
+    // A running timeline owns the surface. Fetching per frame here would put
+    // the surface a round trip behind the date it is drawn under, because the
+    // frame advances synchronously and the request cannot.
+    if (isRunning) return;
+
+    if (!selectedCity || !selectedMetricKey || !selectedDate) {
+      setMetricSurfaces([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    let ignore = false;
+
+    fetchCitySurface(selectedMetricKey, selectedCity, selectedDate, {
+      additionalMetrics: selectedAdditionalMetrics,
+      signal: controller.signal,
+    })
+      .then((surface) => {
+        if (ignore) return;
+        setMetricSurfaces(surface ? [surface] : []);
+      })
+      .catch((error) => {
+        if (ignore || controller.signal.aborted) return;
+        console.error('Failed to interpolate city surface', error);
+        setMetricSurfaces([]);
+      });
+
+    return () => {
+      ignore = true;
+      controller.abort();
+    };
+  }, [
+    selectedAdditionalMetrics,
+    selectedCity,
+    selectedDate,
+    selectedMetricKey,
+    isRunning,
+  ]);
 
   // --- Cleanup simulation state on unmount ---
   // Ensure any running simulation timer is cleared when component unmounts
@@ -544,6 +634,7 @@ useEffect(() => {
               setSelectedCity={setSelectedCity}
               cityPOIAreas={cityPOIAreas}
               displayedHeatmapPoints={displayedHeatmapPoints}
+              metricSurfaces={metricSurfaces}
               selectedDate={selectedDate}
               setSelectedDate={setSelectedDate}
               setBaselineSelectedDate={setBaselineSelectedDate}

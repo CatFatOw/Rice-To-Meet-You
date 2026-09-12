@@ -17,6 +17,12 @@ import {
   metricWeightOffset,
   type Metric,
 } from '../services/colors';
+import {
+  buildMetricRaster,
+  isInsideRaster,
+  sampleLattice,
+  sampleSurface,
+} from '../services/metricRaster';
 import { useHeatmapLayers } from '../hooks/useHeatmapLayers';
 import SearchBar from './SearchBar';
 import Toolbox from './Toolbox';
@@ -24,7 +30,10 @@ import HeatRiskScale from './Heatriskscale';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { SurfaceType } from '../services/map';
 import { classifySurface, formatMetricName } from '../services/map';
-import type { HeatmapProps } from '../types/components';
+import type {
+  HeatmapProps,
+  MetricSurfaceRaster,
+} from '../types/components';
 import type { ViewState } from '../types/viewState';
 import { fetchPlacedObjectsByCityDate } from '../api/tool';
 import type { Geometry } from '../types/simulation';
@@ -87,6 +96,15 @@ function formatPoiFieldValue(value: any): string {
     return JSON.stringify(value);
   }
   return String(value);
+}
+
+// How the backend renders a numeric metric for a tooltip row: whole numbers
+// plain, everything else to one decimal, then the metric's own unit suffix.
+// Mirrored here because an interpolated value is formatted client-side, after
+// the lattice has been sampled.
+function formatMetricValue(value: number, unit: string): string {
+  const rendered = Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
+  return `${rendered}${unit}`;
 }
 
 type MapMode = '2d' | '3d';
@@ -216,6 +234,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
   setSelectedCity,
   cityPOIAreas,
   displayedHeatmapPoints,
+  metricSurfaces,
   selectedDate,
   setSelectedDate,
   setBaselineSelectedDate,
@@ -464,28 +483,6 @@ const Heatmap: React.FC<HeatmapProps> = ({
 
 
 
-// Polygon things the hover test should check: committed + pending placed
-// objects whose geometry is a polygon, plus the user-drawn POI areas. Each
-// entry is normalized to a { ring } with a tagged source so the tooltip can
-// render the right details. Server POI areas (cityPOIAreas) are NOT included.
-const hoverablePolygons = useMemo(() => {
-  const placed = [...currentPlacedObjects, ...pendingPlacedObjects]
-    .filter((o) => o.geometry.kind === 'polygon')
-    .map((o) => ({
-      source: 'placed' as const,
-      ring: o.geometry.kind === 'polygon' ? o.geometry.ring : [],
-      object: o,
-    }));
-
-  const poi = userPOIAreas.map((area) => ({
-    source: 'poi' as const,
-    ring: area.polygon,
-    area,
-  }));
-
-  return [...placed, ...poi];
-}, [currentPlacedObjects, pendingPlacedObjects, userPOIAreas]);
-
   // ======================================================
   // Placed-object handlers
   // ======================================================
@@ -597,22 +594,80 @@ const hoverablePolygons = useMemo(() => {
     : availableMetricLayers[0]
       ? Object.keys(availableMetricLayers[0])[0]
       : 'heat_risk_score';
+  const metricLabelText = formatMetricName(activeMetricKey);
+  const activeMetricLegendGradient = useMemo(
+    () => metricLegendGradient(activeMetricKey),
+    [activeMetricKey],
+  );
+  // Feed the point-density fallback in useHeatmapLayers, which draws
+  // avg_daily_visits and stands in for any metric whose surface has not
+  // arrived. The interpolated surface reads the same palette per value.
   const activeMetricWeightOffset = useMemo(
     () => metricWeightOffset(activeMetricKey),
     [activeMetricKey],
   );
-  const metricLabelText = formatMetricName(activeMetricKey);
   const activeMetricColorRange = useMemo(
     () => metricColorRange(activeMetricKey),
-    [activeMetricKey],
-  );
-  const activeMetricLegendGradient = useMemo(
-    () => metricLegendGradient(activeMetricKey),
     [activeMetricKey],
   );
   const activeMetricColorDomain = useMemo(
     () => metricColorDomain(activeMetricKey as Metric),
     [activeMetricKey],
+  );
+
+  // One rendered image per city surface, each geographically anchored to its own
+  // city's bounds. They are fixed-resolution, so the drawn surfaces never
+  // resample with zoom. Rasters are cached against the surface object itself,
+  // so a new simulation frame always renders rather than reusing a stale one.
+  const metricSurfaceRasters: MetricSurfaceRaster[] = useMemo(
+    () =>
+      metricSurfaces
+        .filter((surface) => surface.metric_key === activeMetricKey)
+        .map((surface) => ({ surface, raster: buildMetricRaster(surface) })),
+    [metricSurfaces, activeMetricKey],
+  );
+
+  /**
+   * Read the city surfaces at a coordinate. Returns a reading shaped exactly
+   * like a measured one, or null when the coordinate is outside every city, so
+   * places with no data still show nothing.
+   *
+   * The secondary metrics come from lattices kriged alongside the drawn one, so
+   * every tooltip row reports an interpolated value for the exact coordinate
+   * under the cursor rather than the nearest measured reading. Values are
+   * rendered the way the backend renders a measured one - whole numbers plain,
+   * everything else to one decimal, then the metric's own unit - so an
+   * interpolated row reads identically to the row it replaces.
+   */
+  const sampleRasterPoint = useCallback(
+    (lon: number, lat: number): HeatmapMetricValue | null => {
+      for (const { surface, raster } of metricSurfaceRasters) {
+        if (!isInsideRaster(raster, lon, lat)) continue;
+
+        const value = sampleSurface(surface, lon, lat);
+        if (value === null) continue;
+
+        const individualMetrics: Record<string, string> = {};
+        for (const [name, layer] of Object.entries(surface.metrics ?? {})) {
+          const layerValue = sampleLattice(surface, layer.values, lon, lat);
+          if (layerValue !== null) {
+            individualMetrics[name] = formatMetricValue(layerValue, layer.unit);
+          }
+        }
+
+        return {
+          // One decimal, matching how a measured reading arrives, so the
+          // headline number does not turn into a long float on hover.
+          value: Number(value.toFixed(1)),
+          location_coordinates: [lon, lat],
+          ...(Object.keys(individualMetrics).length > 0
+            ? { individual_metrics: individualMetrics }
+            : {}),
+        };
+      }
+      return null;
+    },
+    [metricSurfaceRasters],
   );
 
   // Load placed-object tools for the selected city + date and push them
@@ -712,6 +767,7 @@ const hoverablePolygons = useMemo(() => {
     isDrawing,
     selectedCity,
     displayedHeatmapPoints,
+    metricSurfaceRasters,
     activeMetricColorRange,
     activeMetricColorDomain,
     activeMetricWeightOffset,
@@ -743,104 +799,103 @@ const hoverablePolygons = useMemo(() => {
    * Clears the tooltip while drawing or when there's nothing under the cursor.
    */
   const handleDeckHover = useCallback(
-      (info: {
-        coordinate?: number[];
-        object?: HeatmapMetricValue | PlacedObject | null;
-        x: number;
-        y: number;
-      }) => {
-        if (isDrawing || !info.coordinate || info.coordinate.length < 2) {
-          setHoveringHeatmap(false);
-          setTooltip(null);
-          return;
-        }
-        const pickedLayerId = (info as any).layer?.id;
+    (info: {
+      coordinate?: number[];
+      object?: HeatmapMetricValue | PlacedObject | CityPOIArea | null;
+      x: number;
+      y: number;
+      layer?: { id?: string } | null;
+    }) => {
+      if (isDrawing || !info.coordinate || info.coordinate.length < 2) {
+        setHoveringHeatmap(false);
+        setTooltip(null);
+        return;
+      }
 
-        if (pickedLayerId?.startsWith('placed-object-') && info.object) {
-          const object = info.object as PlacedObject;
-          setHoveringHeatmap(false);
-          setTooltip({
-            object,
-            x: info.x,
-            y: info.y,
-            coordinates: {
-              longitude: info.coordinate[0],
-              latitude: info.coordinate[1],
-            },
-          });
-          return;
-        }
+      const [lon, lat] = info.coordinate as [number, number];
+      const pickedLayerId = info.layer?.id;
 
-        if (pickedLayerId === 'poi-area-layer' && info.object) {
-          const poi = info.object as unknown as CityPOIArea;
-          setHoveringHeatmap(false);
-          setTooltip({
-            poi,
-            x: info.x,
-            y: info.y,
-            coordinates: {
-              longitude: info.coordinate[0],
-              latitude: info.coordinate[1],
-            },
-          });
-          return;
-        }
+      // Toolbox markers and POI polygons own their own tooltips and take
+      // precedence over the surface reading underneath them.
+      if (pickedLayerId?.startsWith('placed-object-') && info.object) {
+        const object = info.object as PlacedObject;
+        setHoveringHeatmap(false);
+        setTooltip({
+          object,
+          x: info.x,
+          y: info.y,
+          coordinates: { longitude: lon, latitude: lat },
+        });
+        return;
+      }
 
-        if (!selectedCity || !selectedDate || displayedHeatmapPoints.length === 0) {
-          setHoveringHeatmap(false);
-          setTooltip(null);
-          return;
-        }
-        // 👇 TEMP debug — which layer is deck.gl picking under the cursor?
-        // console.log(
-        //   'picked layer:', (info as any).layer?.id,
-        //   '| has object:', !!info.object,
-        //   '| object:', info.object,
-        // );
-        // No picked object under cursor: do not show any tooltip.
-        if (!info.object) {
-          setHoveringHeatmap(false);
-          setTooltip(null);
-          return;
-        }
+      if (pickedLayerId === 'poi-area-layer' && info.object) {
+        const poi = info.object as unknown as CityPOIArea;
+        setHoveringHeatmap(false);
+        setTooltip({
+          poi,
+          x: info.x,
+          y: info.y,
+          coordinates: { longitude: lon, latitude: lat },
+        });
+        return;
+      }
 
-        // Hovering an actual reading (pointPickLayer): report its true,
-        // unblended value instead of the interpolated surface sample below.
-        if (pickedLayerId === 'heatmap-point-pick-layer' && info.object) {
-          const point = info.object as HeatmapMetricValue;
-          setHoveringHeatmap(true);
-          setTooltip({
-            point,
-            metric: activeMetricKey,
-            x: info.x,
-            y: info.y,
-            coordinates: {
-              longitude: point.location_coordinates[0],
-              latitude: point.location_coordinates[1],
-            },
-            surface: mapRef.current
-              ? classifySurface(mapRef.current, info.x, info.y)
-              : { type: 'unknown' as SurfaceType },
-          });
-          return;
-        }
+      const publish = (point: HeatmapMetricValue) => {
+        setHoveringHeatmap(true);
+        setTooltip({
+          point,
+          metric: activeMetricKey,
+          x: info.x,
+          y: info.y,
+          coordinates: {
+            longitude: point.location_coordinates[0],
+            latitude: point.location_coordinates[1],
+          },
+          surface: mapRef.current
+            ? classifySurface(mapRef.current, info.x, info.y)
+            : { type: 'unknown' as SurfaceType },
+        });
+      };
 
+      // The interpolated surface answers at any coordinate, so the tooltip
+      // reports the value under the exact cursor instead of snapping to the
+      // nearest discrete reading.
+      const sampled = sampleRasterPoint(lon, lat);
+      if (sampled) {
+        publish(sampled);
+        return;
+      }
 
+      // Outside every raster: fall back to a picked measured reading. That is
+      // the whole story for the point-density metric, and the safety net for a
+      // metric whose surface has not arrived.
+      if (
+        selectedCity
+        && selectedDate
+        && displayedHeatmapPoints.length > 0
+        && pickedLayerId === 'heatmap-point-pick-layer'
+        && info.object
+      ) {
+        publish(info.object as HeatmapMetricValue);
+        return;
+      }
 
-        
-      },
-      [
-        activeMetricKey,
-        displayedHeatmapPoints.length,
-        isDrawing,
-        mapRef,
-        hoverablePolygons,
-        selectedCity,
-        selectedDate,
-        setHoveringHeatmap,
-        setTooltip,
-      ],
-    );
+      setHoveringHeatmap(false);
+      setTooltip(null);
+    },
+    [
+      activeMetricKey,
+      displayedHeatmapPoints.length,
+      isDrawing,
+      mapRef,
+      sampleRasterPoint,
+      selectedCity,
+      selectedDate,
+      setHoveringHeatmap,
+      setTooltip,
+    ],
+  );
 
   // Crosshair while drawing or hovering the heatmap; grab/grabbing otherwise
   // so normal map panning still reads correctly.
