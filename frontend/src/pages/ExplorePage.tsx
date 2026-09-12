@@ -20,7 +20,10 @@ import {
   fetchTopDestinations,
   getStatsInfo,
 } from '../api/statistics';
-import { fetchCitySurface } from '../api/gridInterpolation';
+import {
+  fetchCitySurface,
+  fetchSimulationSurfaces,
+} from '../api/gridInterpolation';
 import type { MetricSurface } from '../types/heatmap';
 import { determineCityView } from '../services/cityViews';
 import { eachDay } from '../services/simulation';
@@ -82,6 +85,10 @@ const ExplorePage: React.FC = () => {
   // One independently kriged surface per city for the active metric; these
   // drive the continuous map.
   const [metricSurfaces, setMetricSurfaces] = useState<MetricSurface[]>([]);
+  // Every frame's surface, kriged before playback starts and keyed by frame
+  // date. A ref rather than state because onFrame reads it synchronously, in
+  // the same commit that advances the date and the points.
+  const simulationSurfacesRef = useRef<Record<string, MetricSurface>>({});
 
   const [isHeatmapPointsLoading, setIsHeatmapPointsLoading] = useState(false);
   const [baselineHeatmapPoints, setBaselineHeatmapPoints] =
@@ -174,6 +181,11 @@ const ExplorePage: React.FC = () => {
 
   const onStopSimulation = () => {
     stop();
+    // Drop the run's surfaces so the baseline date is never drawn with the last
+    // simulated frame's lattice. The effect below refits the baseline surface
+    // once isRunning clears; until it lands the map falls back to points.
+    simulationSurfacesRef.current = {};
+    setMetricSurfaces([]);
     setSelectedDate(baselineSelectedDate);
     setDisplayedHeatmapPoints(baselineHeatmapPoints);
   };
@@ -202,6 +214,17 @@ const ExplorePage: React.FC = () => {
       );
       framesByDate = simulatedPointsByDate;
 
+      // Krige every frame before playback starts, so the timeline advances the
+      // date, the points and the surface together the way it did when points
+      // were the only thing drawn. A per-frame fetch would always render one
+      // round trip behind the date the frame is labelled with.
+      simulationSurfacesRef.current = await fetchSimulationSurfaces(
+        metric,
+        selectedCity,
+        framesByDate,
+        { additionalMetrics: selectedAdditionalMetrics },
+      );
+
      
      
       
@@ -223,8 +246,14 @@ const ExplorePage: React.FC = () => {
       onFrame: (date, frame) => {
         setSelectedDate(date);
         setDisplayedHeatmapPoints(frame);
+        // Same commit as the date and the points, so the surface on screen
+        // always belongs to the frame the timeline is showing.
+        const surface = simulationSurfacesRef.current[date];
+        setMetricSurfaces(surface ? [surface] : []);
       },
       onComplete: () => {
+        simulationSurfacesRef.current = {};
+        setMetricSurfaces([]);
         setSelectedDate(baselineSelectedDate);
         setDisplayedHeatmapPoints(baselineHeatmapPoints);
       }
@@ -278,10 +307,19 @@ const ExplorePage: React.FC = () => {
   // no kriging is done for cities nobody is looking at.
   //
   // The backend reads the readings, kriges them and returns only the lattice,
-  // so thousands of points never travel to the browser and straight back.
+  // so thousands of points never travel to the browser and straight back. The
+  // one exception is a simulation, whose adjusted readings exist only here -
+  // those are posted by fetchSimulationSurfaces before playback starts, not
+  // from this effect.
+  //
   // A metric with no surface (avg_daily_visits) returns null here and keeps the
   // point-density heatmap instead.
   useEffect(() => {
+    // A running timeline owns the surface. Fetching per frame here would put
+    // the surface a round trip behind the date it is drawn under, because the
+    // frame advances synchronously and the request cannot.
+    if (isRunning) return;
+
     if (!selectedCity || !selectedMetricKey || !selectedDate) {
       setMetricSurfaces([]);
       return;
@@ -313,6 +351,7 @@ const ExplorePage: React.FC = () => {
     selectedCity,
     selectedDate,
     selectedMetricKey,
+    isRunning,
   ]);
 
   // --- Cleanup simulation state on unmount ---

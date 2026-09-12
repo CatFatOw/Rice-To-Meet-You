@@ -161,3 +161,60 @@ export async function fetchInterpolatedSurface(
 
   return response.json() as Promise<MetricSurface>;
 }
+
+// How many frame surfaces to krige at once when prefetching a simulation. Each
+// request is a full variogram fit plus a rows x cols solve, so this trades a
+// shorter prefetch against not handing the backend a whole timeline at once.
+const PREFETCH_CONCURRENCY = 4;
+
+/**
+ * Krige every frame of a simulation up front, keyed by frame date.
+ *
+ * Playback is a local animation: the timeline advances the date, the points and
+ * the surface in a single commit, so what is drawn always belongs to the date
+ * it is labelled with. Fetching per frame instead would leave the surface a
+ * round trip behind the frame on every tick, because the frame advances
+ * synchronously and the request cannot.
+ *
+ * A frame whose surface fails is simply absent from the result - that frame
+ * falls back to the point-density heatmap rather than failing the whole run.
+ */
+export async function fetchSimulationSurfaces(
+  metricKey: string,
+  city: string | null,
+  framesByDate: Record<string, HeatmapMetricValue[]>,
+  options: SurfaceOptions & { additionalMetrics?: string[] } = {},
+): Promise<Record<string, MetricSurface>> {
+  const dates = Object.keys(framesByDate);
+  if (!city || !isSurfaceMetric(metricKey) || dates.length === 0) return {};
+
+  const surfaces: Record<string, MetricSurface> = {};
+  let cursor = 0;
+
+  // Workers share the cursor; the read and the increment are not separated by
+  // an await, so no two workers can claim the same date.
+  const worker = async () => {
+    while (cursor < dates.length) {
+      const date = dates[cursor];
+      cursor += 1;
+      try {
+        const surface = await fetchInterpolatedSurface(
+          metricKey,
+          city,
+          framesByDate[date],
+          { ...options, date },
+        );
+        if (surface) surfaces[date] = surface;
+      } catch (error) {
+        if (options.signal?.aborted) return;
+        console.error(`Failed to interpolate the surface for ${date}`, error);
+      }
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(PREFETCH_CONCURRENCY, dates.length) }, worker),
+  );
+
+  return surfaces;
+}

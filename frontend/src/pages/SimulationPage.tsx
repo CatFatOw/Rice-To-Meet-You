@@ -22,7 +22,7 @@ import {
 } from '../api/statistics';
 import {
   fetchCitySurface,
-  fetchInterpolatedSurface,
+  fetchSimulationSurfaces,
 } from '../api/gridInterpolation';
 import type { MetricSurface } from '../types/heatmap';
 import { determineCityView } from '../services/cityViews';
@@ -87,6 +87,10 @@ const SimulationPage: React.FC = () => {
   // One independently kriged surface per city for the active metric; these
   // drive the continuous map.
   const [metricSurfaces, setMetricSurfaces] = useState<MetricSurface[]>([]);
+  // Every frame's surface, kriged before playback starts and keyed by frame
+  // date. A ref rather than state because onFrame reads it synchronously, in
+  // the same commit that advances the date and the points.
+  const simulationSurfacesRef = useRef<Record<string, MetricSurface>>({});
   const [isHeatmapPointsLoading, setIsHeatmapPointsLoading] = useState(false);
   const [baselineHeatmapPoints, setBaselineHeatmapPoints] =
     useState<HeatmapMetricValue[]>([]);
@@ -188,6 +192,11 @@ const SimulationPage: React.FC = () => {
   }, [placedObjectsControls.pendingPlacedObject])
   const onStopSimulation = () => {
     stop();
+    // Drop the run's surfaces so the baseline date is never drawn with the last
+    // simulated frame's lattice. The effect below refits the baseline surface
+    // once isRunning clears; until it lands the map falls back to points.
+    simulationSurfacesRef.current = {};
+    setMetricSurfaces([]);
     setSelectedDate(baselineSelectedDate);
     setDisplayedHeatmapPoints(baselineHeatmapPoints);
   };
@@ -216,6 +225,17 @@ const SimulationPage: React.FC = () => {
       );
       framesByDate = simulatedPointsByDate;
 
+      // Krige every frame before playback starts, so the timeline advances the
+      // date, the points and the surface together the way it did when points
+      // were the only thing drawn. A per-frame fetch would always render one
+      // round trip behind the date the frame is labelled with.
+      simulationSurfacesRef.current = await fetchSimulationSurfaces(
+        metric,
+        selectedCity,
+        framesByDate,
+        { additionalMetrics: selectedAdditionalMetrics },
+      );
+
      
      
       
@@ -237,8 +257,14 @@ const SimulationPage: React.FC = () => {
       onFrame: (date, frame) => {
         setSelectedDate(date);
         setDisplayedHeatmapPoints(frame);
+        // Same commit as the date and the points, so the surface on screen
+        // always belongs to the frame the timeline is showing.
+        const surface = simulationSurfacesRef.current[date];
+        setMetricSurfaces(surface ? [surface] : []);
       },
       onComplete: () => {
+        simulationSurfacesRef.current = {};
+        setMetricSurfaces([]);
         setSelectedDate(baselineSelectedDate);
         setDisplayedHeatmapPoints(baselineHeatmapPoints);
       }
@@ -293,12 +319,18 @@ const SimulationPage: React.FC = () => {
   //
   // The backend reads the readings, kriges them and returns only the lattice,
   // so thousands of points never travel to the browser and straight back. The
-  // one exception is a running simulation: its adjusted readings exist only
-  // here, so those still have to be posted.
+  // one exception is a simulation, whose adjusted readings exist only here -
+  // those are posted by fetchSimulationSurfaces before playback starts, not
+  // from this effect.
   //
   // A metric with no surface (avg_daily_visits) returns null here and keeps the
   // point-density heatmap instead.
   useEffect(() => {
+    // A running timeline owns the surface. Fetching per frame here would put
+    // the surface a round trip behind the date it is drawn under, because the
+    // frame advances synchronously and the request cannot.
+    if (isRunning) return;
+
     if (!selectedCity || !selectedMetricKey || !selectedDate) {
       setMetricSurfaces([]);
       return;
@@ -307,27 +339,10 @@ const SimulationPage: React.FC = () => {
     const controller = new AbortController();
     let ignore = false;
 
-    // A simulated frame only exists client-side, so it must be posted. Every
-    // other view names the city/date/metric and lets the backend do the work.
-    // Either way the tooltip's secondary metrics are read server-side for the
-    // city and date: a simulation only alters the drawn metric.
-    const request = isRunning
-      ? fetchInterpolatedSurface(
-          selectedMetricKey,
-          selectedCity,
-          displayedHeatmapPoints,
-          {
-            date: selectedDate,
-            additionalMetrics: selectedAdditionalMetrics,
-            signal: controller.signal,
-          },
-        )
-      : fetchCitySurface(selectedMetricKey, selectedCity, selectedDate, {
-          additionalMetrics: selectedAdditionalMetrics,
-          signal: controller.signal,
-        });
-
-    request
+    fetchCitySurface(selectedMetricKey, selectedCity, selectedDate, {
+      additionalMetrics: selectedAdditionalMetrics,
+      signal: controller.signal,
+    })
       .then((surface) => {
         if (ignore) return;
         setMetricSurfaces(surface ? [surface] : []);
@@ -342,15 +357,12 @@ const SimulationPage: React.FC = () => {
       ignore = true;
       controller.abort();
     };
-    // displayedHeatmapPoints only drives this while a simulation is running;
-    // outside a run the backend sources the readings from the date itself.
   }, [
     selectedAdditionalMetrics,
     selectedCity,
     selectedDate,
     selectedMetricKey,
     isRunning,
-    isRunning ? displayedHeatmapPoints : null,
   ]);
 
   // --- Cleanup simulation state on unmount ---

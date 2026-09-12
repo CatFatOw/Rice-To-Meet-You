@@ -452,100 +452,6 @@ def interpolated_points_to_polygon_geojson(interpolated_points, color_metric="he
     }
 
 
-def city_name_from_interpolated_point(point):
-    """Infer the display city name from the generated grid cell id.
-
-    Interpolated points do not store city directly. Generated grid cell ids use
-    a city_state_row_col style prefix, so this keeps the frontend heatmap route
-    grouped by city without adding another database column.
-    """
-    grid_cell = getattr(point, "grid_cell", None)
-    cell_id = getattr(grid_cell, "cell_id", None)
-    state = getattr(grid_cell, "state", None)
-    if not cell_id:
-        return "Unknown"
-
-    parts = cell_id.split("_")
-    if state:
-        normalized_state = str(state).lower().replace(" ", "_")
-        state_index = "_".join(parts).find(f"_{normalized_state}_")
-        if state_index > 0:
-            return cell_id[:state_index].replace("_", " ").title()
-
-    if len(parts) >= 3:
-        return parts[0].replace("_", " ").title()
-    return "Unknown"
-
-
-def _walk_positions(coordinates):
-    """Yield every [lon, lat] pair from nested GeoJSON coordinate arrays."""
-    if not coordinates:
-        return
-    if isinstance(coordinates[0], (int, float)):
-        yield coordinates
-        return
-    for nested in coordinates:
-        yield from _walk_positions(nested)
-
-
-def _grid_cell_bounds(cells):
-    """Return [min_lon, min_lat, max_lon, max_lat] across cell polygon geometry."""
-    min_lon = min_lat = float("inf")
-    max_lon = max_lat = float("-inf")
-
-    for cell in cells:
-        geometry = cell.geometry or {}
-        for position in _walk_positions(geometry.get("coordinates", [])):
-            lon, lat = position[0], position[1]
-            min_lon = min(min_lon, lon)
-            max_lon = max(max_lon, lon)
-            min_lat = min(min_lat, lat)
-            max_lat = max(max_lat, lat)
-
-    if min_lon == float("inf"):
-        raise ValueError("Grid cells have no polygon geometry to derive bounds from.")
-    return [min_lon, min_lat, max_lon, max_lat]
-
-
-def _fill_metric_grid_with_kriging(values, bounds, rows, cols, cell_by_pos, metric_key):
-    """Krige values onto lattice positions that have no saved metric value.
-
-    Positions without a stored grid cell (no metric row at all) get a synthetic
-    centroid from the regular bbox split, matching how the grid was generated.
-    """
-    min_lon, min_lat, max_lon, max_lat = bounds
-    lon_step = (max_lon - min_lon) / cols
-    lat_step = (max_lat - min_lat) / rows
-
-    def centroid(row, col):
-        cell = cell_by_pos.get((row, col))
-        if cell is not None:
-            return cell.grid_centroid_lon, cell.grid_centroid_lat
-        return min_lon + (col + 0.5) * lon_step, min_lat + (row + 0.5) * lat_step
-
-    known_points = []
-    target_cells = []
-    for row in range(rows):
-        for col in range(cols):
-            lon, lat = centroid(row, col)
-            position_id = row * cols + col
-            value = values[row][col]
-            if value is not None:
-                known_points.append(
-                    {"grid_cell_id": position_id, "lon": lon, "lat": lat, metric_key: float(value)}
-                )
-            else:
-                target_cells.append({"id": position_id, "lon": lon, "lat": lat})
-
-    if not target_cells or len(known_points) < 2:
-        return
-
-    results = interpolate_grid_centroids(target_cells, known_points, metric_key=metric_key)
-    for result in results:
-        position_id = result["grid_cell_id"]
-        values[position_id // cols][position_id % cols] = round(float(result[metric_key]), 2)
-
-
 # ---------------------------------------------------------------------------
 # The routes above interpolate onto saved grid-cell centroids and persist the
 # result. The frontend needs something different: a dense, regular lattice it
@@ -582,7 +488,6 @@ SURFACE_METRICS = {
 # points, so the ceiling keeps a single request bounded.
 SURFACE_MIN_RESOLUTION = 8
 SURFACE_MAX_RESOLUTION = 128
-SURFACE_DEFAULT_RESOLUTION = 48
 
 # Padding applied to the observation bounding box, as a fraction of its span,
 # so the drawn surface extends slightly past the outermost reading instead of
