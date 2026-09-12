@@ -7,15 +7,15 @@ import type {
   MetricSurface,
 } from './heatmap';
 import type { MetricRaster } from '../services/metricRaster';
+import type { PlacedObject as ToolboxPlacedObject, ToolboxItemDef } from './toolbox';
+import type { SurfaceType } from './map';
+import type { GeocodeResult } from './search';
 
 /** One city's kriged surface plus the raster image rendered from it. */
 export interface MetricSurfaceRaster {
   surface: MetricSurface;
   raster: MetricRaster;
 }
-import type { PlacedObject as ToolboxPlacedObject, ToolboxItemDef } from './toolbox';
-import type { SurfaceType } from './map';
-import type { GeocodeResult } from './search';
 import type { City } from './city';
 import type { PolygonDraw } from '../hooks/usePolygonDraw';
 
@@ -247,8 +247,16 @@ export interface UseHeatmapLayersArgs {
   selectedCity: string | null;
 
   displayedHeatmapPoints: HeatmapMetricValue[];
-  /** One rendered surface per city; empty while none are loaded. */
+  /**
+   * One rendered surface per city; empty while none are loaded, and always
+   * empty for a metric with no surface. The palette args below drive the
+   * point-density fallback that covers exactly those cases.
+   */
   metricSurfaceRasters: MetricSurfaceRaster[];
+  activeMetricColorRange: [number, number, number, number][];
+  activeMetricColorDomain: [number, number];
+  activeMetricWeightOffset: number;
+  activeMetricKey: string;
 
   displayedPOIAreas: CityPOIArea[];
   userPOIAreas: CityPOIArea[];

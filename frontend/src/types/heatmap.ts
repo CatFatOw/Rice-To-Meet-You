@@ -14,10 +14,6 @@ export type CityPOIAreaMap = Record<string, CityPOIArea[]>;
 export interface HeatmapMetricValue {
   value: number; // 0–100 weight used for heatmap coloring
   location_coordinates: [number, number]; // [lon, lat]
-  // Set when the reading was sampled off the interpolated raster surface
-  // rather than read from a measured point.
-  location_name?: string;
-  is_interpolated?: boolean;
   // Open bag of human-readable sub-metrics. Any key is allowed; every value is
   // a string so it can carry its own unit (e.g. "97°F", "62%", "88 / 100").
   individual_metrics?: Record<string, string>;

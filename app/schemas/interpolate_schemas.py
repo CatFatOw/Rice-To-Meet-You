@@ -103,6 +103,14 @@ class SurfaceRequest(BaseModel):
     # Degrees by which to widen the rectangle when selecting the readings to fit
     # on. 0 keeps it strict: only readings inside the city rectangle are used.
     boundary_buffer_deg: float = 0.0
+    # The date the posted readings describe. Only needed alongside
+    # additional_metrics, which are read from storage for that date.
+    date: Optional[str] = None
+    # Secondary metrics for the tooltip, interpolated onto the same lattice.
+    # A simulation only alters the drawn metric, so these are read server-side
+    # for `city`/`date` rather than travelling up with the points. Requires
+    # `date`; the drawn metric itself is served from the primary lattice.
+    additional_metrics: Optional[list[str]] = None
 
 
 class MetricLayer(BaseModel):

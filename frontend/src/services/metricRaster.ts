@@ -1,5 +1,5 @@
 import type { MetricSurface } from '../types/heatmap';
-import { getSmoothColor } from './colors';
+import { metricSurfaceColor } from './colors';
 
 // Rendered raster for one city's kriged surface: a fixed-size colorized image
 // anchored to geographic bounds (so it never resamples with zoom). The bounds
@@ -19,10 +19,14 @@ const PIXELS_PER_CELL = 12;
 const MIN_RASTER_WIDTH = 256;
 const MAX_RASTER_WIDTH = 960;
 const MAX_RASTER_HEIGHT = 1280;
-const RASTER_ALPHA = 210;
 
-const RASTER_CACHE = new Map<string, MetricRaster>();
-const MAX_RASTER_CACHE_ENTRIES = 24;
+// Keyed on the surface object itself, so a raster is reused exactly when the
+// surface is the same one and never when it is not. A descriptive key would
+// have to summarise the lattice, and two different lattices can share any
+// summary short enough to be worth computing - a stale image on a simulation
+// frame. Identity cannot collide, and a surface that has been replaced drops
+// its raster on its own.
+const RASTER_CACHE = new WeakMap<MetricSurface, MetricRaster>();
 
 function clamp(value: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, value));
@@ -123,12 +127,15 @@ function renderRaster(surface: MetricSurface): MetricRaster {
 
       // Colored by the real interpolated value in the metric's own units, so
       // the same temperature is the same color on every date and in every city.
-      const [r, g, b] = getSmoothColor(value, surface.metric_key);
+      // Alpha comes from the palette too: it is how the old heatmap layer let
+      // "no change" and the bottom of a ramp fall away to the basemap.
+      const [r, g, b, a] = metricSurfaceColor(value, surface.metric_key);
+      if (a === 0) continue;
       const offset = (y * width + x) * 4;
       image.data[offset] = r;
       image.data[offset + 1] = g;
       image.data[offset + 2] = b;
-      image.data[offset + 3] = RASTER_ALPHA;
+      image.data[offset + 3] = a;
     }
   }
 
@@ -137,17 +144,12 @@ function renderRaster(surface: MetricSurface): MetricRaster {
 }
 
 /** Build (or reuse from cache) the rendered raster for one kriged surface. */
-export function buildMetricRaster(cacheKey: string, surface: MetricSurface): MetricRaster {
-  const cached = RASTER_CACHE.get(cacheKey);
+export function buildMetricRaster(surface: MetricSurface): MetricRaster {
+  const cached = RASTER_CACHE.get(surface);
   if (cached) return cached;
 
   const raster = renderRaster(surface);
-  RASTER_CACHE.set(cacheKey, raster);
-  if (RASTER_CACHE.size > MAX_RASTER_CACHE_ENTRIES) {
-    const oldestKey = RASTER_CACHE.keys().next().value;
-    if (oldestKey) RASTER_CACHE.delete(oldestKey);
-  }
-
+  RASTER_CACHE.set(surface, raster);
   return raster;
 }
 

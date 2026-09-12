@@ -9,9 +9,13 @@ import {
 import { type City } from '../data/hostCities';
 import {
   hexToRgb,
+  metricColorDomain,
+  metricColorRange,
   metricLabel,
   metricLegendGradient,
   metricUnit,
+  metricWeightOffset,
+  type Metric,
 } from '../services/colors';
 import {
   buildMetricRaster,
@@ -92,6 +96,15 @@ function formatPoiFieldValue(value: any): string {
     return JSON.stringify(value);
   }
   return String(value);
+}
+
+// How the backend renders a numeric metric for a tooltip row: whole numbers
+// plain, everything else to one decimal, then the metric's own unit suffix.
+// Mirrored here because an interpolated value is formatted client-side, after
+// the lattice has been sampled.
+function formatMetricValue(value: number, unit: string): string {
+  const rendered = Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
+  return `${rendered}${unit}`;
 }
 
 type MapMode = '2d' | '3d';
@@ -586,39 +599,45 @@ const Heatmap: React.FC<HeatmapProps> = ({
     () => metricLegendGradient(activeMetricKey),
     [activeMetricKey],
   );
+  // Feed the point-density fallback in useHeatmapLayers, which draws
+  // avg_daily_visits and stands in for any metric whose surface has not
+  // arrived. The interpolated surface reads the same palette per value.
+  const activeMetricWeightOffset = useMemo(
+    () => metricWeightOffset(activeMetricKey),
+    [activeMetricKey],
+  );
+  const activeMetricColorRange = useMemo(
+    () => metricColorRange(activeMetricKey),
+    [activeMetricKey],
+  );
+  const activeMetricColorDomain = useMemo(
+    () => metricColorDomain(activeMetricKey as Metric),
+    [activeMetricKey],
+  );
 
   // One rendered image per city surface, each geographically anchored to its own
   // city's bounds. They are fixed-resolution, so the drawn surfaces never
-  // resample with zoom. Keyed on each surface's own shape so a new simulation
-  // frame produces a new raster rather than reusing a stale one.
+  // resample with zoom. Rasters are cached against the surface object itself,
+  // so a new simulation frame always renders rather than reusing a stale one.
   const metricSurfaceRasters: MetricSurfaceRaster[] = useMemo(
     () =>
       metricSurfaces
         .filter((surface) => surface.metric_key === activeMetricKey)
-        .map((surface) => {
-          const cacheKey = [
-            surface.city ?? 'unscoped',
-            surface.metric_key,
-            surface.bounds.join(','),
-            surface.rows,
-            surface.cols,
-            surface.min,
-            surface.max,
-            surface.source_count,
-          ].join('|');
-          return { surface, raster: buildMetricRaster(cacheKey, surface) };
-        }),
+        .map((surface) => ({ surface, raster: buildMetricRaster(surface) })),
     [metricSurfaces, activeMetricKey],
   );
 
   /**
-   * Read the city surfaces at a coordinate. Returns a synthesized reading from
-   * whichever city's surface contains it, or null when the coordinate is
-   * outside every city, so places without data never show values.
+   * Read the city surfaces at a coordinate. Returns a reading shaped exactly
+   * like a measured one, or null when the coordinate is outside every city, so
+   * places with no data still show nothing.
    *
-   * The tooltip's secondary metrics come from lattices kriged alongside the
-   * drawn one, so every row reports an interpolated value for the exact
-   * coordinate under the cursor rather than the nearest measured reading.
+   * The secondary metrics come from lattices kriged alongside the drawn one, so
+   * every tooltip row reports an interpolated value for the exact coordinate
+   * under the cursor rather than the nearest measured reading. Values are
+   * rendered the way the backend renders a measured one - whole numbers plain,
+   * everything else to one decimal, then the metric's own unit - so an
+   * interpolated row reads identically to the row it replaces.
    */
   const sampleRasterPoint = useCallback(
     (lon: number, lat: number): HeatmapMetricValue | null => {
@@ -628,24 +647,22 @@ const Heatmap: React.FC<HeatmapProps> = ({
         const value = sampleSurface(surface, lon, lat);
         if (value === null) continue;
 
-        const individualMetrics: Record<string, string> = {
-          [surface.metric_key]: `${value.toFixed(1)} \u00b0C`,
-        };
+        const individualMetrics: Record<string, string> = {};
         for (const [name, layer] of Object.entries(surface.metrics ?? {})) {
           const layerValue = sampleLattice(surface, layer.values, lon, lat);
           if (layerValue !== null) {
-            individualMetrics[name] = `${layerValue.toFixed(1)}${layer.unit}`;
+            individualMetrics[name] = formatMetricValue(layerValue, layer.unit);
           }
         }
 
         return {
-          value,
-          location_name: surface.city
-            ? `${surface.city} \u00b7 ${lat.toFixed(4)}, ${lon.toFixed(4)}`
-            : `${lat.toFixed(4)}, ${lon.toFixed(4)}`,
+          // One decimal, matching how a measured reading arrives, so the
+          // headline number does not turn into a long float on hover.
+          value: Number(value.toFixed(1)),
           location_coordinates: [lon, lat],
-          individual_metrics: individualMetrics,
-          is_interpolated: true,
+          ...(Object.keys(individualMetrics).length > 0
+            ? { individual_metrics: individualMetrics }
+            : {}),
         };
       }
       return null;
@@ -751,6 +768,10 @@ const Heatmap: React.FC<HeatmapProps> = ({
     selectedCity,
     displayedHeatmapPoints,
     metricSurfaceRasters,
+    activeMetricColorRange,
+    activeMetricColorDomain,
+    activeMetricWeightOffset,
+    activeMetricKey,
     displayedPOIAreas,
     userPOIAreas,
     editingAreaId,
@@ -846,9 +867,16 @@ const Heatmap: React.FC<HeatmapProps> = ({
         return;
       }
 
-      // Outside every raster: fall back to a picked measured reading, which is
-      // all there is for cities the backend has no grid for.
-      if (pickedLayerId === 'heatmap-point-pick-layer' && info.object) {
+      // Outside every raster: fall back to a picked measured reading. That is
+      // the whole story for the point-density metric, and the safety net for a
+      // metric whose surface has not arrived.
+      if (
+        selectedCity
+        && selectedDate
+        && displayedHeatmapPoints.length > 0
+        && pickedLayerId === 'heatmap-point-pick-layer'
+        && info.object
+      ) {
         publish(info.object as HeatmapMetricValue);
         return;
       }
@@ -858,9 +886,12 @@ const Heatmap: React.FC<HeatmapProps> = ({
     },
     [
       activeMetricKey,
+      displayedHeatmapPoints.length,
       isDrawing,
       mapRef,
       sampleRasterPoint,
+      selectedCity,
+      selectedDate,
       setHoveringHeatmap,
       setTooltip,
     ],

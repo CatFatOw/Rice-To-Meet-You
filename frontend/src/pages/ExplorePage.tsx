@@ -269,7 +269,7 @@ const ExplorePage: React.FC = () => {
     };
   }, []);
 
-  // --- Krige the displayed readings into the surface for the city in view ---
+  // --- Krige the city's readings into the surface the map draws ---
   // Exactly one surface is requested: the city the map is currently on. Several
   // host-city rectangles overlap (New York and New Jersey share 0.84 x 0.59
   // degrees, and both overlap Philadelphia), so asking for every city whose
@@ -277,18 +277,12 @@ const ExplorePage: React.FC = () => {
   // and let whichever drew last win. Fetching only what is in view also means
   // no kriging is done for cities nobody is looking at.
   //
-  // The backend reads the readings, kriges them and returns only the lattice.
-  // Explore has no simulation, so nothing here ever needs to send readings up.
+  // The backend reads the readings, kriges them and returns only the lattice,
+  // so thousands of points never travel to the browser and straight back.
+  // A metric with no surface (avg_daily_visits) returns null here and keeps the
+  // point-density heatmap instead.
   useEffect(() => {
-    // Zoomed out past any one city, or nothing selected yet: no surface to
-    // build. Say which precondition stopped it - a blank map is otherwise
-    // impossible to tell apart from a broken one.
     if (!selectedCity || !selectedMetricKey || !selectedDate) {
-      console.debug('[ExplorePage] no interpolated surface:', {
-        selectedCity: selectedCity ?? '(none - zoomed out past a city)',
-        metric: selectedMetricKey ?? '(none)',
-        date: selectedDate ?? '(none)',
-      });
       setMetricSurfaces([]);
       return;
     }
@@ -302,11 +296,6 @@ const ExplorePage: React.FC = () => {
     })
       .then((surface) => {
         if (ignore) return;
-        console.debug('[ExplorePage] interpolated surface:', {
-          city: selectedCity,
-          date: selectedDate,
-          readings: surface?.source_count ?? 0,
-        });
         setMetricSurfaces(surface ? [surface] : []);
       })
       .catch((error) => {
@@ -319,9 +308,12 @@ const ExplorePage: React.FC = () => {
       ignore = true;
       controller.abort();
     };
-  }, [selectedCity, selectedDate, selectedMetricKey, selectedMetric]);
-
-
+  }, [
+    selectedAdditionalMetrics,
+    selectedCity,
+    selectedDate,
+    selectedMetricKey,
+  ]);
 
   // --- Cleanup simulation state on unmount ---
   // Ensure any running simulation timer is cleared when component unmounts

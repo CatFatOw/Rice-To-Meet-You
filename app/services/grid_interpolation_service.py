@@ -713,12 +713,28 @@ def grid_metrics_to_metric_layers(metrics, metric_keys=None):
 # can draw as one continuous image. That surface is derived data — it is never
 # stored, so it works for simulated readings that exist only in the browser.
 
-# Metrics the surface endpoint accepts. These are weather-model metrics, not the
-# stored grid metrics in INTERPOLATABLE_METRICS, and they are deliberately kept
-# separate: nothing about a surface request touches grid_cell_metrics.
+# Metrics the surface endpoint accepts: every metric the map can display except
+# avg_daily_visits. These are weather-model metrics, not the stored grid metrics
+# in INTERPOLATABLE_METRICS, and they are deliberately kept separate: nothing
+# about a surface request touches grid_cell_metrics.
+#
+# avg_daily_visits is excluded on purpose. Visits are a per-POI count, not a
+# sample of a field that exists between the POIs, so kriging one would invent
+# footfall for empty ground. It keeps the point-density heatmap instead.
 SURFACE_METRICS = {
     "average_temperature_c",
+    "average_temperature_f",
+    "heat_index_c",
+    "heat_index_f",
+    "average_relative_humidity_pct",
+    "heat_risk_score",
+    "local_temperature_c",
+    "local_temperature_f",
     "change_in_temperature",
+    "change_in_average_temperature_c",
+    "change_in_average_temperature_f",
+    "change_in_local_temperature_c",
+    "change_in_local_temperature_f",
 }
 
 # Lattice resolution bounds. Kriging cost grows with the number of predicted

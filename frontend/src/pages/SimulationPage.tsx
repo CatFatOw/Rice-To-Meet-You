@@ -22,7 +22,7 @@ import {
 } from '../api/statistics';
 import {
   fetchCitySurface,
-  fetchInterpolatedCitySurfaces,
+  fetchInterpolatedSurface,
 } from '../api/gridInterpolation';
 import type { MetricSurface } from '../types/heatmap';
 import { determineCityView } from '../services/cityViews';
@@ -283,7 +283,7 @@ const SimulationPage: React.FC = () => {
     };
   }, []);
 
-  // --- Krige the displayed readings into the surface for the city in view ---
+  // --- Krige the city's readings into the surface the map draws ---
   // Exactly one surface is requested: the city the map is currently on. Several
   // host-city rectangles overlap (New York and New Jersey share 0.84 x 0.59
   // degrees, and both overlap Philadelphia), so asking for every city whose
@@ -295,16 +295,11 @@ const SimulationPage: React.FC = () => {
   // so thousands of points never travel to the browser and straight back. The
   // one exception is a running simulation: its adjusted readings exist only
   // here, so those still have to be posted.
+  //
+  // A metric with no surface (avg_daily_visits) returns null here and keeps the
+  // point-density heatmap instead.
   useEffect(() => {
-    // Zoomed out past any one city, or nothing selected yet: no surface to
-    // build. Say which precondition stopped it - a blank map is otherwise
-    // impossible to tell apart from a broken one.
     if (!selectedCity || !selectedMetricKey || !selectedDate) {
-      console.debug('[SimulationPage] no interpolated surface:', {
-        selectedCity: selectedCity ?? '(none - zoomed out past a city)',
-        metric: selectedMetricKey ?? '(none)',
-        date: selectedDate ?? '(none)',
-      });
       setMetricSurfaces([]);
       return;
     }
@@ -312,28 +307,30 @@ const SimulationPage: React.FC = () => {
     const controller = new AbortController();
     let ignore = false;
 
-    // Simulated frames only exist client-side, so they must be posted. Every
+    // A simulated frame only exists client-side, so it must be posted. Every
     // other view names the city/date/metric and lets the backend do the work.
+    // Either way the tooltip's secondary metrics are read server-side for the
+    // city and date: a simulation only alters the drawn metric.
     const request = isRunning
-      ? fetchInterpolatedCitySurfaces(selectedMetricKey, displayedHeatmapPoints, {
-          cities: [selectedCity],
-          signal: controller.signal,
-        }).then((result) => result?.surfaces ?? [])
+      ? fetchInterpolatedSurface(
+          selectedMetricKey,
+          selectedCity,
+          displayedHeatmapPoints,
+          {
+            date: selectedDate,
+            additionalMetrics: selectedAdditionalMetrics,
+            signal: controller.signal,
+          },
+        )
       : fetchCitySurface(selectedMetricKey, selectedCity, selectedDate, {
           additionalMetrics: selectedAdditionalMetrics,
           signal: controller.signal,
-        }).then((surface) => (surface ? [surface] : []));
+        });
 
     request
-      .then((surfaces) => {
+      .then((surface) => {
         if (ignore) return;
-        console.debug('[SimulationPage] interpolated surface:', {
-          city: selectedCity,
-          date: selectedDate,
-          source: isRunning ? 'posted simulated readings' : 'server-side',
-          surfaces: surfaces.map((s) => `${s.city} (${s.source_count} readings)`),
-        });
-        setMetricSurfaces(surfaces);
+        setMetricSurfaces(surface ? [surface] : []);
       })
       .catch((error) => {
         if (ignore || controller.signal.aborted) return;
@@ -348,14 +345,13 @@ const SimulationPage: React.FC = () => {
     // displayedHeatmapPoints only drives this while a simulation is running;
     // outside a run the backend sources the readings from the date itself.
   }, [
+    selectedAdditionalMetrics,
     selectedCity,
     selectedDate,
     selectedMetricKey,
-    selectedMetric,
     isRunning,
     isRunning ? displayedHeatmapPoints : null,
   ]);
-
 
   // --- Cleanup simulation state on unmount ---
   // Ensure any running simulation timer is cleared when component unmounts
