@@ -28,10 +28,6 @@ from routers import (
     final_visitor
 
 )
-# Front-end specific heatmap routes (interpolated grid, statistics, simulation).
-# Shares the /heatmap prefix with routers.heatmap but exposes different paths.
-from routers.front_end_routes import heatmap as front_end_heatmap
-
 
 import logging
 logging.basicConfig(level=logging.INFO)
@@ -129,7 +125,6 @@ app.include_router(grid_geometry.router)
 app.include_router(grid_metrics.router)
 app.include_router(grid_interpolation.router)
 app.include_router(heatmap.router)
-app.include_router(front_end_heatmap.router)
 app.include_router(core_poi.router)
 app.include_router(poi_polygons.router)
 app.include_router(polygon.router)
