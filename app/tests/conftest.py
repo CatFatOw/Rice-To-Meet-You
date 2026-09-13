@@ -1,10 +1,11 @@
 """Shared fixtures for the backend unit tests.
 
 Scope: the backend functions the frontend actually reaches, which is the
-``core_poi``, ``urban_intervention`` and ``final_visitor`` stacks. The heatmap
-router, service and repository are deliberately out of scope, so where a
-visitor function reads the heatmap weather cache (``_heat_index_f``) the tests
-stub that seam instead of exercising it.
+``core_poi``, ``urban_intervention``, ``final_visitor``, ``heatmap`` and
+``grid_interpolation`` surface stacks. The visitor tests still stub the heatmap
+weather cache (``_heat_index_f``) rather than exercising it through the visitor
+side; the heatmap repository has its own tests. Heatmap and surface fixtures
+live in their own test modules, since nothing else shares them.
 
 Nothing here talks to Postgres. Two strategies stand in for it:
 
