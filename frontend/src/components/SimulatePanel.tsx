@@ -17,6 +17,8 @@ export interface SimulatePanelProps {
   loadingSimulation?: boolean;
   progress?: SimulationProgressDisplay;
   title?: string;
+  simulationDisabled?: boolean;
+  simulationDisabledReason?: string;
 }
 
 const SimulationProgressContext = createContext<SimulationProgressDisplay | undefined>(undefined);
@@ -64,6 +66,8 @@ export default function SimulatePanel({
   loadingSimulation,
   progress,
   title = 'Simulate',
+  simulationDisabled = false,
+  simulationDisabledReason,
 }: SimulatePanelProps) {
   const contextualProgress = useContext(SimulationProgressContext);
   const displayProgress = progress ?? contextualProgress;
@@ -92,7 +96,11 @@ export default function SimulatePanel({
         <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
           {title}
         </h3>
-        <span className="text-xs text-[var(--text-muted)]">Choose a date range, then run</span>
+        <span className="text-xs text-[var(--text-muted)]">
+          {simulationDisabled && simulationDisabledReason
+            ? simulationDisabledReason
+            : 'Choose a date range, then run'}
+        </span>
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
@@ -135,7 +143,7 @@ export default function SimulatePanel({
         ) : (
           <SimulateButton
             onClick={handleStart}
-            disabled={loadingSimulation}
+            disabled={loadingSimulation || simulationDisabled}
             label={
               loadingSimulation ? (
                 <span className="inline-flex items-center gap-2">

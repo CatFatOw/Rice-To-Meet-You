@@ -4,7 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from database import get_db, SessionLocal
+from database import get_db
 from repository.heatmap_repository import HeatmapRepository
 from schemas.simulation_schemas import SimulationRequest
 
@@ -18,10 +18,10 @@ router = APIRouter(prefix="/heatmap", tags=["heatmap"])
 def get_heatmap_points_by_city_date(
     city: str,
     date: str,
+    db: Session = Depends(get_db),
 ):
     """Return heatmap points for a city and date."""
 
-    db = SessionLocal()
     repository = HeatmapRepository(db)
     result = repository.getDataPointsForCityAndDate(
         weather_date=date,
@@ -46,10 +46,10 @@ def get_heatmap_points_by_city_date_metric(
     date: str,
     metric: str,
     additional_metrics: Optional[List[str]] = Query(default=None),
+    db: Session = Depends(get_db),
 ):
     """Return heatmap points for a city/date, restricted to one metric."""
 
-    db = SessionLocal()
     repository = HeatmapRepository(db)
     try:
         result = repository.getDataPointsForCityDateMetric(
@@ -83,10 +83,10 @@ def get_local_temperature_by_city_date(
     metric: Optional[str] = None,
     additional_metrics: Optional[List[str]] = Query(default=None),
     temperature_unit: str = "f",
+    db: Session = Depends(get_db),
 ):
     """Return per-point local temperatures for a city and date."""
 
-    db = SessionLocal()
     repository = HeatmapRepository(db)
     try:
         result = repository.getLocalTemperatureByCityDate(
@@ -117,9 +117,9 @@ def get_local_temperature_by_city_date(
 )
 def get_simulated_point_by_date(
     payload: SimulationRequest,
+    db: Session = Depends(get_db),
 ):
     """Run intervention simulation and return simulated heatmap points."""
-    db = SessionLocal()
     repository = HeatmapRepository(db)
     print("Simulation API Reached")
     try:

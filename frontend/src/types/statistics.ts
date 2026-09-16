@@ -66,6 +66,10 @@ export interface POIStatisticsProps {
   isRunning?: boolean;
   loadingSimulation?: boolean;
   onSimulate?: () => void;
+  /** True while the selected metric doesn't support simulation (e.g. Heat Risk, Average Daily Visits). */
+  simulationDisabled?: boolean;
+  /** Shown in place of the run hint when simulationDisabled is true. */
+  simulationDisabledReason?: string;
 }
 
 /** Presentation-only state for the simulation timeline indicator. */

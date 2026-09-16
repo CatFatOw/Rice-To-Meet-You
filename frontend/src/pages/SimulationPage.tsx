@@ -185,6 +185,11 @@ const SimulationPage: React.FC = () => {
   const selectedMetricKey = selectedMetric ? Object.keys(selectedMetric)[0] : null;
   const selectedAdditionalMetrics = selectedMetric ? Object.values(selectedMetric)[0] : [];
 
+  // Simulation only makes sense for metrics that can be projected forward;
+  // heat risk and visit counts are direct dataset readings, not forecasts.
+  const isSimulationDisabledForMetric =
+    selectedMetricKey === 'heat_risk_score' || selectedMetricKey === 'avg_daily_visits';
+
   useEffect(() => {
     console.log(placedObjectsControls.pendingPlacedObject)
   }, [placedObjectsControls.pendingPlacedObject])
@@ -196,6 +201,7 @@ const SimulationPage: React.FC = () => {
 
   const onStartSimulation = async () => {
     if (!selectedCity || !fromDate || !toDate) return;
+    if (isSimulationDisabledForMetric) return;
 
     const metric = selectedMetricKey ?? Object.keys(availableMetrics[0] ?? {})[0];
   
@@ -639,6 +645,8 @@ useEffect(() => {
                   onStopSimulation={onStopSimulation}
                   isRunning={isRunning}
                   loadingSimulation={loadingSimulation}
+                  simulationDisabled={isSimulationDisabledForMetric}
+                  simulationDisabledReason="Simulation isn't available for Heat Risk or Average Daily Visits"
                 />
               </SimulationProgressProvider>
             </section>

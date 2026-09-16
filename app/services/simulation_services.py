@@ -1026,6 +1026,13 @@ def run_diminishing_return_simulation(
     for date, points in points_by_date.items():
         simulated_points: list[HeatmapMetricValue] = []
 
+        # is_active_on_date only depends on (obj, date), not the point -- filter
+        # once per date instead of once per (point, object) pair below.
+        active_by_category = {
+            category: [obj for obj in objects if is_active_on_date(obj, date)]
+            for category, objects in categorized_objects.items()
+        }
+
         for index, source_point in enumerate(points):
             metrics = source_point.get("individual_metrics") or {}
 
@@ -1057,10 +1064,8 @@ def run_diminishing_return_simulation(
             ceiling = cooling_ceiling_for_point(temperature_c, relative_humidity)
 
             raw: list[_Contribution] = []
-            for category, objects in categorized_objects.items():
+            for category, objects in active_by_category.items():
                 for obj in objects:
-                    if not is_active_on_date(obj, date):
-                        continue
                     cooling = individual_cooling(
                         category, obj, source_point, temperature_c, relative_humidity
                     )

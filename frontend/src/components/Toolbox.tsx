@@ -928,6 +928,7 @@ const handleDrawIntervention = React.useCallback(
                     if (!canSaveTool) return;
                     void placedObjectsControls?.commitPendingPlacedObject?.().then(() => {
                       setCommitSuccess(true);
+                      onCancelDrawing(); // creation succeeded -- exit draw mode
                     });
                   }}
                   disabled={!canSaveTool}

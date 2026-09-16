@@ -85,6 +85,8 @@ export default function POIStatistics({
   onStopSimulation,
   isRunning,
   loadingSimulation,
+  simulationDisabled,
+  simulationDisabledReason,
 }: POIStatisticsProps) {
   const panelRef = useRef<HTMLElement>(null);
   const { isFullscreen, toggleFullscreen } = useFullscreen(panelRef);
@@ -176,6 +178,8 @@ export default function POIStatistics({
               onStopSimulation={onStopSimulation}
               isRunning={isRunning}
               loadingSimulation={loadingSimulation}
+              simulationDisabled={simulationDisabled}
+              simulationDisabledReason={simulationDisabledReason}
             />
 
             <ToolboxTable
