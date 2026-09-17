@@ -19,8 +19,6 @@ reader was called, with which arguments, and how the result was shaped.
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 from fastapi import HTTPException
 
@@ -719,7 +717,7 @@ class TestKrigeSurfaceBehaviourTheRoutesRelyOn:
 
 
 def get_surface(db=None, **kwargs):
-    """Call the GET route, which is async, and return its response dict."""
+    """Call the GET route and return its response dict."""
     parameters = {
         "city": CITY,
         "date": DATE,
@@ -730,7 +728,7 @@ def get_surface(db=None, **kwargs):
         "db": db,
         **kwargs,
     }
-    return asyncio.run(get_city_surface(**parameters))
+    return get_city_surface(**parameters)
 
 
 class TestGetCitySurfaceRoute:
@@ -923,7 +921,7 @@ def post_surface(db=None, **fields):
         cols=SURFACE_MIN_RESOLUTION,
         **fields,
     )
-    return asyncio.run(get_interpolated_surface(payload, db))
+    return get_interpolated_surface(payload, db)
 
 
 def simulated_points(values):
@@ -982,7 +980,7 @@ class TestInterpolatedSurfaceRoute:
                 cols=1000,
                 points=simulated_points([-2.0, -1.0, 1.0, 2.0]),
             )
-            asyncio.run(get_interpolated_surface(payload, None))
+            get_interpolated_surface(payload, None)
 
         assert raised.value.status_code == 400
 
@@ -1054,7 +1052,7 @@ class TestInterpolatedSurfaceRoute:
                 city=CITY,
                 points=simulated_points([1.0, 2.0]),
             )
-            asyncio.run(get_interpolated_surface(payload, None))
+            get_interpolated_surface(payload, None)
 
         assert raised.value.status_code == 400
 

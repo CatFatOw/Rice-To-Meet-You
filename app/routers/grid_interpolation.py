@@ -213,7 +213,7 @@ _SURFACE_CACHE_MAX_ENTRIES = 64
 
 
 @router.get("/surface", response_model=interpolate_schemas.SurfaceResponse)
-async def get_city_surface(
+def get_city_surface(
     city: str,
     date: str,
     metric_key: str = "average_temperature_c",
@@ -314,7 +314,7 @@ async def get_city_surface(
 
 
 @router.post("/surface", response_model=interpolate_schemas.SurfaceResponse)
-async def get_interpolated_surface(
+def get_interpolated_surface(
     payload: interpolate_schemas.SurfaceRequest,
     db: Session = Depends(get_db),
 ):
