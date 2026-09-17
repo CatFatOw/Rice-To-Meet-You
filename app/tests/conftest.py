@@ -285,13 +285,19 @@ def stub_heat_index(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Final visitor — SQLite mirror of final_visitor_table
+# Final visitor — SQLite mirror of the visitor table
 # --------------------------------------------------------------------------- #
 
 
 @pytest.fixture
 def visitor_table() -> Table:
-    """``final_visitor_table`` rebuilt with SQLite-creatable types.
+    """The visitor table rebuilt with SQLite-creatable types.
+
+    Both the name and the columns come off ``VisitorData``. The name is not
+    spelled out here because the repository reads through the model: a mirror
+    holding its own copy of the name stops being the table under test the day
+    the real one is renamed, and every case fails with "no such table" rather
+    than pointing at the rename.
 
     The real model carries a PostGIS ``Geometry`` column, whose DDL calls
     ``RecoverGeometryColumn`` and fails on plain SQLite. That column is in
@@ -310,7 +316,7 @@ def visitor_table() -> Table:
         )
         for column in VisitorData.__table__.columns
     ]
-    return Table("final_visitor_table", metadata, *columns)
+    return Table(VisitorData.__tablename__, metadata, *columns)
 
 
 @pytest.fixture

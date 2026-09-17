@@ -6,19 +6,23 @@ Mapped to their callers in ``src/api``:
 * get-local-temperature-by-city-date     → map.ts        getLocalTemperature{C,F}ByCityDate
 * get-simulated-point-by-date            → simulation.ts getSimulatedPointsByDate
 
-The handlers are plain ``def`` and open their own session with ``SessionLocal``
-rather than taking one from ``Depends(get_db)``, so both ``SessionLocal`` and
-``HeatmapRepository`` are swapped on the module. The assertions are about what
-each handler forwards, and how it maps the repository's answer onto a status:
-the frontend treats a 404 from the two GET routes as an empty map.
+The handlers take their session from ``Depends(get_db)``, so only
+``HeatmapRepository`` is swapped on the module; calling a handler directly means
+passing the session yourself, because FastAPI is not in the loop. The assertions
+are about what each handler forwards, and how it maps the repository's answer
+onto a status: the frontend treats a 404 from the two GET routes as an empty map.
 """
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
 from fastapi import HTTPException
+from fastapi.params import Depends as DependsMarker
 from pydantic import ValidationError
 
+from database import get_db
 from routers import heatmap
 from schemas.simulation_schemas import SimulationRequest
 
@@ -27,11 +31,14 @@ POINTS = {DATE: [{"value": 30.0, "location_coordinates": [-95.4, 29.7]}]}
 
 
 class FakeSession:
-    def __init__(self):
-        self.closed = False
+    """Stands in for the session ``Depends(get_db)`` would supply.
 
-    def close(self):
-        self.closed = True
+    Nothing in a handler touches it beyond handing it to the repository, so a
+    bare marker is enough. Closing it is ``get_db``'s job, not a handler's.
+    """
+
+
+DB = FakeSession()
 
 
 class StubRepository:
@@ -43,7 +50,6 @@ class StubRepository:
     answers: dict = {}
     calls: list = []
     sessions: list = []  # sessions the handler passed in
-    opened: list = []  # sessions SessionLocal handed out
 
     def __init__(self, session):
         type(self).sessions.append(session)
@@ -67,19 +73,10 @@ class StubRepository:
 
 @pytest.fixture
 def repository(monkeypatch):
-    sessions = []
-
-    def session_factory():
-        session = FakeSession()
-        sessions.append(session)
-        return session
-
     StubRepository.answers = {}
     StubRepository.calls = []
     StubRepository.sessions = []
-    monkeypatch.setattr(heatmap, "SessionLocal", session_factory)
     monkeypatch.setattr(heatmap, "HeatmapRepository", StubRepository)
-    StubRepository.opened = sessions
     return StubRepository
 
 
@@ -93,7 +90,7 @@ class TestHeatmapPointsByCityDateMetric:
         repository.answers["getDataPointsForCityDateMetric"] = POINTS
 
         result = heatmap.get_heatmap_points_by_city_date_metric(
-            city="houston", date=DATE, metric="average_temperature_c"
+            city="houston", date=DATE, metric="average_temperature_c", db=DB
         )
 
         assert result is POINTS
@@ -107,7 +104,7 @@ class TestHeatmapPointsByCityDateMetric:
             city="kansas_city",
             date=DATE,
             metric="heat_index_f",
-            additional_metrics=["average_temperature_f", "heat_index_f"],
+            additional_metrics=["average_temperature_f", "heat_index_f"], db=DB,
         )
 
         assert repository.calls == [
@@ -121,7 +118,7 @@ class TestHeatmapPointsByCityDateMetric:
                 },
             )
         ]
-        assert repository.sessions == repository.opened
+        assert repository.sessions == [DB]
 
     @pytest.mark.parametrize("empty", [{}, None])
     def test_no_points_is_a_404(self, repository, empty):
@@ -129,7 +126,7 @@ class TestHeatmapPointsByCityDateMetric:
 
         with pytest.raises(HTTPException) as raised:
             heatmap.get_heatmap_points_by_city_date_metric(
-                city="houston", date=DATE, metric="average_temperature_c"
+                city="houston", date=DATE, metric="average_temperature_c", db=DB
             )
 
         assert raised.value.status_code == 404
@@ -142,7 +139,7 @@ class TestHeatmapPointsByCityDateMetric:
 
         with pytest.raises(HTTPException) as raised:
             heatmap.get_heatmap_points_by_city_date_metric(
-                city="houston", date=DATE, metric="nope"
+                city="houston", date=DATE, metric="nope", db=DB
             )
 
         assert raised.value.status_code == 400
@@ -153,25 +150,8 @@ class TestHeatmapPointsByCityDateMetric:
 
         with pytest.raises(RuntimeError):
             heatmap.get_heatmap_points_by_city_date_metric(
-                city="houston", date=DATE, metric="average_temperature_c"
+                city="houston", date=DATE, metric="average_temperature_c", db=DB
             )
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "BUG: the handler opens SessionLocal() itself and never closes it. "
-            "get_db, which every other frontend-facing router uses, closes the "
-            "session in a finally block."
-        ),
-    )
-    def test_the_request_session_is_closed(self, repository):
-        repository.answers["getDataPointsForCityDateMetric"] = POINTS
-
-        heatmap.get_heatmap_points_by_city_date_metric(
-            city="houston", date=DATE, metric="average_temperature_c"
-        )
-
-        assert [session.closed for session in repository.opened] == [True]
 
 
 # --------------------------------------------------------------------------- #
@@ -184,7 +164,7 @@ class TestLocalTemperatureByCityDate:
         repository.answers["getLocalTemperatureByCityDate"] = POINTS
 
         result = heatmap.get_local_temperature_by_city_date(
-            city="houston", date=DATE, metric="average_temperature_c", temperature_unit="c"
+            city="houston", date=DATE, metric="average_temperature_c", temperature_unit="c", db=DB
         )
 
         assert result is POINTS
@@ -197,7 +177,7 @@ class TestLocalTemperatureByCityDate:
             date=DATE,
             metric="average_temperature_c",
             additional_metrics=["uhi"],
-            temperature_unit="c",
+            temperature_unit="c", db=DB,
         )
 
         assert repository.calls == [
@@ -219,7 +199,7 @@ class TestLocalTemperatureByCityDate:
         repository.answers["getLocalTemperatureByCityDate"] = POINTS
 
         heatmap.get_local_temperature_by_city_date(
-            city="houston", date=DATE, additional_metrics=None
+            city="houston", date=DATE, additional_metrics=None, db=DB
         )
 
         _, kwargs = repository.calls[0]
@@ -231,7 +211,7 @@ class TestLocalTemperatureByCityDate:
         repository.answers["getLocalTemperatureByCityDate"] = empty
 
         with pytest.raises(HTTPException) as raised:
-            heatmap.get_local_temperature_by_city_date(city="houston", date=DATE)
+            heatmap.get_local_temperature_by_city_date(city="houston", date=DATE, db=DB)
 
         assert raised.value.status_code == 404
         assert raised.value.detail == "NO LOCAL TEMPERATURE POINTS FOUND"
@@ -243,22 +223,11 @@ class TestLocalTemperatureByCityDate:
 
         with pytest.raises(HTTPException) as raised:
             heatmap.get_local_temperature_by_city_date(
-                city="houston", date=DATE, temperature_unit="k"
+                city="houston", date=DATE, temperature_unit="k", db=DB
             )
 
         assert raised.value.status_code == 400
         assert raised.value.detail == "temperature_unit must be 'f' or 'c', got 'k'"
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason="BUG: SessionLocal() is opened per request and never closed.",
-    )
-    def test_the_request_session_is_closed(self, repository):
-        repository.answers["getLocalTemperatureByCityDate"] = POINTS
-
-        heatmap.get_local_temperature_by_city_date(city="houston", date=DATE)
-
-        assert [session.closed for session in repository.opened] == [True]
 
 
 # --------------------------------------------------------------------------- #
@@ -281,7 +250,7 @@ class TestSimulatedPointByDate:
     def test_the_simulated_points_are_returned_as_is(self, repository):
         repository.answers["get_simulated_points_by_date"] = POINTS
 
-        assert heatmap.get_simulated_point_by_date(simulation_request()) is POINTS
+        assert heatmap.get_simulated_point_by_date(simulation_request(), db=DB) is POINTS
 
     def test_every_payload_field_is_forwarded(self, repository):
         repository.answers["get_simulated_points_by_date"] = POINTS
@@ -289,7 +258,8 @@ class TestSimulatedPointByDate:
         heatmap.get_simulated_point_by_date(
             simulation_request(
                 additional_metrics=["average_relative_humidity_pct"], mode="contextual"
-            )
+            ),
+            db=DB,
         )
 
         assert repository.calls == [
@@ -302,6 +272,9 @@ class TestSimulatedPointByDate:
                     "metric": "average_temperature_c",
                     "additional_metrics": ["average_relative_humidity_pct"],
                     "mode": "contextual",
+                    # Forwarded so a simulation run from the chat panel can
+                    # fold its result back into that session; None off the map.
+                    "state": None,
                 },
             )
         ]
@@ -311,7 +284,7 @@ class TestSimulatedPointByDate:
         must come back as an empty body."""
         repository.answers["get_simulated_points_by_date"] = {}
 
-        assert heatmap.get_simulated_point_by_date(simulation_request()) == {}
+        assert heatmap.get_simulated_point_by_date(simulation_request(), db=DB) == {}
 
     @pytest.mark.parametrize(
         "error", [ValueError("from_date must not be after to_date."), KeyError("bad_type")]
@@ -320,7 +293,7 @@ class TestSimulatedPointByDate:
         repository.answers["get_simulated_points_by_date"] = error
 
         with pytest.raises(HTTPException) as raised:
-            heatmap.get_simulated_point_by_date(simulation_request())
+            heatmap.get_simulated_point_by_date(simulation_request(), db=DB)
 
         assert raised.value.status_code == 400
         assert raised.value.detail == str(error)
@@ -335,17 +308,24 @@ class TestSimulatedPointByDate:
         with pytest.raises(ValidationError):
             simulation_request(mode="aggressive")
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "BUG: SessionLocal() is opened per request and never closed; this "
-            "route also queries interventions through it, so it holds a pooled "
-            "connection until garbage collection."
-        ),
-    )
-    def test_the_request_session_is_closed(self, repository):
-        repository.answers["get_simulated_points_by_date"] = POINTS
+# --------------------------------------------------------------------------- #
+# Session ownership
+# --------------------------------------------------------------------------- #
 
-        heatmap.get_simulated_point_by_date(simulation_request())
 
-        assert [session.closed for session in repository.opened] == [True]
+@pytest.mark.parametrize(
+    "handler",
+    [
+        heatmap.get_heatmap_points_by_city_date_metric,
+        heatmap.get_local_temperature_by_city_date,
+        heatmap.get_simulated_point_by_date,
+    ],
+)
+def test_handlers_depend_on_the_shared_get_db_session(handler):
+    """``get_db``'s ``finally: db.close()`` is what returns a connection to the
+    pool. These handlers each used to open a ``SessionLocal()`` nothing ever
+    closed, so depending on ``get_db`` is the fix, and this is what holds it.
+    """
+    default = inspect.signature(handler).parameters["db"].default
+    assert isinstance(default, DependsMarker)
+    assert default.dependency is get_db
