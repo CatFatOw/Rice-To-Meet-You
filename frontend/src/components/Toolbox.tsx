@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Pencil, Check, Undo2, X, Trash2, MapPin, type LucideIcon } from 'lucide-react';
 import { TOOLBOX_DRAG_MIME, polygonParseFromRingToComma } from '../services/toolbox';
 import {
