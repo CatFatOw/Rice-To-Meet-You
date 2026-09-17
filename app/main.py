@@ -119,6 +119,10 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "https://rice-to-meet-you-five.vercel.app/",
+        "https://rice-to-meet-you-git-main-the-phat-nghiems-projects.vercel.app/",
+        "rice-to-meet-kpk7dmt28-the-phat-nghiems-projects.vercel.app"
+
     ],
     allow_credentials=True,
     allow_methods=["*"],
