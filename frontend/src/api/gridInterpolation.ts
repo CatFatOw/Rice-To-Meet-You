@@ -1,6 +1,7 @@
 import type { HeatmapMetricValue, MetricSurface } from '../types/heatmap';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
+// const API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL = 'https://rice-to-meet-you-production.up.railway.app';
 
 /**
  * Metrics the backend will krige into a continuous surface: every metric the
