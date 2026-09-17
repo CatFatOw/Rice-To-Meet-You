@@ -13,8 +13,13 @@ router = APIRouter(prefix="/final_visitor", tags=["final_visitor"])
 visitor_data_class = final_visitor_repository.VisitorRepository
 
 @router.get("/all")
-async def get_all(db:Session=Depends(get_db)):
-    result = db.query(VisitorData).all()
+async def get_all(
+    limit: int = 500,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    # Table has millions of rows -- an unbounded query stalls the request.
+    result = db.query(VisitorData).offset(offset).limit(limit).all()
     if not result:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="NOT FOUND")
     return result
@@ -50,7 +55,9 @@ async def query_visitor_rows_with_geometry_by_city_date(
     city: str,
     date: Date,
     sorted: bool = False,
-    limit: Optional[int] = None,
+    # Some markets have 1M+ rows for a single city/date -- default to a page
+    # instead of an unbounded scan; pass a larger value to widen the page.
+    limit: Optional[int] = 500,
     db: Session = Depends(get_db),
 ):
     repository = visitor_data_class(db)

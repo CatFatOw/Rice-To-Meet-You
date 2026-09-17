@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from database import get_db
-from repository.urban_internvetion_repository import UrbanInterventionRepository
+from repository.urban_internvetion_repository import (
+    InvalidGeometryError,
+    InvalidMarketCodeError,
+    InvalidParametersError,
+    UrbanInterventionRepository,
+)
 from schemas.urban_intervention import InterventionStatus, UrbanInterventionCreate
 
 router = APIRouter(prefix="/urban_intervention", tags=["urban_intervention"])
@@ -17,7 +22,13 @@ def create_urban_intervention(
     payload: UrbanInterventionCreate,
     db: Session = Depends(get_db),
 ) -> dict:
-    intervention = UrbanInterventionRepository(db).create(payload)
+    try:
+        intervention = UrbanInterventionRepository(db).create(payload)
+    except (InvalidMarketCodeError, InvalidGeometryError, InvalidParametersError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     db.commit()
     return asdict(intervention)
 

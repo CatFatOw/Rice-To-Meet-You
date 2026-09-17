@@ -25,6 +25,7 @@ export interface StatCardInfo {
 
 export interface OverallStatisticsProps {
   title?: string;
+  selectedDate?: string | null;
   donutLabel?: string;
   topDestinations?: TopDestination[];
   distribution?: DistributionBucket[];

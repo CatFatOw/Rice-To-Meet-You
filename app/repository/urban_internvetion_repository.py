@@ -57,6 +57,28 @@ class InvalidParametersError(ValueError):
     """Raised when ``parameters`` do not match the given ``intervention_type``."""
 
 
+class InvalidMarketCodeError(ValueError):
+    """Raised when ``market_code`` isn't one of the seeded ``markets`` rows."""
+
+
+# Mirrors the rows seeded in the ``markets`` table (FK target of
+# urban_interventions.market_code). Kept here so a bad code fails fast with a
+# clear 400 instead of surfacing as a psycopg2 ForeignKeyViolation / 500.
+VALID_MARKET_CODES: Final[frozenset[str]] = frozenset({
+    "atlanta",
+    "kansas_city",
+    "boston",
+    "seattle",
+    "miami",
+    "dallas",
+    "houston",
+    "san_francisco",
+    "philadelphia",
+    "los_angeles",
+    "new_york_nj",
+})
+
+
 @dataclass(frozen=True, slots=True)
 class UrbanInterventionRecord:
     """A row as it exists in the database."""
@@ -276,7 +298,15 @@ class UrbanInterventionRepository:
         Raises:
             InvalidGeometryError: the geometry cannot be rendered as WKT.
             InvalidParametersError: ``parameters`` don't match the type.
+            InvalidMarketCodeError: ``market_code`` isn't a known market.
         """
+        market_code = data["market_code"]
+        if market_code not in VALID_MARKET_CODES:
+            raise InvalidMarketCodeError(
+                f"{market_code!r} is not a known market_code; expected one of "
+                f"{sorted(VALID_MARKET_CODES)}"
+            )
+
         intervention_type: InterventionType = data["intervention_type"]
         parameters = data["parameters"]
         _validate_parameters(intervention_type, parameters)

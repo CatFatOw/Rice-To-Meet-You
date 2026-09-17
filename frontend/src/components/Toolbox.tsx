@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Pencil, Check, Undo2, X, Trash2, MapPin, type LucideIcon } from 'lucide-react';
 import { TOOLBOX_DRAG_MIME, polygonParseFromRingToComma } from '../services/toolbox';
 import {
@@ -15,7 +15,7 @@ import SelectDate from './SelectDate';
 import { createNewUrbanIntervention, fetchCustomUrbanInterventions } from '../api/tool';
 import { TOOLBOX_ITEMS } from '../data/toolboxItems';
 import { cities } from '../data/hostCities';
-import { createPOI, type CreatePOIInput } from '../api/map';
+import { createPOI, toMarketCode, type CreatePOIInput } from '../api/map';
 import './Toolbox.css';
 
 const toolbarButtonStyle: React.CSSProperties = {
@@ -83,6 +83,8 @@ const US_STATE_CODES = [
   'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN',
   'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
 ];
+
+
 function normalizePolygonWkt(value: string): string {
   const text = value.trim();
   if (/^(POLYGON|MULTIPOLYGON)\s*\(/i.test(text)) return text;
@@ -228,6 +230,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
     },
     [],
   );
+  
 
   React.useEffect(() => {
     let ignore = false;
@@ -371,7 +374,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
       return;
     }
 
-    const marketCode = selectedCity.trim().toLowerCase().replace(/\s+/g, '_');
+    const marketCode = toMarketCode(selectedCity);
     updatePendingPlacedObject?.({ market_code: marketCode });
   }, [selectedCity, updatePendingPlacedObject]);
 
@@ -387,7 +390,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
         category: selectedArchetype,
         name: formatInterventionLabel(item.intervention),
         color: item.color,
-        market_code: selectedCity ? selectedCity.trim().toLowerCase().replace(/\s+/g, '_') : undefined,
+        market_code: selectedCity ? toMarketCode(selectedCity) : undefined,
         params: { ...item.params },
         activeFrom: pendingPlacedObject?.activeFrom || '2020-01-01',
         activeTo: pendingPlacedObject?.activeTo || '2020-01-01',

@@ -291,7 +291,7 @@ export async function callAllCityPOIs(): Promise<CityPOIAreaMap> {
 // Market Codes
 // ============================================================================
 
-function toMarketCode(city: string): string {
+export function toMarketCode(city: string): string {
   const normalized = city.trim().toLowerCase();
   const aliases: Record<string, string> = {
     'kansas city': 'kansas_city',

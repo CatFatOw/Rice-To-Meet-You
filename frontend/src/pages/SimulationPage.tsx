@@ -655,6 +655,7 @@ useEffect(() => {
           <section className="col-span-2 min-h-0 overflow-auto rounded-2xl">
             <OverallStatistics
               {...summaryHeader}
+              selectedDate={selectedDate}
               topDestinations={topDestinations}
               distribution={distribution}
               statCardsInfo={statCardsInfo}

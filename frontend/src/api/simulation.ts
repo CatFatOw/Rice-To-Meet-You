@@ -1100,6 +1100,7 @@
 
 import type { HeatmapPointsByDate } from '../types/heatmap';
 import type { ChatSessionState } from './chat';
+import { toMarketCode } from './map';
 
 const BASE_URL = 'http://127.0.0.1:8000';
 
@@ -1126,7 +1127,7 @@ export async function getSimulatedPointsByDate(
     body: JSON.stringify({
       from_date: fromDate,
       to_date: toDate,
-      city,
+      city: toMarketCode(city),
       metric,
       additional_metrics: additionalMetrics,
       mode,

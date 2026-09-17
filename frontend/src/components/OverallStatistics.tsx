@@ -21,75 +21,253 @@ const ICONS = {
   wind: Wind,
 } as const;
 
-const DEFAULT_TOP_DESTINATIONS: TopDestination[] = [
-  { name: "Houston", score: 84 },
-  { name: "Dallas", score: 78 },
-  { name: "Miami", score: 72 },
-  { name: "Las Vegas", score: 71 },
-  { name: "Los Angeles", score: 68 },
-];
+/* ------------------------------------------------------------------ */
+/* Monthly defaults                                                    */
+/* ------------------------------------------------------------------ */
 
-const DEFAULT_DISTRIBUTION: DistributionBucket[] = [
-  { label: "Extreme (80-100)", value: 4, color: "#c43f52" },
-  { label: "High (60-80)", value: 14, color: "#e45b3f" },
-  { label: "Moderate (40-60)", value: 10, color: "#e8aa35" },
-  { label: "Low (20-40)", value: 5, color: "#83bf4f" },
-  { label: "Minimal (0-20)", value: 1, color: "#4aa39c" },
-];
+type MonthlyDefaults = {
+  statCards: StatCardInfo[];
+  topDestinations: TopDestination[];
+  distribution: DistributionBucket[];
+};
 
-const DEFAULT_STAT_CARDS: StatCardInfo[] = [
-  {
-    icon: "sun",
-    iconClassName: "text-red-400",
-    label: "Average Heat Risk",
-    value: "61",
-    suffix: "High",
-    suffixClassName: "text-orange-400",
+/** Risk band colors / labels, shared by the distribution and the heat-risk suffix. */
+const RISK_BANDS = [
+  { label: "Extreme (80-100)", short: "Extreme", min: 80, color: "#c43f52", textClass: "text-red-500" },
+  { label: "High (60-80)", short: "High", min: 60, color: "#e45b3f", textClass: "text-orange-400" },
+  { label: "Moderate (40-60)", short: "Moderate", min: 40, color: "#e8aa35", textClass: "text-yellow-400" },
+  { label: "Low (20-40)", short: "Low", min: 20, color: "#83bf4f", textClass: "text-lime-400" },
+  { label: "Minimal (0-20)", short: "Minimal", min: 0, color: "#4aa39c", textClass: "text-teal-400" },
+] as const;
+
+function riskBand(score: number) {
+  return RISK_BANDS.find((band) => score >= band.min) ?? RISK_BANDS[RISK_BANDS.length - 1];
+}
+
+/** Build the 5 distribution buckets from counts ordered Extreme → Minimal. */
+function buildDistribution(counts: [number, number, number, number, number]): DistributionBucket[] {
+  return RISK_BANDS.map((band, i) => ({ label: band.label, value: counts[i], color: band.color }));
+}
+
+function buildStatCards(
+  avgHeatRisk: number,
+  totalVisitors: string,
+  atRiskPopulation: string,
+  extremeCities: number,
+): StatCardInfo[] {
+  const band = riskBand(avgHeatRisk);
+
+  return [
+    {
+      icon: "sun",
+      iconClassName: "text-red-400",
+      label: "Average Heat Risk",
+      value: String(avgHeatRisk),
+      suffix: band.short,
+      suffixClassName: band.textClass,
+    },
+    {
+      icon: "users",
+      iconClassName: "text-indigo-400",
+      label: "Total Visitors (est.)",
+      value: totalVisitors,
+    },
+    {
+      icon: "users",
+      iconClassName: "text-red-400",
+      label: "At Risk Population",
+      value: atRiskPopulation,
+    },
+    {
+      icon: "wind",
+      iconClassName: "text-yellow-400",
+      label: "Cities in Extreme Risk",
+      value: String(extremeCities),
+    },
+  ];
+}
+
+/**
+ * Default dataset for each calendar month (1 = January … 12 = December).
+ * Distribution counts are ordered [Extreme, High, Moderate, Low, Minimal] and sum to 34 states.
+ */
+const MONTHLY_DEFAULTS: Record<number, MonthlyDefaults> = {
+  1: {
+    statCards: buildStatCards(0, "1.60M", "0", 0),
+    topDestinations: [
+      { name: "Miami", score: 6 },
+      { name: "Phoenix", score: 3 },
+      { name: "Houston", score: 2 },
+      { name: "Los Angeles", score: 1 },
+    ],
+    distribution: buildDistribution([0, 0, 0, 0, 34]),
   },
-  {
-    icon: "users",
-    iconClassName: "text-indigo-400",
-    label: "Total Visitors (est.)",
-    value: "2.45M",
+  2: {
+    statCards: buildStatCards(2, "1.75M", "20K", 0),
+    topDestinations: [
+      { name: "Miami", score: 9 },
+      { name: "Phoenix", score: 6 },
+      { name: "Houston", score: 5 },
+      { name: "Los Angeles", score: 3 },
+    ],
+    distribution: buildDistribution([0, 0, 0, 2, 32]),
   },
-  {
-    icon: "users",
-    iconClassName: "text-red-400",
-    label: "At Risk Population",
-    value: "1.2M",
+  3: {
+    statCards: buildStatCards(8, "2.10M", "80K", 0),
+    topDestinations: [
+      { name: "Miami", score: 18 },
+      { name: "Phoenix", score: 16 },
+      { name: "Houston", score: 14 },
+      { name: "Dallas", score: 10 },
+    ],
+    distribution: buildDistribution([0, 0, 1, 4, 29]),
   },
-  {
-    icon: "wind",
-    iconClassName: "text-yellow-400",
-    label: "Cities in Extreme Risk",
-    value: "4",
+  4: {
+    statCards: buildStatCards(15, "2.05M", "180K", 0),
+    topDestinations: [
+      { name: "Phoenix", score: 30 },
+      { name: "Miami", score: 28 },
+      { name: "Houston", score: 26 },
+      { name: "Dallas", score: 22 },
+    ],
+    distribution: buildDistribution([0, 0, 2, 8, 24]),
   },
-];
+  5: {
+    statCards: buildStatCards(22, "2.20M", "350K", 0),
+    topDestinations: [
+      { name: "Phoenix", score: 48 },
+      { name: "Houston", score: 42 },
+      { name: "Miami", score: 40 },
+      { name: "Dallas", score: 38 },
+    ],
+    distribution: buildDistribution([0, 1, 4, 12, 17]),
+  },
+  6: {
+    statCards: buildStatCards(30, "2.60M", "750K", 0),
+    topDestinations: [
+      { name: "Phoenix", score: 72 },
+      { name: "Las Vegas", score: 66 },
+      { name: "Houston", score: 60 },
+      { name: "Dallas", score: 55 },
+    ],
+    distribution: buildDistribution([0, 3, 8, 13, 10]),
+  },
+  7: {
+    statCards: buildStatCards(42, "2.85M", "1.3M", 2),
+    topDestinations: [
+      { name: "Phoenix", score: 88 },
+      { name: "Las Vegas", score: 84 },
+      { name: "Houston", score: 76 },
+      { name: "Dallas", score: 72 },
+    ],
+    distribution: buildDistribution([2, 7, 11, 10, 4]),
+  },
+  8: {
+    statCards: buildStatCards(45, "2.70M", "1.4M", 3),
+    topDestinations: [
+      { name: "Phoenix", score: 90 },
+      { name: "Houston", score: 85 },
+      { name: "Las Vegas", score: 83 },
+      { name: "Dallas", score: 78 },
+    ],
+    distribution: buildDistribution([3, 8, 11, 9, 3]),
+  },
+  9: {
+    statCards: buildStatCards(32, "2.25M", "800K", 0),
+    topDestinations: [
+      { name: "Phoenix", score: 70 },
+      { name: "Houston", score: 64 },
+      { name: "Dallas", score: 58 },
+      { name: "Miami", score: 55 },
+    ],
+    distribution: buildDistribution([0, 4, 9, 13, 8]),
+  },
+  10: {
+    statCards: buildStatCards(18, "2.15M", "250K", 0),
+    topDestinations: [
+      { name: "Phoenix", score: 38 },
+      { name: "Miami", score: 34 },
+      { name: "Houston", score: 32 },
+      { name: "Dallas", score: 26 },
+    ],
+    distribution: buildDistribution([0, 0, 3, 10, 21]),
+  },
+  11: {
+    statCards: buildStatCards(6, "1.90M", "50K", 0),
+    topDestinations: [
+      { name: "Miami", score: 16 },
+      { name: "Phoenix", score: 12 },
+      { name: "Houston", score: 10 },
+      { name: "Los Angeles", score: 8 },
+    ],
+    distribution: buildDistribution([0, 0, 0, 4, 30]),
+  },
+  12: {
+    statCards: buildStatCards(0, "2.00M", "0", 0),
+    topDestinations: [
+      { name: "Miami", score: 7 },
+      { name: "Phoenix", score: 4 },
+      { name: "Houston", score: 3 },
+      { name: "Los Angeles", score: 2 },
+    ],
+    distribution: buildDistribution([0, 0, 0, 0, 34]),
+  },
+};
+
+/** Defaults for a month; falls back to the current calendar month when none is selected. */
+export function getMonthlyDefaults(month: number | null): MonthlyDefaults {
+  const resolved = month ?? new Date().getMonth() + 1;
+  return MONTHLY_DEFAULTS[resolved] ?? MONTHLY_DEFAULTS[1];
+}
+
+/** Extract the 1-based calendar month from the selected ISO date. */
+export function filterMonth(selectedDate?: string | null): number | null {
+  if (!selectedDate) return null;
+
+  const month = Number(selectedDate.slice(5, 7));
+  return month >= 1 && month <= 12 ? month : null;
+}
 
 export default function OverallStatistics({
   title = "National Summary",
+  selectedDate,
   donutLabel = "States",
-  topDestinations = DEFAULT_TOP_DESTINATIONS,
-  distribution = DEFAULT_DISTRIBUTION,
-  statCardsInfo = DEFAULT_STAT_CARDS,
+  topDestinations: topDestinationsProp,
+  distribution: distributionProp,
+  statCardsInfo: statCardsInfoProp,
 }: OverallStatisticsProps) {
+  const selectedMonth = filterMonth(selectedDate);
+  const monthDefaults = getMonthlyDefaults(selectedMonth);
+
+  // Explicit props win; otherwise use the selected month's defaults.
+  const topDestinations = topDestinationsProp ?? monthDefaults.topDestinations;
+  const distribution = distributionProp ?? monthDefaults.distribution;
+  const statCardsInfo = statCardsInfoProp ?? monthDefaults.statCards;
+
   const total = distribution.reduce((sum, item) => sum + item.value, 0);
   const topRiskHeading = title === "National Summary" ? "Top Risk Cities" : "Top Risk POIs";
 
-  const donut = `conic-gradient(${distribution
-    .map((item, index) => {
-      const start =
-        distribution
-          .slice(0, index)
-          .reduce((sum, cur) => sum + cur.value, 0) / total;
-      const end = start + item.value / total;
+  const donut =
+    total > 0
+      ? `conic-gradient(${distribution
+          .map((item, index) => {
+            const start =
+              distribution
+                .slice(0, index)
+                .reduce((sum, cur) => sum + cur.value, 0) / total;
+            const end = start + item.value / total;
 
-      return `${item.color} ${start * 100}% ${end * 100}%`;
-    })
-    .join(", ")})`;
+            return `${item.color} ${start * 100}% ${end * 100}%`;
+          })
+          .join(", ")})`
+      : "var(--surface-muted)";
 
   return (
-    <div className="app-panel w-full rounded-2xl p-5 text-[var(--text-primary)]">
+    <div
+      className="app-panel w-full rounded-2xl p-5 text-[var(--text-primary)]"
+      data-selected-date={selectedDate ?? undefined}
+      data-selected-month={selectedMonth ?? undefined}
+    >
       <h2 className="mb-5 text-base font-semibold tracking-tight">{title}</h2>
 
       <div className="grid grid-cols-1 gap-4 border-b border-[var(--border-subtle)] pb-5 md:grid-cols-4">
