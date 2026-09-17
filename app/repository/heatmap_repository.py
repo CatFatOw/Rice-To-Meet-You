@@ -254,6 +254,21 @@ class HeatmapRepository:
         ("dew_point", "\u00b0C"),
     )
 
+    DERIVED_METRICS: ClassVar[Tuple[str, ...]] = (
+        "local_temperature_f",
+        "local_temperature_c",
+    )
+
+    AGGREGATES: ClassVar[Tuple[str, ...]] = (
+        "mean",
+        "median",
+        "min",
+        "max",
+        "sum",
+        "count",
+        "first",
+    )
+
     def __init__(self, session: Session) -> None:
         self.session = session
 
@@ -1534,3 +1549,113 @@ class HeatmapRepository:
         if isinstance(value, dt.date):
             return value
         return dt.date.fromisoformat(str(value).strip()[:10])
+
+    @staticmethod
+    def _column_values(column: Any) -> List[Any]:
+        """Strip nulls from a cached column.
+ 
+        Numeric columns are array('d') and carry NaN as the null sentinel;
+        everything else is a list holding real Nones.
+        """
+        if isinstance(column, array):
+            return [value for value in column if value == value]
+        return [value for value in column if value is not None]
+
+    @classmethod
+    def _aggregate_values(cls, values: Sequence[Any], how: str) -> Optional[Any]:
+        """Collapse a null-free column to one value.
+ 
+        Non-numeric columns (text bands, booleans-as-labels) have no meaningful
+        mean, so anything other than count/first falls back to the first value.
+        """
+        if not values:
+            return None
+        if how == "count":
+            return len(values)
+        if how == "first":
+            return values[0]
+ 
+        numbers: List[float] = []
+        for value in values:
+            number = cls._to_weight(value)
+            if number is not None:
+                numbers.append(number)
+ 
+        if not numbers:
+            return values[0]
+ 
+        if how == "sum":
+            return sum(numbers)
+        if how == "mean":
+            return sum(numbers) / len(numbers)
+        if how == "min":
+            return min(numbers)
+        if how == "max":
+            return max(numbers)
+ 
+        ordered = sorted(numbers)
+        middle = len(ordered) // 2
+        if len(ordered) % 2:
+            return ordered[middle]
+        return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+    def _aggregate_local_temperature(
+        self,
+        *,
+        weather: Table,
+        heat_index: Table,
+        weather_values: Optional[Tuple[Any, ...]],
+        weather_index: Dict[str, int],
+        block: Optional[HeatBlock],
+        unit: str,
+        how: str,
+    ) -> Optional[float]:
+        """Aggregate of the per-point local temperature for one market/date.
+ 
+        Computed the same way getLocalTemperatureByCityDate does -- baseline
+        weather temperature offset by each point's UHI -- then collapsed.
+        Aggregating the UHI column first and offsetting once would be cheaper
+        but wrong for `mean`, since _clamp_urban_heat_index makes the
+        transform non-linear at the ends of the range.
+        """
+        if weather_values is None or block is None:
+            return None
+ 
+        cls = type(self)
+ 
+        temp_name = next(
+            (n for n in self.AVG_TEMP_CANDIDATES[unit] if n in weather.columns), ""
+        )
+        if not temp_name or temp_name not in weather_index:
+            return None
+ 
+        average_temperature = self._to_weight(weather_values[weather_index[temp_name]])
+        if average_temperature is None:
+            return None
+ 
+        uhi_name = next(
+            (n for n in self.UHI_CANDIDATES if n in heat_index.columns), ""
+        )
+        uhi_column = block.metrics.get(uhi_name) if uhi_name else None
+        if uhi_column is None:
+            return None
+ 
+        calculate = (
+            cls._calculate_local_temperature_f
+            if unit == "f"
+            else cls._calculate_local_temperature_c
+        )
+ 
+        # UHI values repeat heavily across a city, so memo the arithmetic.
+        memo: Dict[float, float] = {}
+        values: List[float] = []
+        for uhi in uhi_column:
+            if uhi is None or uhi != uhi:  # None or the NaN sentinel
+                continue
+            value = memo.get(uhi)
+            if value is None:
+                value = calculate(average_temperature, uhi)
+                memo[uhi] = value
+            values.append(value)
+ 
+        return self._aggregate_values(values, how)

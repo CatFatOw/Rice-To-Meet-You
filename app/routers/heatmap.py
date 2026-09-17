@@ -1,40 +1,14 @@
 """Routes for heatmap data retrieval."""
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session
 
 from database import get_db
 from repository.heatmap_repository import HeatmapRepository
 from schemas.simulation_schemas import SimulationRequest
 
 router = APIRouter(prefix="/heatmap", tags=["heatmap"])
-
-
-@router.get(
-    "/get-heatmap-points-by-city-date",
-    status_code=status.HTTP_200_OK,
-)
-def get_heatmap_points_by_city_date(
-    city: str,
-    date: str,
-    db: Session = Depends(get_db),
-):
-    """Return heatmap points for a city and date."""
-
-    repository = HeatmapRepository(db)
-    result = repository.getDataPointsForCityAndDate(
-        weather_date=date,
-        market_code=city,
-    )
-
-    if not result:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="NO HEATMAP POINTS FOUND",
-        )
-
-    return result
-
 
 @router.get(
     "/get-heatmap-points-by-city-date-metric",

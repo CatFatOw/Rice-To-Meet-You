@@ -9,10 +9,11 @@ routes:
   and the local_temperature_* surfaces
 * ``get_simulated_points_by_date``   — simulation.ts getSimulatedPointsByDate
 
-The repository reflects ``market_daily_weather`` and ``urban_heat_index_updated``
-and caches them on the class. Tests run it against an in-memory SQLite mirror of
-those two tables, with every class-level cache reset per test, so both the
-preloaded path and the lazy database fallback are exercised for real.
+The repository reflects the two tables named by ``HeatmapRepository.WEATHER_TABLE``
+and ``HeatmapRepository.HEAT_INDEX_TABLE`` and caches them on the class. Tests run
+it against an in-memory SQLite mirror of those two tables, with every class-level
+cache reset per test, so both the preloaded path and the lazy database fallback
+are exercised for real.
 
 ``get_simulated_points_by_date`` is tested as glue: the intervention repository
 and ``run_diminishing_return_simulation`` are replaced with recorders, so the
@@ -92,15 +93,20 @@ def fresh_class_cache(monkeypatch):
 def build_tables(partitioned: bool = False):
     """SQLite mirror of the two reflected tables.
 
-    Columns are chosen to cover each shape the repository treats differently:
-    numeric weather columns, a text and a boolean weather column, and a heat
-    table with a UHI column, a nullable numeric column and a text column.
-    ``partitioned`` adds ``weather_date`` to the heat table, which switches the
-    cache from one block per market to one per market per date.
+    The table *names* are read off the repository rather than spelled out here:
+    it reflects by name, so a mirror with its own copy of the name silently
+    stops being reflected the day the real table is renamed, and every test in
+    this module fails with NoSuchTableError instead of pointing at the rename.
+
+    The *columns* are ours, chosen to cover each shape the repository treats
+    differently: numeric weather columns, a text and a boolean weather column,
+    and a heat table with a UHI column, a nullable numeric column and a text
+    column. ``partitioned`` adds ``weather_date`` to the heat table, which
+    switches the cache from one block per market to one per market per date.
     """
     metadata = MetaData()
     weather = Table(
-        "market_daily_weather",
+        HeatmapRepository.WEATHER_TABLE,
         metadata,
         Column("id", Integer, primary_key=True),
         Column("market_code", Text),
@@ -122,7 +128,7 @@ def build_tables(partitioned: bool = False):
     ]
     if partitioned:
         heat_columns.insert(2, Column("weather_date", Date))
-    heat = Table("urban_heat_index_updated", metadata, *heat_columns)
+    heat = Table(HeatmapRepository.HEAT_INDEX_TABLE, metadata, *heat_columns)
     return metadata, weather, heat
 
 
@@ -947,11 +953,17 @@ def simulation_seams(monkeypatch):
 
 class TestSimulatedPointsByDate:
     def test_the_simulation_result_is_returned(self, seeded, simulation_seams):
+        """Inside an envelope, not bare.
+
+        A standard run carries the points alone. The other two branches add a
+        sibling key rather than changing this one: ``mode="contextual"`` adds
+        ``feedback``, and passing chat ``state`` adds ``messages``.
+        """
         result = seeded.repository().get_simulated_points_by_date(
             DATE_KEY, DATE_KEY, "Houston", "average_temperature_c"
         )
 
-        assert result == {"simulated": True}
+        assert result == {"points_by_date": {"simulated": True}}
 
     def test_every_date_in_the_range_is_fed_to_the_simulation(self, seeded, simulation_seams):
         """Including a date with no readings, as an empty list."""
