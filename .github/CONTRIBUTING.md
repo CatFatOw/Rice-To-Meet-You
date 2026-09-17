@@ -7,7 +7,8 @@ This project is not open to external contributors. This guide is mainly for team
 - The `main` branch should only contain code for the final product. 
 - Do active development on personal or feature branches.
 - Do not merge a PR that contains unfinished features, experimental code, or unnecessary files. A PR that does not pass CI is considered unfinished and should not be merged into `main`
-- Do not force push, unless the change is really trivial (one-line bugfix or anything that does not merit its own branch and PR)
+- Do not directly push into main, unless the change is really trivial (one-line bugfix or anything that does not merit its own branch and PR)
+- DO NOT EVER FORCE PUSH WITHOUT PERMISSION. We had this problem once already.
 - The `main` branch should always pass CI/CD. Fix immediately if not
 - Prefer small, clear commits with descriptive messages.
 
@@ -26,9 +27,125 @@ This project is not open to external contributors. This guide is mainly for team
 
 ## Setup
 
-See [Readme](README.md#app-guide)
+The suggested way to set up is to use a dev container. Both paths are described below; either way, finish with [Environment Variables](#environment-variables) and [Run The App](#run-the-app).
 
-### Create a Branch
+### Option A: Dev Container (Recommended)
+
+Install and open:
+
+| Tool | Link |
+|---|---|
+| Docker Desktop | <https://www.docker.com/products/docker-desktop/> |
+| VS Code Dev Containers extension | <https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers> |
+
+If you are on Windows, also set up WSL 2 first: <https://learn.microsoft.com/en-us/windows/wsl/setup/environment>. After installing WSL, right-click the Docker taskbar icon, open **Settings**, check **Use the WSL 2 based engine**, and enable your distribution under **Resources > WSL Integration**.
+
+More background on dev containers: <https://code.visualstudio.com/docs/devcontainers/containers#_getting-started>
+
+Clone the repository and open it in VS Code:
+
+```bash
+git clone https://github.com/CatFatOw/Rice-To-Meet-You.git
+cd Rice-To-Meet-You
+code .
+```
+
+VS Code should show a notification in the bottom-right corner asking if you want to reopen the workspace in a container. Click it. If the notification does not appear, open the command palette and run:
+
+```text
+Dev Containers: Rebuild and Reopen in Container
+```
+
+The container is defined in [.devcontainer/devcontainer.json](../.devcontainer/devcontainer.json). It ships Python 3 and Node 22, and its `postCreateCommand` installs both dependency sets for you:
+
+```bash
+npm install --prefix frontend && pip install -r app/requirements.txt
+```
+
+Ports 5173 (Vite dev server), 4173 (Vite preview), and 8000 (FastAPI) are forwarded automatically.
+
+### Option B: Without The Dev Container
+
+You need Python 3 and Node 22 installed locally.
+
+Backend dependencies, from the repository root:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r app/requirements.txt
+```
+
+Frontend dependencies:
+
+```bash
+npm install --prefix frontend
+```
+
+Redis is optional for local work, but caching-backed routes fall back to slower direct queries without it. If you want it, run a local instance (for example, on macOS: `brew install redis && brew services start redis`), or point `REDIS_URL` at one you already have.
+
+### Environment Variables
+
+Both setups read a `.env` file at the repository root. It is gitignored, so create your own:
+
+```bash
+cat > .env <<'ENV'
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
+JWT_KEY="dev-secret-key"
+CLAUDE_API_KEY="your-anthropic-api-key"
+REDIS_URL="redis://localhost:6379/0"
+ENV
+```
+
+| Variable | Required | Notes |
+|---|---|---|
+| `DATABASE_URL` | No, but recommended | Defaults to `sqlite:///./local_dev.sqlite3`. Ask the team for the shared Neon Postgres URL. |
+| `JWT_KEY` | For auth routes | Any string works locally. |
+| `CLAUDE_API_KEY` | Yes | The app fails to import without it, even if you are not touching the chatbot. Use a throwaway value such as `"fake-local-key"` if you only need the app to start. |
+| `REDIS_URL` | No | Defaults to `redis://localhost:6379/0`. |
+
+Do not commit `.env` or paste real keys into issues or pull requests.
+
+### Run The App
+
+Start the backend from the `app/` folder:
+
+```bash
+cd app
+python3 -m uvicorn main:app --reload
+```
+
+Interactive API docs: <http://127.0.0.1:8000/docs>
+
+Start the frontend in a second terminal:
+
+```bash
+npm run dev --prefix frontend
+```
+
+The frontend is served at <http://localhost:5173>, which is already allowed by the backend's CORS settings.
+
+By default the frontend talks to the deployed backend. To point it at your local API, edit the `API_BASE_URL` constant in the files under [frontend/src/api/](../frontend/src/api/) and switch to the commented-out localhost line:
+
+```ts
+const API_BASE_URL = 'http://localhost:8000';
+// const API_BASE_URL = 'https://rice-to-meet-you-production.up.railway.app';
+```
+
+Do not commit that switch.
+
+### Run The Tests
+
+CI runs the same checks, so run them before opening a pull request. From the repository root:
+
+```bash
+python3 -m compileall -q app
+pytest
+```
+
+The test suite runs against SQLite and does not need the shared database.
+
+## Create a Branch
 
 Use your own branch for experiments, features, notes, and unfinished work.
 
@@ -46,7 +163,7 @@ zac/transit-gap-analysis
 sarah/demo-dashboard
 ```
 
-### Commit Changes
+## Commit Changes
 
 ```bash
 git status
@@ -54,7 +171,7 @@ git add path/to/file
 git commit -m "Describe your change"
 ```
 
-### Push Your Branch
+## Push Your Branch
 
 First push:
 
@@ -68,7 +185,7 @@ Later pushes:
 git push
 ```
 
-### Open a Pull Request
+## Open a Pull Request
 
 0. It is strongly advised that you check for merge conflicts before opening a PR. You can do that by running `git pull origin main`
 1. Push your branch.
@@ -80,7 +197,7 @@ git push
 
 Do not merge into `main` until the group approves the pull request.
 
-### After Your PR Is Merged
+## After Your PR Is Merged
 
 After GitHub says your PR has been merged:
 
