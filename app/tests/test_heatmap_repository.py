@@ -552,6 +552,51 @@ class TestDataPointsForCityDateMetric:
             ]
         }
 
+    @pytest.mark.parametrize("alias", ["urban_heat_index", "uhi"])
+    def test_a_uhi_alias_reads_the_column_this_table_spells(self, seeded, alias):
+        """The heat table is reflected, so its UHI column could be named any
+        UHI_CANDIDATES entry -- here it is ``uhi``. ``urban_heat_index`` is the
+        one name the API and the frontend use, so it has to reach the column
+        whatever the database calls it, or the surface 400s on half of them.
+
+        HOUSTON_C is dropped: it has no UHI reading.
+        """
+        result = seeded.repository().getDataPointsForCityDateMetric(
+            DATE_KEY, alias, "houston"
+        )
+
+        assert result == {
+            DATE_KEY: [
+                {"value": 1.0, "location_coordinates": coordinates(HOUSTON_A)},
+                {"value": 11.0, "location_coordinates": coordinates(HOUSTON_B)},
+            ]
+        }
+
+    def test_a_uhi_alias_is_a_tooltip_row_under_its_own_name(self, seeded):
+        """An alias has to normalise as an additional metric too, or the
+        tooltip row it names is silently dropped from every point."""
+        result = seeded.repository().getDataPointsForCityDateMetric(
+            DATE_KEY,
+            "average_temperature_c",
+            "houston",
+            additional_metrics=["urban_heat_index"],
+        )
+
+        assert [point.get("individual_metrics") for point in result[DATE_KEY]] == [
+            # No "/ 100": a UHI reading is a 1-11 intensity score, and the
+            # broader "heat_index" rule would otherwise have stamped one on.
+            {"uhi": "1"},
+            {"uhi": "11"},
+            None,
+        ]
+
+    def test_a_column_the_weather_table_carries_is_never_rewritten(self, seeded):
+        """Weather wins a name collision, so normalising an alias must not
+        reroute a metric that already resolves on the weather table."""
+        assert HeatmapRepository._canonical_metric_name(
+            "average_temperature_c", seeded.heat
+        ) == "average_temperature_c"
+
     @pytest.mark.parametrize("metric", sorted(HeatmapRepository.SYNTHETIC_METRICS))
     def test_a_synthetic_change_metric_is_zero_everywhere(self, seeded, metric):
         """change_in_* is all zeros until a simulation moves it."""

@@ -64,6 +64,7 @@ DISPLAYED_METRICS = (
     "heat_risk_score",
     "local_temperature_c",
     "local_temperature_f",
+    "urban_heat_index",
 )
 
 
@@ -314,6 +315,9 @@ class TestSurfaceMetricUnit:
             "change_in_local_temperature_f": "°F",
             "local_temperature_c": "°C",
             "local_temperature_f": "°F",
+            # An intensity score on a 1-11 scale, so no suffix is honest -- and
+            # in particular not the "/ 100" that "heat_index" alone would stamp.
+            "urban_heat_index": "",
         }
 
         assert surface_metric_unit(metric) == expected[metric]

@@ -28,6 +28,13 @@ SURFACE_METRICS = {
     "average_relative_humidity_pct",
     "local_temperature_c",
     "local_temperature_f",
+    # The urban-heat-island reading itself. Unlike the two excluded metrics
+    # below, it IS a sample of a field -- heat island intensity is defined
+    # everywhere in the city, not just where a reading was taken -- so the
+    # value kriged for empty ground is a real estimate rather than an invention.
+    # The public name of the metric, whatever the reflected heat table spells
+    # the column: see HeatmapRepository.UHI_CANDIDATES.
+    "urban_heat_index",
     "change_in_temperature",
     "change_in_average_temperature_c",
     "change_in_average_temperature_f",

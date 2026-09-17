@@ -646,6 +646,18 @@ export const availableMetrics = [
       "average_relative_humidity_pct",
     ],
   },
+  {
+    // The urban-heat-island reading itself, rather than a temperature derived
+    // from it. "urban_heat_index" is the backend's public name for the metric:
+    // the heat table is reflected, so its column may be spelled differently,
+    // and the repository maps this name onto whichever one it carries.
+    urban_heat_index: [
+      "urban_heat_index",
+      "average_temperature_c",
+      "average_temperature_f",
+      "average_relative_humidity_pct",
+    ],
+  },
 ];
 
 const generateAvailableDates = (): string[] => {

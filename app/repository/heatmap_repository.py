@@ -204,12 +204,21 @@ class HeatmapRepository:
     LATITUDE_CANDIDATES = ("latitude", "lat")
 
     # Urban heat index column on the heat-index table, in priority order.
+    #
+    # These double as the metric's PUBLIC names: the heat table is reflected
+    # rather than declared, so callers cannot know which of these it spells the
+    # column. Any of them names the metric, and _canonical_metric_name maps it
+    # onto whichever one this table actually carries -- see UHI_METRIC.
     UHI_CANDIDATES: Tuple[str, ...] = (
         "urban_heat_index",
         "uhi",
         "urban_heat_index_value",
         "heat_index",
     )
+
+    # The name the API and the frontend use for the urban-heat-island metric,
+    # whatever the reflected column turns out to be called.
+    UHI_METRIC: ClassVar[str] = "urban_heat_index"
 
     # Fallback average-temperature columns on the weather table, per unit.
     # Used only when the caller does not name one explicitly.
@@ -286,6 +295,12 @@ class HeatmapRepository:
         ("pressure", " hPa"),
         ("visibility", " mi"),
         ("uv_index", ""),
+        # Both before "heat_index": an urban-heat-island reading is a 1-11
+        # intensity score, so the "/ 100" a heat index carries would misreport
+        # it. "urban_heat_index" ends in the broader phrase and would otherwise
+        # be swallowed by it, exactly as "uv_index" would be by "index".
+        ("urban_heat_index", ""),
+        ("uhi", ""),
         ("heat_index", " / 100"),
         ("score", " / 100"),
         ("index", " / 100"),
@@ -723,12 +738,16 @@ class HeatmapRepository:
 
         target_date = self._coerce_date(weather_date)
         markets = self._resolve_markets(market_code)
-        metric_name = str(metric).strip()
         if not markets:
             return {}
 
         weather = self._get_table(self.WEATHER_TABLE)
         heat_index = self._get_table(self.HEAT_INDEX_TABLE)
+
+        # Resolved against the reflected table, so `metric_name` is a real
+        # column from here on: it keys the weather index and the heat block
+        # below, neither of which knows anything about aliases.
+        metric_name = self._canonical_metric_name(metric, heat_index)
 
         metric_column, metric_source = self._resolve_metric_column(
             metric_name, weather, heat_index
@@ -742,7 +761,7 @@ class HeatmapRepository:
                 dict.fromkeys(
                     name
                     for raw_name in additional_metrics
-                    if (name := str(raw_name).strip())
+                    if (name := self._canonical_metric_name(raw_name, heat_index))
                 )
             )
 
@@ -953,9 +972,7 @@ class HeatmapRepository:
                     % (unit, self.WEATHER_TABLE, list(self.AVG_TEMP_CANDIDATES[unit]))
                 )
 
-        uhi_name = next(
-            (n for n in self.UHI_CANDIDATES if n in heat_index.columns), ""
-        )
+        uhi_name = self._uhi_column_name(heat_index)
         if not uhi_name:
             raise ValueError(
                 "No urban-heat-index column on %s. Tried: %s"
@@ -1502,6 +1519,35 @@ class HeatmapRepository:
             return None
         return number
 
+    @classmethod
+    def _uhi_column_name(cls, heat_index: Table) -> str:
+        """The heat table's urban-heat-index column, or "" if it has none.
+
+        The table is reflected, not declared, so the column's spelling is a
+        property of the database rather than of this code. Every caller that
+        needs the UHI column asks here, so they all agree on which one it is.
+        """
+        return next((n for n in cls.UHI_CANDIDATES if n in heat_index.columns), "")
+
+    @classmethod
+    def _canonical_metric_name(cls, metric: str, heat_index: Table) -> str:
+        """Map a UHI alias onto the column this heat table actually carries.
+
+        ``urban_heat_index`` is the one name the API and the frontend use for
+        the metric, but the reflected column may be spelled ``uhi`` or any other
+        UHI_CANDIDATES entry. Normalising here -- rather than at each call site
+        -- means the point route, the kriged surface and a tooltip's secondary
+        row all accept the same name on any database.
+
+        Every other metric IS its column and passes through untouched. A name
+        the weather table carries is never rewritten: weather wins a collision,
+        as it does in _resolve_metric_column.
+        """
+        name = str(metric).strip()
+        if name in heat_index.columns or name not in cls.UHI_CANDIDATES:
+            return name
+        return cls._uhi_column_name(heat_index) or name
+
     def _resolve_metric_column(
         self, metric: str, weather: Table, heat_index: Table
     ) -> Tuple[Any, str]:
@@ -1518,6 +1564,11 @@ class HeatmapRepository:
                 return table.columns[name], prefix
         if name in self.SYNTHETIC_METRICS:
             return None, "synthetic__"
+        # A UHI alias this table spells differently: see _canonical_metric_name.
+        if name in self.UHI_CANDIDATES:
+            uhi_name = self._uhi_column_name(heat_index)
+            if uhi_name:
+                return heat_index.columns[uhi_name], "h__"
         available = sorted(
             c.name
             for t in (weather, heat_index)
@@ -1689,9 +1740,7 @@ class HeatmapRepository:
         if average_temperature is None:
             return None
  
-        uhi_name = next(
-            (n for n in self.UHI_CANDIDATES if n in heat_index.columns), ""
-        )
+        uhi_name = self._uhi_column_name(heat_index)
         uhi_column = block.metrics.get(uhi_name) if uhi_name else None
         if uhi_column is None:
             return None

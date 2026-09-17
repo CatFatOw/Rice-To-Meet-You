@@ -199,8 +199,15 @@ const SimulationPage: React.FC = () => {
 
   // Simulation only makes sense for metrics that can be projected forward;
   // heat risk and visit counts are direct dataset readings, not forecasts.
+  //
+  // urban_heat_index is excluded for a different reason: the intervention model
+  // cools a *temperature*, and an unrecognised metric falls back to reading its
+  // values as °C. A 1-11 heat-island score is not degrees, so simulating it
+  // would subtract degrees from a score and present the result as real.
   const isSimulationDisabledForMetric =
-    selectedMetricKey === 'heat_risk_score' || selectedMetricKey === 'avg_daily_visits';
+    selectedMetricKey === 'heat_risk_score' ||
+    selectedMetricKey === 'avg_daily_visits' ||
+    selectedMetricKey === 'urban_heat_index';
 
   useEffect(() => {
     console.log(placedObjectsControls.pendingPlacedObject)

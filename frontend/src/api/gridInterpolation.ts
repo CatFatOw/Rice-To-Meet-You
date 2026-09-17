@@ -25,6 +25,7 @@ const SURFACE_METRICS = [
   'change_in_average_temperature_f',
   'change_in_local_temperature_c',
   'change_in_local_temperature_f',
+  'urban_heat_index',
 ] as const;
 
 type SurfaceMetric = (typeof SURFACE_METRICS)[number];

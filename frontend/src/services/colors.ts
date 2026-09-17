@@ -10,7 +10,8 @@ export type Metric =
   | "change_in_average_temperature_c"
   | "change_in_local_temperature_c"
   | "change_in_average_temperature_f"
-  | "change_in_local_temperature_f";
+  | "change_in_local_temperature_f"
+  | "urban_heat_index";
 
 
 type RGBColor = [number, number, number];
@@ -61,6 +62,7 @@ export function colorMetricKey(metric: string): Metric {
   if (metric === "heat_index_c") return "heat_index_c";
   if (metric === "heat_index_f") return "heat_index_f";
   if (metric === "average_relative_humidity_pct") return "average_relative_humidity_pct";
+  if (metric === "urban_heat_index") return "urban_heat_index";
   if (metric === "avg_daily_visits") return "avg_daily_visits";
   if (
     metric === "change_in_temperature" ||
@@ -204,6 +206,23 @@ export function getColor(value: number, metric: Metric): RGBColor {
 
       return [37, 52, 148];
 
+    case "urban_heat_index":
+      // Urban heat island intensity, 1-11. Scaled to the same sequential ramp
+      // the temperature metrics use, so a hotspot reads as a hotspot whichever
+      // of the two the map is showing. The scale is the repository's own
+      // MIN_UHI/MAX_UHI, not a guess: values outside it clamp to the ends.
+      if (value >= 10) return [128, 0, 38];
+      if (value >= 9) return [189, 0, 38];
+      if (value >= 8) return [227, 26, 28];
+      if (value >= 7) return [252, 78, 42];
+      if (value >= 6) return [253, 141, 60];
+      if (value >= 5) return [254, 196, 79];
+      if (value >= 4) return [255, 237, 160];
+      if (value >= 3) return [217, 240, 163];
+      if (value >= 2) return [161, 218, 180];
+
+      return [102, 194, 165];
+
     case "heat_risk_score":
       // Assumes heat_risk_score ranges from 0 to 100.
       if (value >= 90) return [128, 0, 38];
@@ -298,6 +317,9 @@ export function metricStops(metric: Metric): number[] {
     case "heat_risk_score":
       return [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 
+    case "urban_heat_index":
+      return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+
     case "change_in_temperature":
     case "change_in_average_temperature_c":
     case "change_in_local_temperature_c":
@@ -374,6 +396,14 @@ export function getScaleLabels(
         highLabel: "Extreme Risk",
       };
 
+    case "urban_heat_index":
+      // Unitless: a UHI reading is an intensity score, not a temperature.
+      return {
+        tickLabels: ["1", "3.5", "6", "8.5", "11"],
+        lowLabel: "Little Heat Island",
+        highLabel: "Severe Heat Island",
+      };
+
     case "change_in_temperature":
     case "change_in_average_temperature_c":
     case "change_in_local_temperature_c":
@@ -424,6 +454,9 @@ export function metricColorDomain(
 
     case "heat_risk_score":
       return [0, 100];
+
+    case "urban_heat_index":
+      return [1, 11];
 
     case "change_in_temperature":
     case "change_in_average_temperature_c":
