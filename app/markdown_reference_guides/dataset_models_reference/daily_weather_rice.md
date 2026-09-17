@@ -21,7 +21,7 @@ For the Rice FIFA 2026 HeatSafe project, this is one of the most important datas
 | `average_dew_point_f` | Measures atmospheric moisture |
 | `average_wind_speed_knots` | Wind affects how efficiently people cool down |
 | `cooling_degree_days_c` | Proxy for cooling/AC demand |
-| `precipitation` | Rain can temporarily reduce surface heat |
+| `precipitation` | Rain can temporarily reduce surface heat (hundreds of millilitres; `0` = trace, `-1` = none) |
 | `valid_date` | Enables time-series modeling |
 | `city_location_identifier` | Connects weather observations to station/city location |
 
@@ -43,7 +43,7 @@ For the Rice FIFA 2026 HeatSafe project, this is one of the most important datas
 | `heating_degree_days_c` | `Float` | `5.06` | Heating demand indicator; higher values suggest more need for heating |
 | `max_temperature_c` | `Float` | `21.2` | Maximum daily temperature in Celsius |
 | `min_temperature_c` | `Float` | `5.1` | Minimum daily temperature in Celsius |
-| `precipitation` | `Integer` | `-1` | Daily precipitation. `0` may indicate trace precipitation, and `-1` may indicate no precipitation |
+| `precipitation` | `Integer` | `-1` | Daily precipitation **in hundreds of millilitres**. 100 mL is one decilitre, so the number is a count of dL. `0` indicates a trace amount and `-1` indicates no precipitation -- a dry day, not a missing reading |
 | `valid_date` | `Date` | `2021-02-23` | Date of the weather observation |
 
 ---

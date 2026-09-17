@@ -155,7 +155,7 @@ export interface HeatmapPointsByDate {
 /** [longitude, latitude] — GeoJSON order, note it's lng first */
 export type Coordinates = [number, number];
 
-/** All values arrive pre-formatted as display strings, e.g. "91.5%", "12.2 mph" */
+/** All values arrive pre-formatted as display strings, e.g. "91.5%", "12.2 kn" */
 export interface IndividualMetrics {
   average_dew_point_f: string;
   average_relative_humidity_pct: string;

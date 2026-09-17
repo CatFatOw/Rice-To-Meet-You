@@ -25,7 +25,6 @@ import pytest
 from fastapi import HTTPException
 
 from data.city_boundaries import get_city_bounds
-from repository.heatmap_repository import HeatmapRepository
 from routers import grid_interpolation
 from routers.grid_interpolation import (
     LOCAL_TEMPERATURE_SOURCES,
@@ -105,11 +104,10 @@ def readings(values):
 class FakeHeatmapRepository:
     """Records every read the resolver makes; answers from canned blocks.
 
-    ``UNIT_HINTS`` is inherited from the real class so a test can never pass by
-    disagreeing with the table the production formatter reads.
+    Units are not among them: ``surface_metric_unit`` resolves those against
+    the real class, so no test can pass by disagreeing with the rule the
+    production formatter applies.
     """
-
-    UNIT_HINTS = HeatmapRepository.UNIT_HINTS
 
     def __init__(self, by_metric=None, local_temperature=None):
         self.by_metric = by_metric or {}
@@ -146,12 +144,11 @@ def fake_repository(monkeypatch):
         class Stand_in:
             """Stands in for the class, not just the instance.
 
-            ``surface_metric_unit`` reads ``UNIT_HINTS`` off the class, so a
-            bare factory function would break the unit lookup. Constructing it
-            hands back the one prepared fake.
+            The routes name the class to construct it, so a class is what has
+            to be swapped in; constructing it hands back the one prepared fake.
+            Nothing class-level needs mirroring -- ``surface_metric_unit``
+            resolves units against the real repository, not this stand-in.
             """
-
-            UNIT_HINTS = HeatmapRepository.UNIT_HINTS
 
             def __new__(cls, _db):
                 return fake
@@ -279,10 +276,11 @@ class TestSurfaceMetricUnit:
             ("average_temperature_c", "°C"),
             ("maximum_temperature_c", "°C"),
             ("average_relative_humidity_pct", "%"),
-            ("average_wind_speed_knots", " mph"),
-            ("precipitation_3d_sum_mm", " in"),
-            ("heat_index_f", " / 100"),
-            ("heat_index_c", " / 100"),
+            ("average_wind_speed_knots", " kn"),
+            ("precipitation_3d_sum_mm", " mm"),
+            ("average_dew_point_f", "°F"),
+            ("heat_index_f", "°F"),
+            ("heat_index_c", "°C"),
         ],
     )
     def test_a_metric_carries_the_repository_s_own_suffix(self, metric, unit):
@@ -293,9 +291,34 @@ class TestSurfaceMetricUnit:
         [("local_temperature_c", "°C"), ("local_temperature_f", "°F")],
     )
     def test_local_temperature_beats_the_broader_hints(self, metric, unit):
-        """``heat_index``, ``_index`` and ``temp`` would all otherwise swallow
-        these two and stamp the wrong unit; the hint table orders them first."""
+        """``_index`` and ``temp`` would both otherwise swallow these two and
+        stamp the wrong unit. The trailing _c/_f is read before any hint."""
         assert surface_metric_unit(metric) == unit
+
+    @pytest.mark.parametrize("metric", sorted(SURFACE_METRICS))
+    def test_no_surface_metric_is_stamped_a_unit_it_is_not_in(self, metric):
+        """Every metric that gets a surface, against what its name says it is.
+
+        A wrong unit here is worse than none: the number is never converted, so
+        a renamed unit misreports the reading rather than just labelling it
+        vaguely.
+        """
+        expected = {
+            "average_temperature_c": "°C",
+            "average_temperature_f": "°F",
+            "heat_index_c": "°C",
+            "heat_index_f": "°F",
+            "average_relative_humidity_pct": "%",
+            "change_in_temperature": "°C",
+            "change_in_average_temperature_c": "°C",
+            "change_in_average_temperature_f": "°F",
+            "change_in_local_temperature_c": "°C",
+            "change_in_local_temperature_f": "°F",
+            "local_temperature_c": "°C",
+            "local_temperature_f": "°F",
+        }
+
+        assert surface_metric_unit(metric) == expected[metric]
 
     def test_an_unhinted_metric_has_no_suffix(self):
         assert surface_metric_unit("some_unitless_metric") == ""
@@ -447,7 +470,7 @@ class TestCollectExtraReadings:
         }
         assert units == {
             "average_relative_humidity_pct": "%",
-            "average_wind_speed_knots": " mph",
+            "average_wind_speed_knots": " kn",
         }
         assert [r["value"] for r in collected["average_wind_speed_knots"]] == [4.0, 9.0]
 
@@ -584,7 +607,7 @@ class TestAttachTooltipLayers:
             surface,
             "average_temperature_c",
             requested,
-            {"average_relative_humidity_pct": "%", "average_wind_speed_knots": " mph"},
+            {"average_relative_humidity_pct": "%", "average_wind_speed_knots": " kn"},
             primary_unit="°C",
         )
 

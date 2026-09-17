@@ -31,8 +31,8 @@ heatmap_point: HeatmapMetricValue = {
     "location_coordinates": (-80.34555866666666, 25.740390333333334),
     "individual_metrics": {
         "average_relative_humidity_pct": "82.9%",
-        "average_wind_speed_knots": "5.2 mph",
-        "precipitation_3d_sum_mm": "522 in",
+        "average_wind_speed_knots": "5.2 kn",
+        "precipitation_3d_sum_mm": "522 mm",
         "average_temperature_c": "38°C",
     },
 }

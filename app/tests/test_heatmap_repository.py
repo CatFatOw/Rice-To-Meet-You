@@ -336,45 +336,68 @@ class TestUnitFor:
     def test_a_column_gets_the_unit_its_name_hints_at(self, repository, column, unit):
         assert repository._unit_for(column) == unit
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "BUG: UNIT_HINTS has no Fahrenheit entry for anything but "
-            "local_temperature_f, so *_f temperature columns fall through to "
-            "'temp' / 'dew_point' and are stamped °C (86°F renders as '86°C')."
-        ),
-    )
     @pytest.mark.parametrize(
         "column", ["average_temperature_f", "maximum_temperature_f", "average_dew_point_f"]
     )
     def test_a_fahrenheit_column_is_stamped_fahrenheit(self, repository, column):
         assert repository._unit_for(column) == "°F"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "BUG: heat_index_c/_f are apparent temperatures (the frontend legend "
-            "runs 60°F-125°F / 16°C-52°C), but the 'heat_index' hint stamps "
-            "them ' / 100' as if they were scores."
-        ),
-    )
     @pytest.mark.parametrize("column, unit", [("heat_index_f", "°F"), ("heat_index_c", "°C")])
     def test_a_heat_index_is_stamped_as_a_temperature(self, repository, column, unit):
         assert repository._unit_for(column) == unit
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "BUG: the unit named in the column is replaced by a different one - "
-            "*_knots is stamped ' mph' and *_mm is stamped ' in' - with no "
-            "conversion of the value."
-        ),
-    )
     @pytest.mark.parametrize(
         "column, unit",
-        [("average_wind_speed_knots", " kn"), ("precipitation_3d_sum_mm", " mm")],
+        [
+            ("average_wind_speed_knots", " kn"),
+            ("precipitation_3d_sum_mm", " mm"),
+            ("average_visibility_km", " km"),
+        ],
     )
     def test_a_unit_suffixed_column_keeps_its_own_unit(self, repository, column, unit):
+        """The hint for the quantity would rename the unit -- knots to mph,
+        millimetres to inches, kilometres to miles -- without touching the
+        number, so the unit the column names wins."""
+        assert repository._unit_for(column) == unit
+
+    @pytest.mark.parametrize(
+        "column, unit",
+        [("precipitation_mm_clean", " mm"), ("wind_speed_mps", " m/s")],
+    )
+    def test_a_unit_named_mid_name_counts_too(self, repository, column, unit):
+        """The unit is a word in the column name, not necessarily the last one:
+        precipitation_mm_clean is millimetres, and metres per second would
+        otherwise be stamped ' mph' by the wind_speed hint."""
+        assert repository._unit_for(column) == unit
+
+    @pytest.mark.parametrize(
+        "column",
+        [
+            "cooling_degree_days_c",
+            "heating_degree_days_c",
+            "raw_precipitation_hundredths_mm",
+        ],
+    )
+    def test_a_column_measured_in_steps_of_a_unit_is_left_bare(self, repository, column):
+        """Degree-days accumulate a °C difference over days and hundredths_mm
+        counts 0.01mm steps, so neither is a reading in the unit it names.
+        Better bare than stamped with a unit that is out by a factor."""
+        assert repository._unit_for(column) == ""
+
+    def test_an_unsuffixed_precipitation_column_is_metric(self, repository):
+        """``precipitation`` names no unit but is counted in hundreds of
+        millilitres -- exactly a decilitre each. The broader "precip" rule below
+        it would report that metric volume as an imperial depth."""
+        assert repository._unit_for("precipitation") == " dL"
+
+    @pytest.mark.parametrize(
+        "column, unit",
+        [("change_in_temperature", "°C"), ("change_in_average_temperature_f", "°F")],
+    )
+    def test_the_english_word_in_is_not_read_as_inches(self, repository, column, unit):
+        """Every change_in_* metric the frontend draws contains the word "in".
+        Inches are left to the precip/rainfall/snow hints for exactly this
+        reason."""
         assert repository._unit_for(column) == unit
 
 

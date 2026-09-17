@@ -230,14 +230,54 @@ class HeatmapRepository:
         ),
     }
 
-    # Suffix appended to a numeric metric based on its column name. First match wins.
-    # The two local_temperature_* entries must stay above "heat_index"/"_index"/
-    # "temp", all of which would otherwise swallow them and stamp the wrong unit.
-    UNIT_HINTS: Sequence[Tuple[str, str]] = (
-        ("local_temperature_f", "\u00b0F"),
-        ("local_temperature_c", "\u00b0C"),
+    # Every rule for the suffix a numeric metric carries. The first entry whose
+    # phrase appears in the column name -- as whole "_"-delimited words, never as
+    # part of one -- gives the unit, so the order IS the precedence, and it runs
+    # in three bands:
+    #
+    #   1. STEPS of a unit. The name mentions a unit the number is not a reading
+    #      in, so no suffix is honest: a degree-day accumulates a °C difference
+    #      over days, and hundredths_mm counts 0.01mm steps.
+    #   2. A unit the column STATES about itself. A fact, so nothing below it may
+    #      override it.
+    #   3. The unit conventionally used for a QUANTITY the column names. A guess,
+    #      and the last resort -- every temperature reaching this band is one of
+    #      unknown scale, and °C is the assumption.
+    #
+    # Band 3 above band 2 is the bug this ordering fixed: an *_f temperature read
+    # "86°C", knots read as mph, metres per second as mph and millimetres as
+    # inches, each a renamed unit on a number nothing had converted.
+    #
+    # Band 2 deliberately holds no "in" or "mi": both are ordinary English words
+    # in a column name ("change_in_temperature"), so inches and miles stay in
+    # band 3, where a narrower phrase also has to precede any broader one that
+    # would swallow it -- "uv_index" before "index", "precipitation" before
+    # "precip".
+    UNIT_RULES: Sequence[Tuple[str, str]] = (
+        # -- 1. counted in steps of a unit, so in none of them ----------------
+        ("days", ""),
+        ("hundredths", ""),
+        # -- 2. the unit the column names -------------------------------------
+        ("pct", "%"),
+        ("percent", "%"),
+        ("millibars", " hPa"),  # a millibar and a hectopascal are the same unit
+        ("mbar", " hPa"),
+        ("hpa", " hPa"),
+        ("knots", " kn"),
+        ("kn", " kn"),
+        ("mph", " mph"),
+        ("mps", " m/s"),
+        ("kmh", " km/h"),
+        ("kph", " km/h"),
+        ("mm", " mm"),
+        ("cm", " cm"),
+        ("km", " km"),
+        ("f", "\u00b0F"),
+        ("c", "\u00b0C"),
+        # -- 3. the unit the quantity is usually measured in -------------------
         ("humidity", "%"),
         ("cloud_cover", "%"),
+        ("precipitation", " dL"),
         ("precip", " in"),
         ("rainfall", " in"),
         ("snow", " in"),
@@ -247,11 +287,18 @@ class HeatmapRepository:
         ("visibility", " mi"),
         ("uv_index", ""),
         ("heat_index", " / 100"),
-        ("_score", " / 100"),
-        ("_index", " / 100"),
+        ("score", " / 100"),
+        ("index", " / 100"),
         ("temp", "\u00b0C"),
+        ("temperature", "\u00b0C"),
         ("feels_like", "\u00b0C"),
         ("dew_point", "\u00b0C"),
+    )
+
+    # UNIT_RULES with each phrase wrapped in the "_" that makes it match whole
+    # words only. Built once: _unit_for runs per distinct value formatted.
+    _PADDED_UNIT_RULES: ClassVar[Tuple[Tuple[str, str], ...]] = tuple(
+        ("_%s_" % phrase, unit) for phrase, unit in UNIT_RULES
     )
 
     DERIVED_METRICS: ClassVar[Tuple[str, ...]] = (
@@ -1535,10 +1582,19 @@ class HeatmapRepository:
             return rendered + self._unit_for(column)
         return str(value)
 
-    def _unit_for(self, column: str) -> str:
-        lowered = column.lower()
-        for fragment, unit in self.UNIT_HINTS:
-            if fragment in lowered:
+    @classmethod
+    def _unit_for(cls, column: str) -> str:
+        """The display suffix a numeric value from ``column`` carries.
+
+        The first UNIT_RULES entry that the column name spells out, so a unit the
+        column states about itself is read before any guess from the quantity it
+        names. Classmethod so callers outside the repository (the interpolated-
+        surface tooltips) can route a metric name through the same rule without
+        a session.
+        """
+        padded = "_%s_" % column.lower()
+        for phrase, unit in cls._PADDED_UNIT_RULES:
+            if phrase in padded:
                 return unit
         return ""
 

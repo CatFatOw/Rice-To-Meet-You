@@ -69,19 +69,22 @@ LOCAL_TEMPERATURE_SOURCES = {
     "local_temperature_f": ("average_temperature_f", "f"),
 }
 
+# See surface_metric_unit.
+_resolve_unit = HeatmapRepository._unit_for
+
 
 def surface_metric_unit(metric_name: str) -> str:
     """The display suffix the tooltip appends to a metric, e.g. "\u00b0C" or "%".
 
-    Same rule the heatmap repository applies when it formats a measured value,
-    read off the same hint table, so an interpolated row reads exactly as the
-    measured row it replaces.
+    Delegates to the heatmap repository's own resolver rather than re-reading
+    its rule table, so an interpolated row reads exactly as the measured row it
+    replaces -- including the day the rule changes.
+
+    Bound to the real class at import, not read off the module global the routes
+    construct their repository from: the unit rule is fixed metadata rather than
+    the session-bound behaviour a test double stands in for.
     """
-    lowered = metric_name.lower()
-    for fragment, unit in HeatmapRepository.UNIT_HINTS:
-        if fragment in lowered:
-            return unit
-    return ""
+    return _resolve_unit(metric_name)
 
 
 def _flatten_readings(points_by_date):

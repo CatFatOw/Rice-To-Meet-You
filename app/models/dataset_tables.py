@@ -143,7 +143,7 @@ class DailyWeatherRice(Base):
     max_temperature_c = Column(Float, nullable=False)
     # min temp/day
     min_temperature_c = Column(Float, nullable=False)
-    # Daily precipitation (0 = trace, -1=None) in hundrets of mililiters
+    # Daily precipitation (0 = trace, -1 = none) in hundreds of millilitres
     precipitation = Column(Integer, nullable=False)
     valid_date = Column(Date, nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=True)
