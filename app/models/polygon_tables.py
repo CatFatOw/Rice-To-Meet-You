@@ -1,5 +1,5 @@
 from database import Base 
-from sqlalchemy import Column, Integer, TIMESTAMP, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, TIMESTAMP, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import text
@@ -10,6 +10,11 @@ class PolygonGeometry(Base):
     __tablename__ = "polygon_geometry"
 
     id = Column(Integer, primary_key=True, nullable=False)
+    # Optional frontend display metadata for saved POI/region polygons.
+    name = Column(Text, nullable=True)
+    city_name = Column(Text, nullable=True, index=True)
+    state_name = Column(Text, nullable=True, index=True)
+    color = Column(JSONB, nullable=True)
     # Stores a closed GeoJSON Polygon from the labeling tool.
     geometry = Column(JSONB, nullable=False)
 

@@ -5,6 +5,7 @@ import {
   PathLayer,
   TextLayer,
   IconLayer,
+  BitmapLayer,
 } from '@deck.gl/layers';
 import { HeatmapLayer } from '@deck.gl/aggregation-layers';
 import { type CityPOIArea, type HeatmapMetricValue } from '../api/map';
@@ -89,6 +90,7 @@ export function useHeatmapLayers({
   isDrawing,
   selectedCity,
   displayedHeatmapPoints,
+  metricSurfaceRasters,
   activeMetricColorRange,
   activeMetricColorDomain,
   activeMetricWeightOffset,
@@ -109,36 +111,6 @@ export function useHeatmapLayers({
   setDraftPoints,
 }: UseHeatmapLayersArgs) {
   const dragContextRef = useRef<DragContext | null>(null);
-
-  const isTemperatureChange =
-    activeMetricKey === 'change_in_temperature'
-    || activeMetricKey === 'change_in_average_temperature_c'
-    || activeMetricKey === 'change_in_local_temperature_c'
-      || activeMetricKey === 'change_in_average_temperature_f'
-    || activeMetricKey === 'change_in_local_temperature_f'
-   
-
-  const deltaThreshold = 0.05;
-
-    const coolingPoints = useMemo(
-      () =>
-        isTemperatureChange
-          ? displayedHeatmapPoints.filter(
-              (point) => point.value < -deltaThreshold,
-            )
-          : [],
-      [displayedHeatmapPoints, isTemperatureChange],
-    );
-
-    const warmingPoints = useMemo(
-      () =>
-        isTemperatureChange
-          ? displayedHeatmapPoints.filter(
-              (point) => point.value > deltaThreshold,
-            )
-          : [],
-      [displayedHeatmapPoints, isTemperatureChange],
-    );
 
   
   // Committed objects plus any pending (staged) ones, rendered identically.
@@ -214,11 +186,71 @@ export function useHeatmapLayers({
     [onCityClick, isDrawing, selectedCity],
   );
 
-  // Continuous, interpolated density surface (GPU kernel-density estimation).
-  // Larger radius + lower threshold = smoother blending between points. This is
-  // the *visible* layer and stays non-pickable — pointPickLayer below handles
-  // hover so the tooltip reports true point values, not the blended surface.
-  
+  // Continuous interpolated surface. The backend ordinary-kriges the readings
+  // into a value lattice; that lattice is rendered once into an off-screen
+  // canvas (see services/metricRaster) and pinned to its lon/lat bounds, so the
+  // surface does not resample as the user zooms.
+  //
+  // One image per city, each anchored to its own city's bounds. They are
+  // separate layers rather than one national image because each was kriged
+  // independently from its own city's readings. Alpha is baked into the raster
+  // by the metric's palette, so no layer-wide opacity is applied here.
+  const surfaceRasterLayers = useMemo(
+    () =>
+      metricSurfaceRasters.map(
+        ({ surface, raster }) =>
+          new BitmapLayer({
+            id: `metric-surface-raster-${surface.city ?? 'unscoped'}`,
+            image: raster.canvas,
+            bounds: raster.bounds,
+            pickable: false,
+          }),
+      ),
+    [metricSurfaceRasters],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Point-density fallback
+  // ---------------------------------------------------------------------------
+  // Every metric the backend can krige is drawn as a surface above. This is
+  // what remains for the one that is not - avg_daily_visits, a per-POI count
+  // with no field between the POIs - and it also covers a metric whose surface
+  // request has not landed or failed, so the map never goes blank.
+
+  const isTemperatureChange =
+    activeMetricKey === 'change_in_temperature'
+    || activeMetricKey === 'change_in_average_temperature_c'
+    || activeMetricKey === 'change_in_local_temperature_c'
+      || activeMetricKey === 'change_in_average_temperature_f'
+    || activeMetricKey === 'change_in_local_temperature_f'
+
+
+  const deltaThreshold = 0.05;
+
+    const coolingPoints = useMemo(
+      () =>
+        isTemperatureChange
+          ? displayedHeatmapPoints.filter(
+              (point) => point.value < -deltaThreshold,
+            )
+          : [],
+      [displayedHeatmapPoints, isTemperatureChange],
+    );
+
+    const warmingPoints = useMemo(
+      () =>
+        isTemperatureChange
+          ? displayedHeatmapPoints.filter(
+              (point) => point.value > deltaThreshold,
+            )
+          : [],
+      [displayedHeatmapPoints, isTemperatureChange],
+    );
+
+  // GPU kernel-density estimation. Larger radius + lower threshold = smoother
+  // blending between points. This is the *visible* layer and stays non-pickable
+  // — pointPickLayer below handles hover so the tooltip reports true point
+  // values, not the blended surface.
   const interpolatedHeatmapLayer = useMemo(
     () =>
       new HeatmapLayer<HeatmapMetricValue>({
@@ -248,6 +280,7 @@ export function useHeatmapLayers({
       activeMetricWeightOffset,
     ],
   );
+
   const coolingHeatmapLayer = useMemo(
   () =>
     new HeatmapLayer<HeatmapMetricValue>({
@@ -306,12 +339,17 @@ const warmingHeatmapLayer = useMemo(
   [warmingPoints],
 );
 
+// A surface, when there is one, replaces the density layers entirely rather
+// than drawing on top of them.
 const visibleMetricLayers = useMemo(
   () =>
-    isTemperatureChange
-      ? [coolingHeatmapLayer, warmingHeatmapLayer]
-      : [interpolatedHeatmapLayer],
+    surfaceRasterLayers.length > 0
+      ? surfaceRasterLayers
+      : isTemperatureChange
+        ? [coolingHeatmapLayer, warmingHeatmapLayer]
+        : [interpolatedHeatmapLayer],
   [
+    surfaceRasterLayers,
     isTemperatureChange,
     interpolatedHeatmapLayer,
     coolingHeatmapLayer,

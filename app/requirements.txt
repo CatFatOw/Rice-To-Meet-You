@@ -14,5 +14,6 @@ passlib
 python-jose
 python-multipart
 redis>=5.0
+tqdm
 pytest
 anthropic

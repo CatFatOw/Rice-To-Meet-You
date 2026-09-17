@@ -29,7 +29,6 @@ from routers import (
 
 )
 
-
 import logging
 logging.basicConfig(level=logging.INFO)
 
@@ -114,6 +113,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+# Allow the local Vite frontend to call the API while you are developing.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

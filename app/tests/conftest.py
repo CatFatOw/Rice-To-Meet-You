@@ -1,10 +1,11 @@
 """Shared fixtures for the backend unit tests.
 
 Scope: the backend functions the frontend actually reaches, which is the
-``core_poi``, ``urban_intervention`` and ``final_visitor`` stacks. The heatmap
-router, service and repository are deliberately out of scope, so where a
-visitor function reads the heatmap weather cache (``_heat_index_f``) the tests
-stub that seam instead of exercising it.
+``core_poi``, ``urban_intervention``, ``final_visitor``, ``heatmap`` and
+``grid_interpolation`` surface stacks. The visitor tests still stub the heatmap
+weather cache (``_heat_index_f``) rather than exercising it through the visitor
+side; the heatmap repository has its own tests. Heatmap and surface fixtures
+live in their own test modules, since nothing else shares them.
 
 Nothing here talks to Postgres. Two strategies stand in for it:
 
@@ -284,13 +285,19 @@ def stub_heat_index(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Final visitor — SQLite mirror of final_visitor_table
+# Final visitor — SQLite mirror of the visitor table
 # --------------------------------------------------------------------------- #
 
 
 @pytest.fixture
 def visitor_table() -> Table:
-    """``final_visitor_table`` rebuilt with SQLite-creatable types.
+    """The visitor table rebuilt with SQLite-creatable types.
+
+    Both the name and the columns come off ``VisitorData``. The name is not
+    spelled out here because the repository reads through the model: a mirror
+    holding its own copy of the name stops being the table under test the day
+    the real one is renamed, and every case fails with "no such table" rather
+    than pointing at the rename.
 
     The real model carries a PostGIS ``Geometry`` column, whose DDL calls
     ``RecoverGeometryColumn`` and fails on plain SQLite. That column is in
@@ -309,7 +316,7 @@ def visitor_table() -> Table:
         )
         for column in VisitorData.__table__.columns
     ]
-    return Table("final_visitor_table", metadata, *columns)
+    return Table(VisitorData.__tablename__, metadata, *columns)
 
 
 @pytest.fixture

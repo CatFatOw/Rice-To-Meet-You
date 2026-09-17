@@ -4,8 +4,9 @@
 * ``GET  /urban_intervention/get-urban-interventions-by-city-between-dates``
 * ``POST /urban_intervention/create-urban-intervention``
 
-Each handler opens its own ``SessionLocal()``, so the tests swap that name and
-the repository class for stubs. What is under test is the handler's own work:
+Each handler takes its session from ``Depends(get_db)``, so the tests pass one
+in and swap only the repository class for a stub. What is under test is the
+handler's own work:
 turning ``UrbanInterventionRecord`` dataclasses into JSON-ready dicts, resolving
 the ``statuses`` query parameter, and mapping a ``ValueError`` to a 400.
 """
@@ -112,7 +113,6 @@ def stub(monkeypatch):
     _StubRepository.records = [record()]
     _StubRepository.error = None
     _StubRepository.calls = []
-    monkeypatch.setattr(urban_intervention, "SessionLocal", lambda: session)
     monkeypatch.setattr(
         urban_intervention, "UrbanInterventionRepository", _StubRepository
     )
@@ -125,10 +125,10 @@ def stub(monkeypatch):
 
 
 def test_by_city_date_returns_plain_dicts(stub):
-    repository, _ = stub
+    repository, session = stub
 
     result = urban_intervention.get_urban_interventions_by_city_date(
-        city="houston", as_of=date(2026, 8, 16)
+        city="houston", as_of=date(2026, 8, 16), db=session
     )
 
     assert isinstance(result, list)
@@ -136,8 +136,9 @@ def test_by_city_date_returns_plain_dicts(stub):
 
 
 def test_by_city_date_exposes_every_record_field(stub):
+    _, session = stub
     result = urban_intervention.get_urban_interventions_by_city_date(
-        city="houston", as_of=date(2026, 8, 16)
+        city="houston", as_of=date(2026, 8, 16), db=session
     )
 
     item = result[0]
@@ -154,10 +155,11 @@ def test_by_city_date_exposes_every_record_field(stub):
 
 
 def test_by_city_date_keeps_geometry_and_parameters_as_objects(stub):
+    _, session = stub
     # The frontend reads record.geometry.coordinates and record.params.* , so
     # these have to survive as nested structures rather than strings.
     item = urban_intervention.get_urban_interventions_by_city_date(
-        city="houston", as_of=date(2026, 8, 16)
+        city="houston", as_of=date(2026, 8, 16), db=session
     )[0]
 
     assert item["geometry"]["type"] == "Polygon"
@@ -166,10 +168,10 @@ def test_by_city_date_keeps_geometry_and_parameters_as_objects(stub):
 
 
 def test_by_city_date_forwards_the_query_parameters(stub):
-    repository, _ = stub
+    repository, session = stub
 
     urban_intervention.get_urban_interventions_by_city_date(
-        city="dallas", as_of=date(2026, 8, 16)
+        city="dallas", as_of=date(2026, 8, 16), db=session
     )
 
     assert repository.calls == [
@@ -183,22 +185,22 @@ def test_by_city_date_forwards_the_query_parameters(stub):
 
 
 def test_by_city_date_returns_an_empty_list_when_nothing_matches(stub):
-    repository, _ = stub
+    repository, session = stub
     repository.records = []
 
     result = urban_intervention.get_urban_interventions_by_city_date(
-        city="houston", as_of=date(2026, 8, 16)
+        city="houston", as_of=date(2026, 8, 16), db=session
     )
 
     assert result == []
 
 
 def test_by_city_date_maps_every_record(stub):
-    repository, _ = stub
+    repository, session = stub
     repository.records = [record(name="A"), record(name="B"), record(name="C")]
 
     result = urban_intervention.get_urban_interventions_by_city_date(
-        city="houston", as_of=date(2026, 8, 16)
+        city="houston", as_of=date(2026, 8, 16), db=session
     )
 
     assert [item["name"] for item in result] == ["A", "B", "C"]
@@ -210,10 +212,10 @@ def test_by_city_date_maps_every_record(stub):
 
 
 def test_between_dates_forwards_the_range(stub):
-    repository, _ = stub
+    repository, session = stub
 
     urban_intervention.get_urban_interventions_by_city_between_dates(
-        city="houston", from_date=date(2026, 8, 1), to_date=date(2026, 8, 31)
+        city="houston", from_date=date(2026, 8, 1), to_date=date(2026, 8, 31), db=session
     )
 
     call = repository.calls[0]
@@ -224,19 +226,20 @@ def test_between_dates_forwards_the_range(stub):
 
 
 def test_between_dates_returns_dicts(stub):
+    _, session = stub
     result = urban_intervention.get_urban_interventions_by_city_between_dates(
-        city="houston", from_date=date(2026, 8, 1), to_date=date(2026, 8, 31)
+        city="houston", from_date=date(2026, 8, 1), to_date=date(2026, 8, 31), db=session
     )
 
     assert [item["name"] for item in result] == ["Shade trees on Main"]
 
 
 def test_between_dates_returns_an_empty_list_when_nothing_matches(stub):
-    repository, _ = stub
+    repository, session = stub
     repository.records = []
 
     result = urban_intervention.get_urban_interventions_by_city_between_dates(
-        city="houston", from_date=date(2026, 8, 1), to_date=date(2026, 8, 31)
+        city="houston", from_date=date(2026, 8, 1), to_date=date(2026, 8, 31), db=session
     )
 
     assert result == []
@@ -245,23 +248,23 @@ def test_between_dates_returns_an_empty_list_when_nothing_matches(stub):
 def test_an_omitted_status_filter_reaches_the_repository_as_none(stub):
     # The default is a fastapi Query object, not None, so the handler has to
     # normalize it before passing it down.
-    repository, _ = stub
+    repository, session = stub
 
     urban_intervention.get_urban_interventions_by_city_between_dates(
-        city="houston", from_date=date(2026, 8, 1), to_date=date(2026, 8, 31)
+        city="houston", from_date=date(2026, 8, 1), to_date=date(2026, 8, 31), db=session
     )
 
     assert repository.calls[0]["statuses"] is None
 
 
 def test_a_status_list_is_forwarded(stub):
-    repository, _ = stub
+    repository, session = stub
 
     urban_intervention.get_urban_interventions_by_city_between_dates(
         city="houston",
         from_date=date(2026, 8, 1),
         to_date=date(2026, 8, 31),
-        statuses=["active", "planned"],
+        statuses=["active", "planned"], db=session,
     )
 
     assert repository.calls[0]["statuses"] == ["active", "planned"]
@@ -270,13 +273,13 @@ def test_a_status_list_is_forwarded(stub):
 def test_an_empty_status_list_is_forwarded_as_an_empty_list(stub):
     # [] is a list, so it survives the isinstance check and the repository can
     # apply its "nothing can match" short circuit.
-    repository, _ = stub
+    repository, session = stub
 
     urban_intervention.get_urban_interventions_by_city_between_dates(
         city="houston",
         from_date=date(2026, 8, 1),
         to_date=date(2026, 8, 31),
-        statuses=[],
+        statuses=[], db=session,
     )
 
     assert repository.calls[0]["statuses"] == []
@@ -290,25 +293,25 @@ def test_a_non_list_status_filter_is_silently_dropped(stub):
     it. Over HTTP this cannot happen — FastAPI always builds a list — but a
     Python caller passing a tuple gets an unfiltered result and no warning.
     """
-    repository, _ = stub
+    repository, session = stub
 
     urban_intervention.get_urban_interventions_by_city_between_dates(
         city="houston",
         from_date=date(2026, 8, 1),
         to_date=date(2026, 8, 31),
-        statuses=("active",),
+        statuses=("active",), db=session,
     )
 
     assert repository.calls[0]["statuses"] is None
 
 
 def test_an_inverted_range_becomes_a_400(stub):
-    repository, _ = stub
+    repository, session = stub
     repository.error = ValueError("from_date must not be after to_date.")
 
     with pytest.raises(HTTPException) as excinfo:
         urban_intervention.get_urban_interventions_by_city_between_dates(
-            city="houston", from_date=date(2026, 8, 31), to_date=date(2026, 8, 1)
+            city="houston", from_date=date(2026, 8, 31), to_date=date(2026, 8, 1), db=session
         )
 
     assert excinfo.value.status_code == 400
@@ -318,12 +321,12 @@ def test_an_inverted_range_becomes_a_400(stub):
 def test_a_non_value_error_is_not_converted_to_a_400(stub):
     # Only ValueError is a client mistake; anything else must surface as a 500
     # rather than being reported as bad input.
-    repository, _ = stub
+    repository, session = stub
     repository.error = RuntimeError("connection lost")
 
     with pytest.raises(RuntimeError):
         urban_intervention.get_urban_interventions_by_city_between_dates(
-            city="houston", from_date=date(2026, 8, 1), to_date=date(2026, 8, 31)
+            city="houston", from_date=date(2026, 8, 1), to_date=date(2026, 8, 31), db=session
         )
 
 
@@ -333,7 +336,8 @@ def test_a_non_value_error_is_not_converted_to_a_400(stub):
 
 
 def test_create_returns_the_persisted_record_as_a_dict(stub):
-    result = urban_intervention.create_urban_intervention(dict(CREATE_BODY))
+    _, session = stub
+    result = urban_intervention.create_urban_intervention(dict(CREATE_BODY), db=session)
 
     assert isinstance(result, dict)
     assert result["name"] == "Shade trees on Main"
@@ -343,9 +347,10 @@ def test_create_returns_the_persisted_record_as_a_dict(stub):
 
 
 def test_create_returns_the_database_geometry_not_the_posted_one(stub):
+    _, session = stub
     # The body carries a {kind, ring} input shape; the response carries the
     # GeoJSON the database round-tripped back.
-    result = urban_intervention.create_urban_intervention(dict(CREATE_BODY))
+    result = urban_intervention.create_urban_intervention(dict(CREATE_BODY), db=session)
 
     assert result["geometry"] == {
         "type": "Polygon",
@@ -355,9 +360,9 @@ def test_create_returns_the_database_geometry_not_the_posted_one(stub):
 
 
 def test_create_forwards_the_body_unchanged(stub):
-    repository, _ = stub
+    repository, session = stub
 
-    urban_intervention.create_urban_intervention(dict(CREATE_BODY))
+    urban_intervention.create_urban_intervention(dict(CREATE_BODY), db=session)
 
     assert repository.calls[0]["method"] == "create"
     assert repository.calls[0]["payload"] == CREATE_BODY
@@ -366,7 +371,7 @@ def test_create_forwards_the_body_unchanged(stub):
 def test_create_commits_exactly_once(stub):
     _, session = stub
 
-    urban_intervention.create_urban_intervention(dict(CREATE_BODY))
+    urban_intervention.create_urban_intervention(dict(CREATE_BODY), db=session)
 
     assert session.commits == 1
 
@@ -375,47 +380,60 @@ def test_a_rejected_body_does_not_commit(stub):
     repository, session = stub
     repository.error = InvalidParametersError("missing required parameter 'lai'")
 
-    with pytest.raises(InvalidParametersError):
-        urban_intervention.create_urban_intervention(dict(CREATE_BODY))
+    with pytest.raises(HTTPException):
+        urban_intervention.create_urban_intervention(dict(CREATE_BODY), db=session)
 
     assert session.commits == 0
 
 
-def test_a_rejected_body_is_not_turned_into_a_400(stub):
-    """``create`` has no ValueError handler, unlike the range endpoint.
+@pytest.mark.parametrize(
+    "error",
+    [
+        InvalidParametersError("missing required parameter 'lai'"),
+        InvalidGeometryError("A polygon ring needs at least 3 ..."),
+    ],
+)
+def test_a_rejected_body_is_a_400_carrying_the_reason(stub, error):
+    """``create`` maps a bad body to a 400, as the range endpoint does.
 
     ``InvalidParametersError`` and ``InvalidGeometryError`` both subclass
-    ValueError, so the same mistake that yields a clean 400 on the between-dates
-    route escapes uncaught here and surfaces as a 500 — the client is told the
-    server broke rather than that its parameters were wrong.
+    ValueError. They were once uncaught here, so the same mistake that yielded a
+    clean 400 on the between-dates route surfaced as a 500 and told the client
+    the server had broken rather than that its parameters were wrong.
     """
-    repository, _ = stub
-    repository.error = InvalidGeometryError("A polygon ring needs at least 3 ...")
+    repository, session = stub
+    repository.error = error
 
-    with pytest.raises(InvalidGeometryError):
-        urban_intervention.create_urban_intervention(dict(CREATE_BODY))
+    with pytest.raises(HTTPException) as raised:
+        urban_intervention.create_urban_intervention(dict(CREATE_BODY), db=session)
+
+    assert raised.value.status_code == 400
+    assert raised.value.detail == str(error)
 
 
 def test_read_handlers_do_not_commit(stub):
     _, session = stub
 
     urban_intervention.get_urban_interventions_by_city_date(
-        city="houston", as_of=date(2026, 8, 16)
+        city="houston", as_of=date(2026, 8, 16), db=session
     )
     urban_intervention.get_urban_interventions_by_city_between_dates(
-        city="houston", from_date=date(2026, 8, 1), to_date=date(2026, 8, 31)
+        city="houston", from_date=date(2026, 8, 1), to_date=date(2026, 8, 31), db=session
     )
 
     assert session.commits == 0
 
 
-def test_no_handler_closes_the_session_it_opened(stub):
-    # Same leak as the core_poi handlers: SessionLocal() with no close().
+def test_no_handler_closes_the_session_it_receives(stub):
+    """Closing is ``get_db``'s job, in its ``finally``. A handler that closed
+    the session it was handed would return the connection to the pool while
+    the dependency still holds it.
+    """
     _, session = stub
 
-    urban_intervention.create_urban_intervention(dict(CREATE_BODY))
+    urban_intervention.create_urban_intervention(dict(CREATE_BODY), db=session)
     urban_intervention.get_urban_interventions_by_city_date(
-        city="houston", as_of=date(2026, 8, 16)
+        city="houston", as_of=date(2026, 8, 16), db=session
     )
 
     assert session.closed == 0

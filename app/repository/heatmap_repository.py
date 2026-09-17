@@ -51,7 +51,6 @@ from sqlalchemy import Float, Integer, MetaData, Numeric, Table, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from repository.urban_internvetion_repository import UrbanInterventionRecord, UrbanInterventionRepository
-from services.heatmap import create_weather_cache_key, create_urban_heat_cache_key
 
 logger = logging.getLogger(__name__)
 
@@ -254,12 +253,12 @@ class HeatmapRepository:
         ("feels_like", "\u00b0C"),
         ("dew_point", "\u00b0C"),
     )
+
     DERIVED_METRICS: ClassVar[Tuple[str, ...]] = (
         "local_temperature_f",
         "local_temperature_c",
     )
- 
-    # How per-point (heat-index) columns collapse to a single value.
+
     AGGREGATES: ClassVar[Tuple[str, ...]] = (
         "mean",
         "median",
@@ -344,19 +343,6 @@ class HeatmapRepository:
 
             if not cls._heat_loaded:
                 cls._load_heat_index(bind, markets)
-
-    @classmethod
-    def refresh_weather(cls, bind: Any) -> None:
-        """Reload the weather cache.
-
-        Weather is mutable: new rows land daily and backfills revise old ones.
-        Call this on a timer, otherwise the cache will serve stale data with no
-        way to notice. The heat-index cache is reference data and does not need
-        the same treatment.
-        """
-        cls.initialize_metadata(bind)
-        with cls._data_cache_lock:
-            cls._load_weather(bind)
 
     @classmethod
     def cache_stats(cls) -> Dict[str, Any]:
@@ -674,166 +660,6 @@ class HeatmapRepository:
         return average_temperature_c + adjustment_c
 
     # -- public API ---------------------------------------------------------
-
-    def getDataPointsForCityAndDate(
-        self,
-        weather_date: DateLike,
-        market_code: Optional[Union[str, Iterable[str]]] = None,
-    ) -> HeatmapPointsByDate:
-        """Return heatmap points for the given date, keyed by date string.
-
-        Served from the in-process cache. Weather metrics are formatted once
-        per market and reused across that market's points; heat-index metrics
-        are formatted per point, with a per-column memo since values repeat
-        heavily across a city.
-
-        Args:
-            weather_date: the day to pull, as a `date`/`datetime` or ISO string.
-            market_code: a single market code or an iterable of them. Defaults
-                to all supported markets.
-
-        Returns:
-            HeatmapPointsByDate, e.g.
-            {"2026-08-10": [{"location_coordinates": [...], "individual_metrics": {...}}]}
-        """
-        total_start = perf_counter()
-        stage_start = total_start
-
-        def print_timing(stage: str) -> None:
-            nonlocal stage_start
-
-            now = perf_counter()
-
-            print(
-                f"[TIMING] {stage}: "
-                f"{now - stage_start:.4f}s "
-                f"(total: {now - total_start:.4f}s)"
-            )
-
-            stage_start = now
-
-        # 1. Parse and validate inputs
-        target_date = self._coerce_date(weather_date)
-        markets = self._resolve_markets(market_code)
-
-        print_timing("Parse date and markets")
-
-        if not markets:
-            print_timing("Return empty result")
-            return {}
-
-        # 2. Metadata is still needed to know which columns exist
-        self._get_table(self.WEATHER_TABLE)
-        self._get_table(self.HEAT_INDEX_TABLE)
-
-        print_timing("Load cached table metadata")
-
-        cls = type(self)
-        format_value = self._format_value
-
-        date_key = target_date.isoformat()
-        results: HeatmapPointsByDate = {}
-
-        # 3. Build points, one market at a time.
-        #
-        # Cache lookups are timed separately: they are near-instant on a hit,
-        # but a miss falls back to a database load, so a large number here
-        # means the preload has not finished or did not cover this market.
-        weather_seconds = 0.0
-        block_seconds = 0.0
-        markets_served = 0
-        markets_skipped = 0
-        points_built = 0
-
-        for market in markets:
-            lookup_start = perf_counter()
-            weather_values = self._weather_values(market, target_date)
-            weather_seconds += perf_counter() - lookup_start
-
-            if weather_values is None:
-                markets_skipped += 1
-                continue  # no weather for this market: the old join dropped it
-
-            # Re-read after the accessor: a fallback load rebinds the index.
-            weather_index = cls._weather_index
-
-            lookup_start = perf_counter()
-            block = self._heat_block(market, target_date)
-            block_seconds += perf_counter() - lookup_start
-
-            if block is None or block.count == 0:
-                markets_skipped += 1
-                continue
-
-            markets_served += 1
-
-            heat_names = [
-                name for name in cls._heat_metric_names if name in block.metrics
-            ]
-
-            # Formatted once per market, reused for every point.
-            weather_metrics = {
-                name: format_value(name, weather_values[position])
-                for name, position in weather_index.items()
-                if weather_values[position] is not None
-            }
-
-            longitudes = block.longitude
-            latitudes = block.latitude
-            columns = [block.metrics[name] for name in heat_names]
-            # raw value -> formatted string, per column. Heat-index values
-            # repeat across a city, so the hit rate is high.
-            memos: List[Dict[Any, str]] = [{} for _ in heat_names]
-
-            points = results.setdefault(date_key, [])
-
-            for i in range(block.count):
-                # Heat-index keys overwrite weather keys on collision, matching
-                # the old iteration order (weather first, heat-index second).
-                metrics = dict(weather_metrics)
-
-                for name, column, memo in zip(heat_names, columns, memos):
-                    raw = column[i]
-                    if raw is None or raw != raw:  # None or the NaN sentinel
-                        continue
-                    rendered = memo.get(raw)
-                    if rendered is None:
-                        rendered = format_value(name, raw)
-                        memo[raw] = rendered
-                    metrics[name] = rendered
-
-                points.append(
-                    {
-                        "location_coordinates": [longitudes[i], latitudes[i]],
-                        "individual_metrics": metrics,
-                    }
-                )
-
-            points_built += block.count
-
-        print_timing(
-            f"Build {points_built:,} points "
-            f"({markets_served} markets served, "
-            f"{markets_skipped} skipped)"
-        )
-
-        print(
-            f"[TIMING] cache lookups: "
-            f"weather {weather_seconds:.4f}s, "
-            f"heat blocks {block_seconds:.4f}s"
-        )
-
-        # 4. Build final response
-        if not results:
-            print_timing("Build empty response")
-            return {}
-
-        print(
-            f"[TIMING] COMPLETE: "
-            f"{perf_counter() - total_start:.4f}s"
-        )
-
-        return results
 
     def getDataPointsForCityDateMetric(
         self,
@@ -1378,8 +1204,6 @@ class HeatmapRepository:
             "points_by_date": simulated.points_by_date
         }
 
-    getSimulatedPointsByDate = get_simulated_points_by_date
-
     @staticmethod
     def _group_interventions_for_simulation(
         interventions: Iterable[UrbanInterventionRecord],
@@ -1616,25 +1440,6 @@ class HeatmapRepository:
 
     # -- schema helpers -----------------------------------------------------
 
-    def _build_metrics(
-        self, row: Any, allowed: Optional[set] = None
-    ) -> Dict[str, str]:
-        """Everything that isn't a join key or a coordinate, stringified with units.
-
-        `allowed`, when given, restricts the output to that set of column names.
-        Retained for callers that still work with prefixed row mappings; the
-        cache-backed query paths do not use it.
-        """
-        metrics: Dict[str, str] = {}
-        for prefixed_key, value in row.items():
-            column = prefixed_key.split("__", 1)[1]
-            if column in self.EXCLUDED_METRIC_COLUMNS or value is None:
-                continue
-            if allowed is not None and column not in allowed:
-                continue
-            metrics[column] = self._format_value(column, value)
-        return metrics
-
     @staticmethod
     def _to_weight(value: Any) -> Optional[float]:
         """Coerce a metric to a number for heatmap weighting. Bools -> 1.0/0.0."""
@@ -1660,7 +1465,7 @@ class HeatmapRepository:
                 "'%s' is a structural column and is not available as a metric."
                 % name
             )
-        # Weather wins a name collision, matching _build_metrics' iteration order.
+        # Weather wins a name collision.
         for table, prefix in ((weather, "w__"), (heat_index, "h__")):
             if name in table.columns:
                 return table.columns[name], prefix
@@ -1738,15 +1543,6 @@ class HeatmapRepository:
         return ""
 
     @staticmethod
-    def _to_float(value: Any) -> Optional[float]:
-        if value is None:
-            return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    @staticmethod
     def _coerce_date(value: DateLike) -> dt.date:
         if isinstance(value, dt.datetime):
             return value.date()
@@ -1754,17 +1550,6 @@ class HeatmapRepository:
             return value
         return dt.date.fromisoformat(str(value).strip()[:10])
 
-    @staticmethod
-    def _to_date_key(value: Any, fallback: dt.date) -> str:
-        if isinstance(value, dt.datetime):
-            return value.date().isoformat()
-        if isinstance(value, dt.date):
-            return value.isoformat()
-        if value:
-            return str(value)[:10]
-        return fallback.isoformat()
-    
- 
     @staticmethod
     def _column_values(column: Any) -> List[Any]:
         """Strip nulls from a cached column.
@@ -1775,7 +1560,7 @@ class HeatmapRepository:
         if isinstance(column, array):
             return [value for value in column if value == value]
         return [value for value in column if value is not None]
- 
+
     @classmethod
     def _aggregate_values(cls, values: Sequence[Any], how: str) -> Optional[Any]:
         """Collapse a null-free column to one value.
@@ -1813,7 +1598,7 @@ class HeatmapRepository:
         if len(ordered) % 2:
             return ordered[middle]
         return (ordered[middle - 1] + ordered[middle]) / 2.0
- 
+
     def _aggregate_local_temperature(
         self,
         *,
@@ -1874,4 +1659,3 @@ class HeatmapRepository:
             values.append(value)
  
         return self._aggregate_values(values, how)
-

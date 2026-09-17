@@ -215,19 +215,14 @@ The summary endpoint returns a frontend-friendly payload:
 
 ### Grid Interpolation
 
-Grid interpolation routes are defined in [`routers/grid_interpolation.py`](routers/grid_interpolation.py). Database logic lives in [`repository/grid_interpolation_repository.py`](repository/grid_interpolation_repository.py), and interpolation/GeoJSON logic lives in [`services/grid_interpolation_service.py`](services/grid_interpolation_service.py).
+Surface routes are defined in [`routers/grid_interpolation.py`](routers/grid_interpolation.py), and the kriging logic lives in [`services/grid_interpolation_service.py`](services/grid_interpolation_service.py). Readings come from the in-memory heatmap cache in [`repository/heatmap_repository.py`](repository/heatmap_repository.py); nothing is persisted.
 
 | Action | Method | Path |
 |---|---:|---|
-| Get city grid cells as GeoJSON | `GET` | `/grid_interpolation/grid_cells_city?city=Houston&state=Texas` |
-| Interpolate city grid | `POST` | `/grid_interpolation/interpolate` |
-| Get all interpolated points as GeoJSON | `GET` | `/grid_interpolation/all` |
-| Get interpolated mesh polygons | `GET` | `/grid_interpolation/mesh?city=Houston&state=Texas&timestamp=...&color_metric=heat_index` |
-| Get heatmap-friendly points | `GET` | `/grid_interpolation/heatmap?city=Houston&state=Texas&timestamp=...&metric_key=heat_index` |
-| Update interpolated point | `PUT` | `/grid_interpolation/update/{interpolated_id}` |
-| Delete interpolated point | `DELETE` | `/grid_interpolation/delete/{interpolated_id}` |
+| Krige a city's stored readings | `GET` | `/grid_interpolation/surface?city=Houston&date=2026-07-15&metric_key=average_temperature_c&rows=48&cols=48` |
+| Krige client-supplied readings (simulation) | `POST` | `/grid_interpolation/surface` |
 
-Interpolation uses known metric values and fills values across grid-cell centroids. The mesh endpoint still returns grid-cell polygons, while the heatmap endpoint returns points with normalized intensity for smoother frontend heatmap rendering.
+Both return a `rows x cols` value lattice spanning the city's rectangle (row 0 is the southern edge), plus any `additional_metrics` kriged onto the same lattice for the map tooltip. `avg_daily_visits` and `heat_risk_score` have no surface and keep the point-density heatmap.
 
 ### NWS Weather
 
@@ -257,9 +252,7 @@ Recommended simulation setup order:
 2. Run `Polygon -> Create Polygon And Compute Impact Grids`.
 3. Use the impacted grid IDs to scope any simulation changes that should only affect the drawn region.
 4. Run `Grid Metrics -> Assign Metrics To All Grid Cells`.
-5. Run `Grid Interpolation -> Interpolate City Grid`.
-6. View either `Get Interpolated Heatmap GeoJSON` or `Get Interpolated Polygon Mesh GeoJSON`.
-7. Run weather assignment only when you need NWS-backed weather observations.
+5. Run weather assignment only when you need NWS-backed weather observations.
 
 For faster scoped weather testing, temporarily add a `limit` query parameter, such as `&limit=100`. For a full refresh, leave `limit` off.
 
@@ -273,21 +266,13 @@ Useful collection variables:
 | `gridCellId` | Numeric database ID for one grid cell. |
 | `gridCellIdText` | Human-readable cell ID string. |
 | `metricTimestamp` | Timestamp used when creating grid metrics. |
-| `interpolationTimestamp` | Timestamp used when reading/writing interpolated values. Match this to `metricTimestamp` during normal tests. |
-| `interpolationMetric` | Metric interpolated by the Postman request, such as `heat_index` or `population`. |
-| `colorMetric` | Metric used to color the polygon mesh. |
-| `heatmapMetric` | Metric used for the heatmap point intensity. |
 | `polygonId` | Saved polygon ID used for impacted-grid reads and recomputation. |
 
 ## Common Gotchas
 
-If interpolation returns no useful metric values, make sure grid metrics exist for the same city/state and timestamp. During normal testing, keep `metricTimestamp` and `interpolationTimestamp` the same.
-
 If a route says a grid cell was not found, regenerate a city grid and then rerun `Set Grid Cell ID From Grid List` in the Postman collection.
 
 `/grid_metrics/all` can be slower than filtered metric routes because it returns every metric row. Prefer `/grid_metrics/latest`, `/grid_metrics/state/{state}`, or `/grid_metrics/state/{state}/latest` for normal map work.
-
-The polygon mesh endpoint is still discrete because it returns one polygon per grid cell. For a smoother visual surface, feed the heatmap GeoJSON endpoint into a frontend heatmap layer.
 
 If polygon impact computation returns zero rows, confirm the polygon coordinates use `[longitude, latitude]`, the city/state grid already exists, and the polygon overlaps the generated grid area.
 

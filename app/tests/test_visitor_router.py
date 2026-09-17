@@ -203,7 +203,14 @@ class TestQueryVisitorRows:
 
         assert isinstance(result, list)
 
-    def test_sorting_is_off_and_limit_unset_by_default(self, stub):
+    def test_sorting_is_off_and_a_page_is_capped_by_default(self, stub):
+        """An omitted limit still pages.
+
+        A single city/date reaches 1M+ rows in the larger markets, so the route
+        defaults to a page rather than an unbounded scan; a caller that wants
+        more passes a bigger limit. Sorting stays off, so the default response
+        is whatever order the database returns.
+        """
         stub.answers["queryVisitorRowsWithGeometryByCityDate"] = [_FakeRow(id=1)]
 
         run(
@@ -214,7 +221,7 @@ class TestQueryVisitorRows:
 
         call = only_call(stub, "queryVisitorRowsWithGeometryByCityDate")
         assert call["sorted"] is False
-        assert call["limit"] is None
+        assert call["limit"] == 500
 
     def test_sorted_and_limit_are_forwarded(self, stub):
         stub.answers["queryVisitorRowsWithGeometryByCityDate"] = [_FakeRow(id=1)]
