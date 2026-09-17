@@ -194,12 +194,13 @@ export async function runSimulationTest(): Promise<{
   // callHeatmapPointByDateHouston clones per date, and getSimulatedPointsByDate
   // deep-clones its input, so `baseline` stays pristine and is safe to diff against.
   const baseline = await callHeatmapPointByDateHouston(METRIC);
-  const simulated = await getSimulatedPointsByDate(
+  const simulation = await getSimulatedPointsByDate(
     METRIC,
     '2026-07-05',
     '2026-07-08',
     'Houston',
   );
+  const simulated = simulation.pointsByDate;
   const changed = changedPointsByDate(baseline, simulated);
 
   printChanged(baseline, changed);

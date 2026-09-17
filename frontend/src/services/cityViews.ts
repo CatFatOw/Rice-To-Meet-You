@@ -2,7 +2,9 @@ import { cities, type City } from '../data/hostCities';
 import type { ViewState } from '../types/viewState';
 
 const CITY_ZOOM_THRESHOLD = 7;  // below this, you're at a regional/national view
-const CITY_RADIUS_DEG = 0.5;    // how close the view center must sit to a city to count
+// New York and New Jersey share one metro marker centered between them, so the
+// city detection radius must cover both sides of that combined dataset.
+const CITY_RADIUS_DEG = 0.75;   // how close the view center must sit to a city to count
 
 /**
  * Resolves which city the map is currently centered on.

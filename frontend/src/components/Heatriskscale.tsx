@@ -15,12 +15,12 @@ const HeatRiskScale: React.FC<HeatRiskScaleProps> = ({ metricKey, gradient }) =>
         bottom: 20,
         zIndex: 25,
         width: 240,
-        border: '1px solid rgba(148, 163, 184, 0.45)',
-        backgroundColor: 'rgba(2, 8, 23, 0.88)',
+        border: '1px solid var(--border-strong)',
+        backgroundColor: 'var(--surface-panel)',
         borderRadius: 10,
         padding: '10px 12px',
-        color: '#f1f5f9',
-        boxShadow: '0 4px 14px rgba(0, 0, 0, 0.35)',
+        color: 'var(--text-primary)',
+        boxShadow: 'var(--shadow-panel)',
       }}
     >
       <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{label} Scale</div>
@@ -30,7 +30,7 @@ const HeatRiskScale: React.FC<HeatRiskScaleProps> = ({ metricKey, gradient }) =>
           width: '100%',
           borderRadius: 999,
           background: gradient,
-          border: '1px solid rgba(148, 163, 184, 0.35)',
+          border: '1px solid var(--border-subtle)',
         }}
       />
       <div
@@ -39,7 +39,7 @@ const HeatRiskScale: React.FC<HeatRiskScaleProps> = ({ metricKey, gradient }) =>
           display: 'flex',
           justifyContent: 'space-between',
           fontSize: 11,
-          color: '#cbd5e1',
+          color: 'var(--text-secondary)',
         }}
       >
         {tickLabels.map((tick) => (
@@ -52,7 +52,7 @@ const HeatRiskScale: React.FC<HeatRiskScaleProps> = ({ metricKey, gradient }) =>
           display: 'flex',
           justifyContent: 'space-between',
           fontSize: 11,
-          color: '#94a3b8',
+          color: 'var(--text-muted)',
         }}
       >
         <span>{lowLabel}</span>

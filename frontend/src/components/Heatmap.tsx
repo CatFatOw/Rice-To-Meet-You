@@ -38,7 +38,7 @@ import type { ViewState } from '../types/viewState';
 import { fetchPlacedObjectsByCityDate } from '../api/tool';
 import type { Geometry } from '../types/simulation';
 import { isPolygonSimple } from '../services/polygon';
-import { availableMetrics, availableDates } from '../api/map';
+import { availableMetrics, availableDates, toMarketCode } from '../api/map';
 import type { PlacedObject } from '../services/toolbox';
 
 // ======================================================
@@ -692,7 +692,7 @@ const Heatmap: React.FC<HeatmapProps> = ({
 
     let ignore = false;
     setIsPlacedObjectsLoading(true);
-    const marketCode = selectedCity.trim().toLowerCase().replace(/\s+/g, '_');
+    const marketCode = toMarketCode(selectedCity);
 
     fetchPlacedObjectsByCityDate(selectedDate, marketCode)
       .then((tools) => {

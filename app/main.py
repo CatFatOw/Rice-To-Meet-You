@@ -13,6 +13,7 @@ import asyncio
 import models
 from database import engine, SessionLocal
 from routers import (
+    chatbot,
     core_poi,
     dataset,
     grid_geometry,
@@ -66,29 +67,39 @@ async def lifespan(app: FastAPI):
     # The simulation endpoint needs this cache to build baseline points. Wait
     # here so its first request does not block behind a full cache preload.
     await preload_heatmap()
+
+    async def preload_visitors() -> None:
+        """Create a startup-only session and fill the shared visitor cache."""
+
+        def _load() -> None:
+            print("Pre-loading visitor information...")
+            db = SessionLocal()
+            try:
+                VisitorRepository.initialize_table(db)
+                print("Visitor information pre-loading complete.")
+            finally:
+                try:
+                    db.close()
+                except OperationalError:
+                    # The provider may close an idle SSL connection before the
+                    # session's final rollback. The preload itself can succeed.
+                    logger.warning("Startup database connection was already closed")
+
+        try:
+            await asyncio.to_thread(_load)
+            logger.info("Visitor cache ready")
+        except Exception:
+            # Cache-backed visitor routes fall back to querying the DB
+            # directly (queryVisitorRowsWithGeometryByCityDate) while empty.
+            logger.exception("Visitor preload failed; cached lookups return empty")
+
+    # Backgrounded like preload_core_poi so millions of rows don't block
+    # startup and stall every other route. Cache-backed visitor endpoints
+    # (e.g. getVisitorDataByCityDate) return {} / 404 until this finishes.
     tasks = [
         asyncio.create_task(preload_core_poi(), name="preload-core-poi"),
+        asyncio.create_task(preload_visitors(), name="preload-visitors"),
     ]
-
-    def preload_visitors() -> None:
-        """Create a startup-only session and fill the shared visitor cache."""
-        print("Pre-loading visitor information...")
-        db = SessionLocal()
-        try:
-            VisitorRepository.initialize_table(db)
-            print("Visitor information pre-loading complete.")
-        finally:
-            try:
-                db.close()
-            except OperationalError:
-                # The provider may close an idle SSL connection before the
-                # session's final rollback. The preload itself can succeed.
-                logger.warning("Startup database connection was already closed")
-
-    # Do not create a background task for this cache. The API must not serve
-    # visitor lookups until every visitor row has been loaded into memory.
-    await asyncio.to_thread(preload_visitors)
-    logger.info("Visitor cache ready")
 
     yield
 
@@ -109,14 +120,16 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
-        "http://localhost:5174",
+        "https://rice-to-meet-you-five.vercel.app",
+        "https://rice-to-meet-you-git-main-the-phat-nghiems-projects.vercel.app",
+        "https://rice-to-meet-kpk7dmt28-the-phat-nghiems-projects.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 app.include_router(dataset.router)
+app.include_router(chatbot.router)
 app.include_router(users.router)
 app.include_router(login.router)
 app.include_router(nws_weather.router)

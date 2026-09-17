@@ -15,35 +15,38 @@ import SelectDate from './SelectDate';
 import { createNewUrbanIntervention, fetchCustomUrbanInterventions } from '../api/tool';
 import { TOOLBOX_ITEMS } from '../data/toolboxItems';
 import { cities } from '../data/hostCities';
-import { createPOI, type CreatePOIInput } from '../api/map';
+import { createPOI, toMarketCode, type CreatePOIInput } from '../api/map';
+import './Toolbox.css';
 
 const toolbarButtonStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  gap: 6,
-  padding: '8px 10px',
+  gap: 8,
+  padding: '9px 12px',
   borderRadius: 8,
-  border: '1px solid rgba(148, 163, 184, 0.45)',
+  border: '1px solid var(--border-strong)',
   fontSize: 13,
   fontWeight: 600,
+  letterSpacing: '0.01em',
   cursor: 'pointer',
   width: '100%',
+  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.18)',
 };
 
 const dividerStyle: React.CSSProperties = {
   height: 1,
-  backgroundColor: 'rgba(148, 163, 184, 0.3)',
-  margin: '2px 0',
+  background: 'linear-gradient(to right, transparent, var(--border-strong), transparent)',
+  margin: '4px 0',
 };
 
 // Shared input/select styling for the dark panel.
 const fieldStyle: React.CSSProperties = {
-  padding: '6px 8px',
-  borderRadius: 6,
-  border: '1px solid rgba(148, 163, 184, 0.45)',
-  backgroundColor: 'rgba(15, 23, 42, 0.9)',
-  color: '#f1f5f9',
+  padding: '7px 10px',
+  borderRadius: 8,
+  border: '1px solid var(--border-strong)',
+  backgroundColor: 'var(--surface-muted)',
+  color: 'var(--text-primary)',
   fontSize: 13,
   width: '100%',
 };
@@ -80,6 +83,8 @@ const US_STATE_CODES = [
   'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN',
   'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
 ];
+
+
 function normalizePolygonWkt(value: string): string {
   const text = value.trim();
   if (/^(POLYGON|MULTIPOLYGON)\s*\(/i.test(text)) return text;
@@ -225,6 +230,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
     },
     [],
   );
+  
 
   React.useEffect(() => {
     let ignore = false;
@@ -368,7 +374,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
       return;
     }
 
-    const marketCode = selectedCity.trim().toLowerCase().replace(/\s+/g, '_');
+    const marketCode = toMarketCode(selectedCity);
     updatePendingPlacedObject?.({ market_code: marketCode });
   }, [selectedCity, updatePendingPlacedObject]);
 
@@ -384,7 +390,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
         category: selectedArchetype,
         name: formatInterventionLabel(item.intervention),
         color: item.color,
-        market_code: selectedCity ? selectedCity.trim().toLowerCase().replace(/\s+/g, '_') : undefined,
+        market_code: selectedCity ? toMarketCode(selectedCity) : undefined,
         params: { ...item.params },
         activeFrom: pendingPlacedObject?.activeFrom || '2020-01-01',
         activeTo: pendingPlacedObject?.activeTo || '2020-01-01',
@@ -548,6 +554,7 @@ const handleDrawIntervention = React.useCallback(
   return (
     <div
       ref={panelRef}
+      className="toolbox-panel"
       style={{
         position: 'absolute',
         top: box.top,
@@ -558,11 +565,11 @@ const handleDrawIntervention = React.useCallback(
         // Keep the original clamp only while auto-sizing; once the user sets an
         // explicit height, that wins.
         maxHeight: box.height == null ? 'calc(100% - 40px)' : undefined,
-        border: '1px solid rgba(148, 163, 184, 0.45)',
-        backgroundColor: 'rgba(2, 8, 23, 0.9)',
-        borderRadius: 10,
-        color: '#f1f5f9',
-        boxShadow: '0 4px 14px rgba(0, 0, 0, 0.35)',
+        border: '1px solid var(--border-strong)',
+        backgroundColor: 'var(--surface-panel)',
+        borderRadius: 12,
+        color: 'var(--text-primary)',
+        boxShadow: 'var(--shadow-panel)',
         display: 'flex',
         flexDirection: 'column',
         // Clip the inner scroll area to the rounded corners; also clips the
@@ -587,10 +594,11 @@ const handleDrawIntervention = React.useCallback(
             style={{
               fontSize: 12,
               color: '#fca5a5',
-              backgroundColor: 'rgba(127, 29, 29, 0.25)',
+              backgroundColor: 'rgba(127, 29, 29, 0.2)',
               border: '1px solid rgba(248, 113, 113, 0.35)',
-              borderRadius: 6,
-              padding: '6px 8px',
+              borderRadius: 8,
+              padding: '8px 10px',
+              lineHeight: 1.4,
             }}
           >
             Select a city on the map to enable all toolbox inputs.
@@ -598,7 +606,7 @@ const handleDrawIntervention = React.useCallback(
         )}
 
         {/* --- Date selector (drives selected heatmap day) --- */}
-        <div style={{ fontSize: 13, fontWeight: 700 }}>Date</div>
+        <div className="toolbox-section-title">Date</div>
         <SelectDate
           label="Date"
           value={selectedDate}
@@ -607,22 +615,19 @@ const handleDrawIntervention = React.useCallback(
             setBaselineSelectedDate?.(isoDate);
           }}
           availableDates={availableDates}
-          disabled={!citySelected}
           variant="bare"
           style={{ width: '100%' }}
         />
         <div style={dividerStyle} />
 
         {/* --- Metric selector --- */}
-        <div style={{ fontSize: 13, fontWeight: 700 }}>Metric</div>
+        <div className="toolbox-section-title">Metric</div>
         <select
           value={selectedMetricKey}
           onChange={(event) => onMetricChange(event.target.value)}
           disabled={!citySelected || metricOptions.length === 0}
           style={{
             ...fieldStyle,
-            backgroundColor: 'rgba(15, 23, 42, 0.9)',
-            color: '#e2e8f0',
             cursor: citySelected && metricOptions.length > 0 ? 'pointer' : 'not-allowed',
           }}
         >
@@ -637,11 +642,11 @@ const handleDrawIntervention = React.useCallback(
         {/* --- Urban Interventions (full toolbox layout only) --- */}
         {displayToolbox && (
           <>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>Urban Interventions</div>
+            <div className="toolbox-section-title">Urban Interventions</div>
 
             {/* --- Choose archetype --- */}
             <label
-              style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}
+              style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--text-secondary)' }}
             >
               Choose archetype
               <select
@@ -670,9 +675,9 @@ const handleDrawIntervention = React.useCallback(
             {/* --- Choose intervention (only after an archetype is picked) --- */}
             {selectedArchetype && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <div style={{ fontSize: 12, color: '#cbd5e1' }}>Choose intervention</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Choose intervention</div>
                 {interventions.length === 0 ? (
-                  <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                     No interventions in this archetype yet.
                   </div>
                 ) : (
@@ -684,6 +689,7 @@ const handleDrawIntervention = React.useCallback(
                       return (
                         <div
                           key={item.intervention}
+                          className="toolbox-chip"
                           draggable={isPoint && citySelected}
                           onDragStart={(e) => {
                             if (!isPoint || !citySelected) return;
@@ -710,8 +716,8 @@ const handleDrawIntervention = React.useCallback(
                             borderRadius: 8,
                             border: isSelected
                               ? `1px solid ${item.color}`
-                              : '1px solid rgba(148, 163, 184, 0.35)',
-                            backgroundColor: isSelected ? `${item.color}22` : 'rgba(15, 23, 42, 0.9)',
+                              : '1px solid var(--border-strong)',
+                            backgroundColor: isSelected ? `${item.color}22` : 'var(--surface-muted)',
                             boxShadow: isSelected ? `0 0 0 1px ${item.color}` : 'none',
                             cursor: !citySelected ? 'not-allowed' : isPoint ? 'grab' : 'pointer',
                             userSelect: 'none',
@@ -734,7 +740,7 @@ const handleDrawIntervention = React.useCallback(
                           >
                             <Icon size={17} color={item.color} />
                           </span>
-                          <span style={{ fontSize: 11, lineHeight: 1.2, color: '#e2e8f0' }}>
+                          <span style={{ fontSize: 11, lineHeight: 1.2, color: 'var(--text-secondary)' }}>
                             {formatInterventionLabel(item.intervention)}
                           </span>
                         </div>
@@ -750,23 +756,21 @@ const handleDrawIntervention = React.useCallback(
               <>
                 {/* Active window */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ fontSize: 12, color: '#cbd5e1' }}>Start date</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Start date</div>
                   <SelectDate
                     label="Start date"
                     value={toolActiveFrom}
                     onChange={handleToolStartDateChange}
                     availableDates={availableDates}
-                    disabled={!citySelected}
                     variant="bare"
                     style={{ width: '100%' }}
                   />
-                  <div style={{ fontSize: 12, color: '#cbd5e1' }}>End date</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>End date</div>
                   <SelectDate
                     label="End date"
                     value={toolActiveTo}
                     onChange={(isoDate) => updatePendingPlacedObject?.({ activeTo: isoDate })}
                     availableDates={availableDates}
-                    disabled={!citySelected}
                     variant="bare"
                     style={{ width: '100%' }}
                   />
@@ -775,14 +779,15 @@ const handleDrawIntervention = React.useCallback(
                 {/* Polygon coordinates. draftPoints are stored [lng, lat] and
                     displayed "lat, lng" to match the hover tooltip. */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ fontSize: 12, color: '#cbd5e1' }}>Coordinates</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Coordinates</div>
                   <div
                     style={{
                       maxHeight: 132,
                       overflowY: 'auto',
-                      border: '1px solid rgba(148, 163, 184, 0.35)',
-                      borderRadius: 6,
-                      padding: '6px 8px',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: 8,
+                      backgroundColor: 'var(--surface-muted)',
+                      padding: '6px 10px',
                       fontFamily: 'Inter, sans-serif',
                       fontSize: 12,
                     }}
@@ -794,20 +799,20 @@ const handleDrawIntervention = React.useCallback(
                             display: 'flex',
                             justifyContent: 'space-between',
                             gap: 12,
-                            color: '#cbd5e1',
+                            color: 'var(--text-secondary)',
                             padding: '1px 0',
                           }}
                         >
-                          <span style={{ color: '#64748b' }}>Point</span>
+                          <span style={{ color: 'var(--text-muted)' }}>Point</span>
                           <span>
                             {pointGeometry.latitude.toFixed(6)}, {pointGeometry.longitude.toFixed(6)}
                           </span>
                         </div>
                       ) : (
-                        <div style={{ color: '#64748b' }}>No coordinate selected</div>
+                        <div style={{ color: 'var(--text-muted)' }}>No coordinate selected</div>
                       )
                     ) : draftPoints.length === 0 ? (
-                      <div style={{ color: '#64748b' }}>No points yet</div>
+                      <div style={{ color: 'var(--text-muted)' }}>No points yet</div>
                     ) : (
                       draftPoints.map(([lng, lat], i) => (
                         <div
@@ -816,11 +821,11 @@ const handleDrawIntervention = React.useCallback(
                             display: 'flex',
                             justifyContent: 'space-between',
                             gap: 12,
-                            color: '#cbd5e1',
+                            color: 'var(--text-secondary)',
                             padding: '1px 0',
                           }}
                         >
-                          <span style={{ color: '#64748b' }}>#{i + 1}</span>
+                          <span style={{ color: 'var(--text-muted)' }}>#{i + 1}</span>
                           <span>
                             {lat.toFixed(6)}, {lng.toFixed(6)}
                           </span>
@@ -834,7 +839,7 @@ const handleDrawIntervention = React.useCallback(
                       role="alert"
                       style={{
                         padding: '8px 10px',
-                        borderRadius: 6,
+                        borderRadius: 8,
                         border: '1px solid rgba(245, 158, 11, 0.5)',
                         backgroundColor: 'rgba(245, 158, 11, 0.12)',
                         color: '#fbbf24',
@@ -856,8 +861,9 @@ const handleDrawIntervention = React.useCallback(
                     disabled={!citySelected}
                     style={{
                       ...toolbarButtonStyle,
-                      backgroundColor: citySelected ? '#2563eb' : 'rgba(71, 85, 105, 0.6)',
-                      color: '#f8fafc',
+                      backgroundColor: citySelected ? 'var(--accent-strong)' : 'var(--surface-muted)',
+                      borderColor: citySelected ? 'var(--accent)' : 'var(--border-strong)',
+                      color: citySelected ? '#f0f9ff' : 'var(--text-muted)',
                       cursor: citySelected ? 'pointer' : 'not-allowed',
                     }}
                     title={!citySelected ? 'Select a city on the map first' : undefined}
@@ -871,8 +877,9 @@ const handleDrawIntervention = React.useCallback(
                     disabled={!citySelected}
                     style={{
                       ...toolbarButtonStyle,
-                      backgroundColor: citySelected ? '#2563eb' : 'rgba(71, 85, 105, 0.6)',
-                      color: '#f8fafc',
+                      backgroundColor: citySelected ? 'var(--accent-strong)' : 'var(--surface-muted)',
+                      borderColor: citySelected ? 'var(--accent)' : 'var(--border-strong)',
+                      color: citySelected ? '#f0f9ff' : 'var(--text-muted)',
                       cursor: citySelected ? 'pointer' : 'not-allowed',
                     }}
                     title={!citySelected ? 'Select a city on the map first' : undefined}
@@ -889,7 +896,7 @@ const handleDrawIntervention = React.useCallback(
                       alignItems: 'center',
                       justifyContent: 'space-between',
                       fontSize: 12,
-                      color: '#cbd5e1',
+                      color: 'var(--text-secondary)',
                     }}
                   >
                     Color
@@ -901,8 +908,8 @@ const handleDrawIntervention = React.useCallback(
                       style={{
                         width: 44,
                         height: 28,
-                        border: '1px solid rgba(148, 163, 184, 0.45)',
-                        borderRadius: 6,
+                        border: '1px solid var(--border-strong)',
+                        borderRadius: 8,
                         background: 'transparent',
                         cursor: 'pointer',
                       }}
@@ -914,8 +921,9 @@ const handleDrawIntervention = React.useCallback(
                   type="button"
                   style={{
                     ...toolbarButtonStyle,
-                    backgroundColor: canSaveTool ? 'rgba(14, 116, 144, 0.85)' : 'rgba(71, 85, 105, 0.6)',
-                    color: '#e0f2fe',
+                    backgroundColor: canSaveTool ? 'rgba(14, 116, 144, 0.85)' : 'var(--surface-muted)',
+                    borderColor: canSaveTool ? 'rgba(45, 212, 191, 0.6)' : 'var(--border-strong)',
+                    color: canSaveTool ? '#e0f2fe' : 'var(--text-muted)',
                     cursor: canSaveTool ? 'pointer' : 'not-allowed',
                     opacity: canSaveTool ? 1 : 0.6,
                   }}
@@ -923,6 +931,7 @@ const handleDrawIntervention = React.useCallback(
                     if (!canSaveTool) return;
                     void placedObjectsControls?.commitPendingPlacedObject?.().then(() => {
                       setCommitSuccess(true);
+                      onCancelDrawing(); // creation succeeded -- exit draw mode
                     });
                   }}
                   disabled={!canSaveTool}
@@ -953,7 +962,7 @@ const handleDrawIntervention = React.useCallback(
                       border: '1px solid rgba(74, 222, 128, 0.6)',
                       backgroundColor: 'rgba(20, 83, 45, 0.95)',
                       color: '#dcfce7',
-                      boxShadow: '0 4px 14px rgba(0, 0, 0, 0.35)',
+                      boxShadow: 'var(--shadow-panel)',
                       fontSize: 13,
                       fontWeight: 600,
                     }}
@@ -969,7 +978,7 @@ const handleDrawIntervention = React.useCallback(
                   title={!citySelected ? 'Select a city on the map first' : undefined}
                   style={{
                     ...toolbarButtonStyle,
-                    backgroundColor: 'rgba(30, 41, 59, 0.9)',
+                    backgroundColor: 'var(--surface-muted)',
                     color: '#fca5a5',
                     cursor: citySelected ? 'pointer' : 'not-allowed',
                   }}
@@ -1165,7 +1174,7 @@ const handleDrawIntervention = React.useCallback(
         {displayToolbox && (
           <>
         {/* --- Create POI Area --- */}
-        <div style={{ fontSize: 13, fontWeight: 700 }}>Create POI Area</div>
+        <div className="toolbox-section-title">Create POI Area</div>
 
         {!selectedCity && (
           <div style={{ fontSize: 12, color: '#fca5a5' }}>
@@ -1174,13 +1183,13 @@ const handleDrawIntervention = React.useCallback(
         )}
 
         {selectedCity && (
-          <div style={{ fontSize: 12, color: '#94a3b8' }}>
-            City: <span style={{ color: '#e2e8f0', fontWeight: 600 }}>{selectedCity}</span>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            City: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{selectedCity}</span>
           </div>
         )}
 
         <label
-          style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#cbd5e1' }}
+          style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--text-secondary)' }}
         >
           Area name
           <input
@@ -1189,14 +1198,7 @@ const handleDrawIntervention = React.useCallback(
             onChange={(e) => setDraftName(e.target.value)}
             disabled={!citySelected}
             placeholder="e.g. Downtown Core"
-            style={{
-              padding: '6px 8px',
-              borderRadius: 6,
-              border: '1px solid rgba(148, 163, 184, 0.45)',
-              backgroundColor: 'rgba(15, 23, 42, 0.9)',
-              color: '#f1f5f9',
-              fontSize: 13,
-            }}
+            style={fieldStyle}
           />
         </label>
 
@@ -1206,7 +1208,7 @@ const handleDrawIntervention = React.useCallback(
             alignItems: 'center',
             justifyContent: 'space-between',
             fontSize: 12,
-            color: '#cbd5e1',
+            color: 'var(--text-secondary)',
           }}
         >
           Area color
@@ -1218,8 +1220,8 @@ const handleDrawIntervention = React.useCallback(
             style={{
               width: 44,
               height: 28,
-              border: '1px solid rgba(148, 163, 184, 0.45)',
-              borderRadius: 6,
+              border: '1px solid var(--border-strong)',
+              borderRadius: 8,
               background: 'transparent',
               cursor: 'pointer',
             }}
@@ -1261,7 +1263,7 @@ const handleDrawIntervention = React.useCallback(
         <button
           type="button"
           onClick={() => setShowOptionalPoiFields((visible) => !visible)}
-          style={{ ...toolbarButtonStyle, backgroundColor: 'rgba(30, 41, 59, 0.9)', color: '#e2e8f0' }}
+          style={{ ...toolbarButtonStyle, backgroundColor: 'var(--surface-muted)', color: 'var(--text-primary)' }}
         >
           {showOptionalPoiFields ? 'Hide optional POI fields' : 'Show optional POI fields'}
         </button>
@@ -1326,8 +1328,9 @@ const handleDrawIntervention = React.useCallback(
               disabled={!selectedCity || isPOIDraw}
               style={{
                 ...toolbarButtonStyle,
-                backgroundColor: selectedCity ? '#2563eb' : 'rgba(71, 85, 105, 0.6)',
-                color: '#f8fafc',
+                backgroundColor: selectedCity ? 'var(--accent-strong)' : 'var(--surface-muted)',
+                borderColor: selectedCity ? 'var(--accent)' : 'var(--border-strong)',
+                color: selectedCity ? '#f0f9ff' : 'var(--text-muted)',
                 cursor: selectedCity ? 'pointer' : 'not-allowed',
               }}
               title={!citySelected ? 'Select a city on the map first' : undefined}
@@ -1337,7 +1340,7 @@ const handleDrawIntervention = React.useCallback(
           </>
         ) : (
           <>
-            <div style={{ fontSize: 12, color: '#cbd5e1' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
               Click the map to add points ({pointCount} placed, need 3+).
             </div>
 
@@ -1367,8 +1370,8 @@ const handleDrawIntervention = React.useCallback(
                 disabled={!citySelected || pointCount === 0}
                 style={{
                   ...toolbarButtonStyle,
-                  backgroundColor: 'rgba(30, 41, 59, 0.9)',
-                  color: '#e2e8f0',
+                  backgroundColor: 'var(--surface-muted)',
+                  color: 'var(--text-primary)',
                   cursor: citySelected && pointCount > 0 ? 'pointer' : 'not-allowed',
                 }}
                 title={!citySelected ? 'Select a city on the map first' : undefined}
@@ -1385,7 +1388,7 @@ const handleDrawIntervention = React.useCallback(
               disabled={!citySelected}
               style={{
                 ...toolbarButtonStyle,
-                backgroundColor: 'rgba(30, 41, 59, 0.9)',
+                backgroundColor: 'var(--surface-muted)',
                 color: '#fca5a5',
                 cursor: citySelected ? 'pointer' : 'not-allowed',
               }}
@@ -1402,8 +1405,9 @@ const handleDrawIntervention = React.useCallback(
           disabled={!canCreateCorePoi}
           style={{
             ...toolbarButtonStyle,
-            backgroundColor: canCreateCorePoi ? '#16a34a' : 'rgba(71, 85, 105, 0.6)',
-            color: '#f8fafc',
+            backgroundColor: canCreateCorePoi ? '#16a34a' : 'var(--surface-muted)',
+            borderColor: canCreateCorePoi ? '#22c55e' : 'var(--border-strong)',
+            color: canCreateCorePoi ? '#f0fdf4' : 'var(--text-muted)',
             cursor: canCreateCorePoi ? 'pointer' : 'not-allowed',
             opacity: canCreateCorePoi ? 1 : 0.6,
           }}
@@ -1418,7 +1422,7 @@ const handleDrawIntervention = React.useCallback(
             disabled={!citySelected}
             style={{
               ...toolbarButtonStyle,
-              backgroundColor: 'rgba(30, 41, 59, 0.9)',
+              backgroundColor: 'var(--surface-muted)',
               color: '#fca5a5',
               cursor: citySelected ? 'pointer' : 'not-allowed',
             }}

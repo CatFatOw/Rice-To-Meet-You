@@ -1099,8 +1099,16 @@
 // }
 
 import type { HeatmapPointsByDate } from '../types/heatmap';
+import type { ChatSessionState } from './chat';
+import { toMarketCode } from './map';
 
-const BASE_URL = 'http://127.0.0.1:8000';
+// const BASE_URL = 'http://127.0.0.1:8000';
+const BASE_URL = 'https://rice-to-meet-you-production.up.railway.app';
+
+export interface SimulatedPointsResponse {
+  pointsByDate: HeatmapPointsByDate;
+  messages?: ChatSessionState['messages'];
+}
 
 export async function getSimulatedPointsByDate(
   metric: string,
@@ -1109,7 +1117,8 @@ export async function getSimulatedPointsByDate(
   city: string,
   additionalMetrics?: string[],
   mode: 'standard' | 'contextual' = 'standard',
-): Promise<HeatmapPointsByDate> {
+  state?: ChatSessionState,
+): Promise<SimulatedPointsResponse> {
   const response = await fetch(`${BASE_URL}/heatmap/get-simulated-point-by-date`, {
     method: 'POST',
     headers: {
@@ -1119,10 +1128,11 @@ export async function getSimulatedPointsByDate(
     body: JSON.stringify({
       from_date: fromDate,
       to_date: toDate,
-      city,
+      city: toMarketCode(city),
       metric,
       additional_metrics: additionalMetrics,
       mode,
+      state,
     }),
   });
 
@@ -1135,6 +1145,13 @@ export async function getSimulatedPointsByDate(
     );
   }
 
-  return (await response.json()) as HeatmapPointsByDate;
+  const result = (await response.json()) as {
+    points_by_date: HeatmapPointsByDate;
+    messages?: ChatSessionState['messages'];
+  };
+  return {
+    pointsByDate: result.points_by_date,
+    messages: result.messages,
+  };
 }
 

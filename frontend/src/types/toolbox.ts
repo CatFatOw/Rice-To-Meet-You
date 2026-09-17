@@ -25,11 +25,7 @@ type ToolboxItemBase = {
   kind: 'polygon' | 'point';
 };
 
-export type ToolboxItemDef =
-  | (ToolboxItemBase & { params: VegetationParams })
-  | (ToolboxItemBase & { params: HighAlbedoParams })
-  | (ToolboxItemBase & { params: ShadeParams })
-  | (ToolboxItemBase & { params: EvaporativeParams });
+export type ToolboxItemDef = ToolboxItemBase & { params: Record<string, number> };
 
 
 

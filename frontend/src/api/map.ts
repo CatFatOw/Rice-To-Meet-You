@@ -35,7 +35,8 @@ export type {
   LocationReading,
 };
 
-const BASE_URL = "http://127.0.0.1:8000";
+// const BASE_URL = "http://127.0.0.1:8000";
+const BASE_URL = "https://rice-to-meet-you-production.up.railway.app";
 
 // ============================================================================
 // Houston POIs
@@ -291,7 +292,7 @@ export async function callAllCityPOIs(): Promise<CityPOIAreaMap> {
 // Market Codes
 // ============================================================================
 
-function toMarketCode(city: string): string {
+export function toMarketCode(city: string): string {
   const normalized = city.trim().toLowerCase();
   const aliases: Record<string, string> = {
     'kansas city': 'kansas_city',

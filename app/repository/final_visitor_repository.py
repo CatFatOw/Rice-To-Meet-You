@@ -497,7 +497,6 @@ class VisitorRepository:
         query = self.db.query(*self._columns()).filter(
             func.lower(func.trim(VisitorData.city)) == city.strip().lower(),
             VisitorData.local_date == date,
-            VisitorData.core_poi_geometry_id.isnot(None),
         )
 
         if sorted:

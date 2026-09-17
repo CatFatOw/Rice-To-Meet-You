@@ -45,11 +45,13 @@ import { fetchVisitorPOIs } from '../api/statistics';
 
 import { getHeatmapPointsByCityDateMetric, getHeatRiskDataByCityDate, getVisitorDataByCityDate, getLocalTemperatureCByCityDate, getLocalTemperatureFByCityDate } from '../api/map';
 import { getRiskDistributionByCityDate } from '../api/statistics';
+import { useHeatmapSelection } from '../contexts/HeatmapSelectionContext';
 
 
 const SIMULATION_FRAME_INTERVAL_MS = 3000;
 
 const ExplorePage: React.FC = () => {
+  const { city, date, messages, setMessages, setSelection } = useHeatmapSelection();
 
 
 // ======================================================
@@ -101,6 +103,10 @@ const ExplorePage: React.FC = () => {
   const [fromDate, setFromDate] = useState<string | null>('2020-01-01');
   const [toDate, setToDate] = useState<string | null>('2020-01-01');
 
+  useEffect(() => {
+    setSelection(selectedCity, baselineSelectedDate);
+  }, [baselineSelectedDate, selectedCity, setSelection]);
+
   // --- Simulation state ---
   // Controls simulation data and playback.
   const [, setSimulationByDate] =
@@ -140,10 +146,14 @@ const ExplorePage: React.FC = () => {
 
   // --- Statistics and UI state ---
   // Controls metric selection and statistics panel data.
-  const [selectedMetric, setSelectedMetric] = useState<Record<string, string[]> | null>(  {
-    avg_daily_visits: [
-      "avg_daily_visits",
-      "heat_risk_score",
+  const [selectedMetric, setSelectedMetric] = useState<Record<string, string[]> | null>({
+    average_temperature_c: [
+      "maximum_temperature_c",
+      "minimum_temperature_c",
+      "average_relative_humidity_pct",
+      "average_wind_speed_knots",
+      "precipitation_3d_sum_mm",
+      "average_temperature_c",
     ],
   });
   const [summaryHeader, setSummaryHeader] =
@@ -179,6 +189,11 @@ const ExplorePage: React.FC = () => {
   const selectedMetricKey = selectedMetric ? Object.keys(selectedMetric)[0] : null;
   const selectedAdditionalMetrics = selectedMetric ? Object.values(selectedMetric)[0] : [];
 
+  // Simulation only makes sense for metrics that can be projected forward;
+  // heat risk and visit counts are direct dataset readings, not forecasts.
+  const isSimulationDisabledForMetric =
+    selectedMetricKey === 'heat_risk_score' || selectedMetricKey === 'avg_daily_visits';
+
   const onStopSimulation = () => {
     stop();
     // Drop the run's surfaces so the baseline date is never drawn with the last
@@ -192,6 +207,7 @@ const ExplorePage: React.FC = () => {
 
   const onStartSimulation = async () => {
     if (!selectedCity || !fromDate || !toDate) return;
+    if (isSimulationDisabledForMetric) return;
 
     const metric = selectedMetricKey ?? Object.keys(availableMetrics[0] ?? {})[0];
   
@@ -205,14 +221,17 @@ const ExplorePage: React.FC = () => {
     try {
 
      
-      const simulatedPointsByDate = await getSimulatedPointsByDate(
+      const simulation = await getSimulatedPointsByDate(
         metric,
         fromDate,
         toDate,
         selectedCity,
         selectedAdditionalMetrics,
+        'standard',
+        { city, date, messages },
       );
-      framesByDate = simulatedPointsByDate;
+      framesByDate = simulation.pointsByDate;
+      if (simulation.messages) setMessages(simulation.messages);
 
       // Krige every frame before playback starts, so the timeline advances the
       // date, the points and the surface together the way it did when points
@@ -700,6 +719,8 @@ useEffect(() => {
                   onStopSimulation={onStopSimulation}
                   isRunning={isRunning}
                   loadingSimulation={loadingSimulation}
+                  simulationDisabled={isSimulationDisabledForMetric}
+                  simulationDisabledReason="Simulation isn't available for Heat Risk or Average Daily Visits"
                 />
               </SimulationProgressProvider>
             </section>
@@ -708,6 +729,7 @@ useEffect(() => {
           <section className="col-span-2 min-h-0 overflow-auto rounded-2xl">
             <OverallStatistics
               {...summaryHeader}
+              selectedDate={selectedDate}
               topDestinations={topDestinations}
               distribution={distribution}
               statCardsInfo={statCardsInfo}

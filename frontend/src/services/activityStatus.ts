@@ -29,7 +29,7 @@ function formatEta(etaMs: number): string {
   return minutes > 0 ? `ETA ${minutes}m ${remainder.toString().padStart(2, '0')}s` : `ETA ${seconds}s`;
 }
 
-export function selectActivityStatus(input: ActivityStatusInput): ActivityStatus | null {
+export function selectActivityStatus(input: ActivityStatusInput): ActivityStatus {
   if (input.simulation.active) {
     return {
       label: 'Running simulation',

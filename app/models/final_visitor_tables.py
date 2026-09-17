@@ -16,7 +16,7 @@ from sqlalchemy.sql import text
 
 
 class VisitorData(Base):
-    __tablename__ = "final_visitor_table"
+    __tablename__ = "final_visitor_table_v3"
 
     id = Column(Integer, primary_key=True, nullable=False)
     city = Column(Text, nullable=False)

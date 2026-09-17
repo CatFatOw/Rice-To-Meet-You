@@ -1,10 +1,12 @@
-import { useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   Expand,
   ExternalLink,
+  MapPinned,
   Shrink,
   SlidersHorizontal,
+  Wrench,
 } from "lucide-react";
 import SimulatePanel from './SimulatePanel';
 import ToolboxTable from './ToolboxTable';
@@ -48,11 +50,11 @@ const DEFAULT_COLUMNS: Column[] = [
     header: "Actions",
     cell: () => (
       <div className="flex items-center gap-5 text-slate-400">
-        <button className="transition hover:text-blue-400">
+        <button title="Open details" className="transition-colors hover:text-sky-400">
           <ExternalLink size={18} />
         </button>
 
-        <button className="transition hover:text-blue-400">
+        <button title="Adjust settings" className="transition-colors hover:text-sky-400">
           <SlidersHorizontal size={18} />
         </button>
       </div>
@@ -83,10 +85,25 @@ export default function POIStatistics({
   onStopSimulation,
   isRunning,
   loadingSimulation,
+  simulationDisabled,
+  simulationDisabledReason,
 }: POIStatisticsProps) {
   const panelRef = useRef<HTMLElement>(null);
   const { isFullscreen, toggleFullscreen } = useFullscreen(panelRef);
   const handleStartSimulation = onStartSimulation ?? onSimulate;
+  const [activeTab, setActiveTab] = useState<'scenario' | 'pois'>('scenario');
+  const placedCount = placedObjects?.length ?? 0;
+
+  const tabs = useMemo(
+    () =>
+      containSimulation
+        ? ([
+            { id: 'scenario' as const, label: 'Scenario builder', icon: Wrench, count: placedCount },
+            { id: 'pois' as const, label: 'Key POIs', icon: MapPinned, count: pois.length },
+          ])
+        : [],
+    [containSimulation, placedCount, pois.length],
+  );
 
   return (
     <section
@@ -110,9 +127,46 @@ export default function POIStatistics({
           the title clear of the corner button. */}
       <h2 className="mb-4 shrink-0 pr-12 text-lg font-semibold tracking-tight">{title}</h2>
 
+      {tabs.length > 0 && (
+        <div
+          role="tablist"
+          aria-label="Workspace sections"
+          className="mb-4 flex shrink-0 gap-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-muted)] p-1"
+        >
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
+                  isActive
+                    ? 'bg-[var(--surface-raised)] text-[var(--text-primary)] shadow-sm'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                }`}
+              >
+                <Icon size={16} className={isActive ? 'text-sky-300' : ''} />
+                {tab.label}
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[11px] tabular-nums ${
+                    isActive ? 'bg-sky-400/20 text-sky-200' : 'bg-white/5 text-[var(--text-muted)]'
+                  }`}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Scroll container: everything else lives in here */}
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
-        {containSimulation && (
+        {containSimulation && activeTab === 'scenario' && (
           <>
             <SimulatePanel
               fromDate={fromDate}
@@ -124,6 +178,8 @@ export default function POIStatistics({
               onStopSimulation={onStopSimulation}
               isRunning={isRunning}
               loadingSimulation={loadingSimulation}
+              simulationDisabled={simulationDisabled}
+              simulationDisabledReason={simulationDisabledReason}
             />
 
             <ToolboxTable
@@ -134,51 +190,63 @@ export default function POIStatistics({
           </>
         )}
 
-        <div className="flex shrink-0 flex-col">
-          <h3 className="mb-3 shrink-0 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
-            Key POIs in View
-          </h3>
+        {(!containSimulation || activeTab === 'pois') && (
+          <div className="flex shrink-0 flex-col">
+            <h3 className="mb-3 shrink-0 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+              Key POIs in View
+            </h3>
 
-          <div className="overflow-x-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-raised)]">
-            <table className="w-full border-collapse text-left">
-              <thead>
-                <tr className="border-b border-[var(--border-subtle)] text-xs uppercase tracking-wide text-[var(--text-muted)]">
-                  {columns.map((column) => (
-                    <th key={column.header} className="px-5 py-4 font-semibold">
-                      {column.header}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-
-              <tbody>
-                {pois.map((poi) => (
-                  <tr
-                    key={poi.name}
-                    className="border-b border-[var(--border-subtle)] transition-colors last:border-b-0 hover:bg-white/4"
-                  >
+            <div className="overflow-x-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-raised)]">
+              <table className="w-full border-collapse text-left">
+                <thead>
+                  <tr className="border-b border-[var(--border-subtle)] text-xs uppercase tracking-wide text-[var(--text-muted)]">
                     {columns.map((column) => (
-                      <td
-                        key={column.header}
-                        className={`px-5 py-4 ${resolveClassName(
-                          column.className,
-                          poi,
-                        )}`}
-                      >
-                        {column.cell(poi)}
-                      </td>
+                      <th key={column.header} className="px-5 py-4 font-semibold">
+                        {column.header}
+                      </th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                </thead>
 
-        <button className="shrink-0 flex items-center gap-2 text-sm font-semibold text-sky-300 transition-colors hover:text-sky-200">
-          View all POIs in {cityName}
-          <ArrowRight size={20} />
-        </button>
+                <tbody>
+                  {pois.map((poi) => (
+                    <tr
+                      key={poi.name}
+                      className="border-b border-[var(--border-subtle)] transition-colors last:border-b-0 hover:bg-white/4"
+                    >
+                      {columns.map((column) => (
+                        <td
+                          key={column.header}
+                          className={`px-5 py-4 ${resolveClassName(
+                            column.className,
+                            poi,
+                          )}`}
+                        >
+                          {column.cell(poi)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {pois.length === 0 && (
+                <div className="flex flex-col items-center gap-2 px-5 py-10 text-center">
+                  <MapPinned size={22} className="text-[var(--text-muted)]" />
+                  <p className="text-sm font-medium text-[var(--text-secondary)]">No POIs in view yet</p>
+                  <p className="text-xs text-[var(--text-muted)]">
+                    Pan or zoom the map to bring points of interest into frame.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <button className="mt-4 shrink-0 flex items-center gap-2 text-sm font-semibold text-sky-300 transition-colors hover:text-sky-200">
+              View all POIs in {cityName}
+              <ArrowRight size={20} />
+            </button>
+          </div>
+        )}
       </div>
     </section>
   );

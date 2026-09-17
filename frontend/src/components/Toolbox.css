@@ -1,0 +1,95 @@
+/* Shared polish for the map toolbox panel's native form controls. Scoped to
+   .toolbox-panel via attribute selectors so every input/select/button gets
+   consistent hover/focus/transition feedback without touching each element. */
+
+.toolbox-panel input[type='text'],
+.toolbox-panel input[type='number'],
+.toolbox-panel input[type='date'],
+.toolbox-panel input[type='tel'],
+.toolbox-panel input[type='url'],
+.toolbox-panel select {
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+.toolbox-panel input[type='text']:not(:disabled):hover,
+.toolbox-panel input[type='number']:not(:disabled):hover,
+.toolbox-panel input[type='date']:not(:disabled):hover,
+.toolbox-panel input[type='tel']:not(:disabled):hover,
+.toolbox-panel input[type='url']:not(:disabled):hover,
+.toolbox-panel select:not(:disabled):hover {
+  border-color: rgba(90, 166, 248, 0.55) !important;
+}
+
+.toolbox-panel input[type='text']:focus-visible,
+.toolbox-panel input[type='number']:focus-visible,
+.toolbox-panel input[type='date']:focus-visible,
+.toolbox-panel input[type='tel']:focus-visible,
+.toolbox-panel input[type='url']:focus-visible,
+.toolbox-panel select:focus-visible {
+  outline: none;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.toolbox-panel input[type='color'] {
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.toolbox-panel input[type='color']:not(:disabled):hover {
+  transform: scale(1.06);
+}
+
+.toolbox-panel input[type='color']:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.toolbox-panel input[type='checkbox'] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.toolbox-panel button:not(:disabled) {
+  transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease;
+}
+
+.toolbox-panel button:not(:disabled):hover {
+  filter: brightness(1.12);
+}
+
+.toolbox-panel button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.toolbox-panel button:disabled {
+  cursor: not-allowed;
+}
+
+.toolbox-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.toolbox-chip {
+  transition: transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.toolbox-chip:hover {
+  transform: translateY(-1px);
+}
+
+.toolbox-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.toolbox-panel *::-webkit-scrollbar {
+  width: 8px;
+}
+
+.toolbox-panel *::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+}

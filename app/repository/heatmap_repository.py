@@ -130,7 +130,7 @@ class HeatmapRepository:
     }
 
     WEATHER_TABLE = "market_daily_weather"
-    HEAT_INDEX_TABLE = "urban_heat_index_updated"
+    HEAT_INDEX_TABLE = "urban_heat_interpolated"
     SYNTHETIC_METRICS = {
         "change_in_temperature",
         "change_in_average_temperature_c",
@@ -1028,8 +1028,9 @@ class HeatmapRepository:
         metric: str,
         additional_metrics: Optional[Iterable[str]] = None,
         mode: str = "standard",
-    ) -> HeatmapPointsByDate:
-        """Retrieve a city's inputs for a date range and return simulated readings."""
+        state: Optional[Dict[str, Any]] = None,
+    ) -> Union[HeatmapPointsByDate, Dict[str, Any]]:
+        """Retrieve simulated readings and update the supplied chat state."""
         from services.simulation_services import run_diminishing_return_simulation
 
         total_start = perf_counter()
@@ -1166,7 +1167,27 @@ class HeatmapRepository:
             f"simulate {simulation_seconds / total_seconds * 100:.0f}%)"
         )
 
-        return simulated.points_by_date
+        if state is not None:
+            # Import locally: ChatbotRepository already imports this repository
+            # when it builds a city briefing.
+            from repository.chatbot_repository import ChatbotRepository
+
+            chatbot = ChatbotRepository.resume(self.session, state)
+            messages = chatbot.update_session_context_with_simulation(feedback)
+            return {
+                "points_by_date": simulated.points_by_date,
+                "messages": messages,
+            }
+
+        if mode == "contextual":
+            return {
+                "points_by_date": simulated.points_by_date,
+                "feedback": feedback,
+            }
+
+        return {
+            "points_by_date": simulated.points_by_date
+        }
 
     @staticmethod
     def _group_interventions_for_simulation(
@@ -1224,6 +1245,183 @@ class HeatmapRepository:
             )
 
         return grouped
+
+    def getMetricByCityDate(
+        self,
+        metrics: Iterable[str],
+        city: str,
+        weather_date: DateLike,
+        aggregate: str = "mean",
+        formatted: bool = False,
+    ) -> Dict[str, Any]:
+        """Resolve several metrics to one value each for a single market/date.
+ 
+        Weather metrics are already scalar: the weather table holds exactly one
+        row per (market, date), so the stored value is returned as-is and
+        `aggregate` does not apply to them.
+ 
+        Heat-index metrics are not. There is one value per point -- often tens
+        of thousands for a city -- so `aggregate` collapses the column. Note
+        that when the heat-index table is NOT partitioned by weather_date, its
+        cache block covers every date, and these values are therefore
+        date-independent.
+ 
+        Args:
+            metrics: metric names. Weather columns, heat-index columns,
+                SYNTHETIC_METRICS, and DERIVED_METRICS are all accepted.
+            city: a single market code from SUPPORTED_MARKET_CODES.
+            weather_date: the day to pull.
+            aggregate: how to collapse per-point columns. One of AGGREGATES.
+                Non-numeric columns ignore it and return their first value.
+            formatted: return display strings via _format_value (with units)
+                instead of raw values.
+ 
+        Returns:
+            {metric_name: value}, in the order requested. None where the
+            column exists but has no data for this market/date.
+ 
+        Raises:
+            ValueError: unknown market code, unknown aggregate, or a metric
+                name that exists on neither table.
+        """
+        total_start = perf_counter()
+ 
+        names = list(
+            dict.fromkeys(
+                name for raw_name in (metrics or ()) if (name := str(raw_name).strip())
+            )
+        )
+        if not names:
+            return {}
+ 
+        markets = self._resolve_markets(city)
+        if not markets:
+            raise ValueError(
+                "Unknown market code %r. Supported: %s"
+                % (city, list(self.SUPPORTED_MARKET_CODES))
+            )
+        market = markets[0]
+ 
+        how = str(aggregate or "mean").strip().lower()
+        if how not in self.AGGREGATES:
+            raise ValueError(
+                "aggregate must be one of %s, got %r"
+                % (list(self.AGGREGATES), aggregate)
+            )
+ 
+        target_date = self._coerce_date(weather_date)
+ 
+        weather = self._get_table(self.WEATHER_TABLE)
+        heat_index = self._get_table(self.HEAT_INDEX_TABLE)
+ 
+        cls = type(self)
+ 
+        # --- classify each metric ------------------------------------------
+        # Resolved against the reflected schema, not the cache indexes: those
+        # are empty until the preload runs and would reject valid names.
+        plan: List[Tuple[str, str]] = []
+        for name in names:
+            if name in self.SYNTHETIC_METRICS:
+                plan.append(("s", name))
+            elif name in self.DERIVED_METRICS:
+                plan.append(("d", name))
+            else:
+                column, _ = self._resolve_metric_column(name, weather, heat_index)
+                plan.append(("w" if column.table is weather else "h", name))
+ 
+        sources = {source for source, _ in plan}
+        needs_weather = bool(sources & {"w", "d"})
+        needs_block = bool(sources & {"h", "d"})
+ 
+        # --- fetch at most one weather row and one block --------------------
+        weather_values: Optional[Tuple[Any, ...]] = None
+        weather_index: Dict[str, int] = {}
+        if needs_weather:
+            weather_values = self._weather_values(market, target_date)
+            # Re-read after the accessor: a fallback load rebinds the index,
+            # and tuple positions are only valid against the current one.
+            weather_index = cls._weather_index
+ 
+        block = self._heat_block(market, target_date) if needs_block else None
+        if block is not None and block.count == 0:
+            block = None
+ 
+        # --- resolve values -------------------------------------------------
+        results: Dict[str, Any] = {}
+ 
+        for source, name in plan:
+            value: Any = None
+ 
+            if source == "s":
+                # Synthetic metrics are reported as zero, matching
+                # getDataPointsForCityDateMetric.
+                value = 0
+ 
+            elif source == "w":
+                if weather_values is not None and name in weather_index:
+                    value = weather_values[weather_index[name]]
+ 
+            elif source == "h":
+                if block is not None:
+                    column = block.metrics.get(name)
+                    if column is not None:  # else: exists but not resident
+                        value = self._aggregate_values(
+                            self._column_values(column), how
+                        )
+ 
+            else:  # "d"
+                value = self._aggregate_local_temperature(
+                    weather=weather,
+                    heat_index=heat_index,
+                    weather_values=weather_values,
+                    weather_index=weather_index,
+                    block=block,
+                    unit=name.rsplit("_", 1)[1],
+                    how=how,
+                )
+ 
+            if formatted and value is not None:
+                value = self._format_value(name, value)
+ 
+            results[name] = value
+ 
+        logger.debug(
+            "Resolved %s metrics for %s on %s in %.4fs",
+            len(results),
+            market,
+            target_date.isoformat(),
+            perf_counter() - total_start,
+        )
+ 
+        return results
+
+    def getAllMetricsByCityDate(
+        self,
+        weather_date: DateLike,
+        market_code: str,
+    ) -> Dict[str, Any]:
+        """Return all available metrics for one market and date."""
+        weather = self._get_table(self.WEATHER_TABLE)
+        heat_index = self._get_table(self.HEAT_INDEX_TABLE)
+
+        metric_names = list(
+            dict.fromkeys(
+                [
+                    column.name
+                    for table in (weather, heat_index)
+                    for column in table.columns
+                    if column.name not in self.EXCLUDED_METRIC_COLUMNS
+                ]
+                + list(self.SYNTHETIC_METRICS)
+                + list(self.DERIVED_METRICS)
+            )
+        )
+
+        return self.getMetricByCityDate(
+            metrics=metric_names,
+            city=market_code,
+            weather_date=weather_date,
+        )
 
     # -- schema helpers -----------------------------------------------------
 

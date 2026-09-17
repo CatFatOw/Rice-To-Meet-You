@@ -32,7 +32,7 @@ export default function ActivityStatusPill({
     <aside
       aria-live="polite"
       aria-label={`${status.label}. ${status.detail}. ${status.etaLabel}.`}
-      className="fixed bottom-3 left-3 z-50 w-44 overflow-hidden rounded-full border border-slate-700/90 bg-slate-950/95 px-3 py-1.5 text-slate-100 shadow-lg shadow-black/25 backdrop-blur-md"
+      className="fixed bottom-3 left-3 z-50 w-44 overflow-hidden rounded-full border border-[var(--border-strong)] bg-[var(--surface-panel)]/95 px-3 py-1.5 text-[var(--text-primary)] shadow-[var(--shadow-panel)] backdrop-blur-md transition-colors"
     >
       <div className="flex items-center gap-2">
         {isReady ? (
@@ -47,7 +47,7 @@ export default function ActivityStatusPill({
         <span className="min-w-0 flex-1 truncate text-xs font-semibold">{status.label}</span>
         <span className="shrink-0 text-[11px] font-medium tabular-nums text-sky-200">{status.etaLabel}</span>
       </div>
-      {!isReady && <p className="mt-0.5 truncate text-[10px] text-slate-400">{status.detail}</p>}
+      {!isReady && <p className="mt-0.5 truncate text-[10px] text-[var(--text-muted)]">{status.detail}</p>}
       <div className={`${isReady ? 'mt-1' : 'mt-1.5'} h-1 overflow-hidden rounded-full bg-white/10`} role="progressbar" aria-label={status.label}>
         <div
           className={`h-full rounded-full bg-sky-400 ${status.indeterminate ? 'activity-status-indeterminate' : 'transition-[width] duration-300 ease-out motion-reduce:transition-none'}`}

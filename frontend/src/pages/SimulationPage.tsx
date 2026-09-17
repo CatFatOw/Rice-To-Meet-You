@@ -47,11 +47,13 @@ import usePlacedObjects from '../hooks/usePlacedObjects';
 
 import { getHeatmapPointsByCityDateMetric, getHeatRiskDataByCityDate, getVisitorDataByCityDate, getLocalTemperatureCByCityDate, getLocalTemperatureFByCityDate } from '../api/map';
 import { getRiskDistributionByCityDate } from '../api/statistics';
+import { useHeatmapSelection } from '../contexts/HeatmapSelectionContext';
 
 
 const SIMULATION_FRAME_INTERVAL_MS = 3000;
 
 const SimulationPage: React.FC = () => {
+  const { city, date, messages, setMessages, setSelection } = useHeatmapSelection();
 
 
 // ======================================================
@@ -102,6 +104,10 @@ const SimulationPage: React.FC = () => {
   const [fromDate, setFromDate] = useState<string | null>('2020-01-01');
   const [toDate, setToDate] = useState<string | null>('2020-01-01');
 
+  useEffect(() => {
+    setSelection(selectedCity, baselineSelectedDate);
+  }, [baselineSelectedDate, selectedCity, setSelection]);
+
   // --- Simulation state ---
   // Controls simulation data and playback.
   const [, setSimulationByDate] =
@@ -148,10 +154,14 @@ const SimulationPage: React.FC = () => {
 
   // --- Statistics and UI state ---
   // Controls metric selection and statistics panel data.
-  const [selectedMetric, setSelectedMetric] = useState<Record<string, string[]> | null>(  {
-    avg_daily_visits: [
-      "avg_daily_visits",
-      "heat_risk_score",
+  const [selectedMetric, setSelectedMetric] = useState<Record<string, string[]> | null>({
+    average_temperature_c: [
+      "maximum_temperature_c",
+      "minimum_temperature_c",
+      "average_relative_humidity_pct",
+      "average_wind_speed_knots",
+      "precipitation_3d_sum_mm",
+      "average_temperature_c",
     ],
   });
   const [summaryHeader, setSummaryHeader] =
@@ -187,6 +197,11 @@ const SimulationPage: React.FC = () => {
   const selectedMetricKey = selectedMetric ? Object.keys(selectedMetric)[0] : null;
   const selectedAdditionalMetrics = selectedMetric ? Object.values(selectedMetric)[0] : [];
 
+  // Simulation only makes sense for metrics that can be projected forward;
+  // heat risk and visit counts are direct dataset readings, not forecasts.
+  const isSimulationDisabledForMetric =
+    selectedMetricKey === 'heat_risk_score' || selectedMetricKey === 'avg_daily_visits';
+
   useEffect(() => {
     console.log(placedObjectsControls.pendingPlacedObject)
   }, [placedObjectsControls.pendingPlacedObject])
@@ -203,6 +218,7 @@ const SimulationPage: React.FC = () => {
 
   const onStartSimulation = async () => {
     if (!selectedCity || !fromDate || !toDate) return;
+    if (isSimulationDisabledForMetric) return;
 
     const metric = selectedMetricKey ?? Object.keys(availableMetrics[0] ?? {})[0];
   
@@ -215,15 +231,21 @@ const SimulationPage: React.FC = () => {
     setLoadingSimulation(true);
     try {
 
+      console.log(messages)
      
-      const simulatedPointsByDate = await getSimulatedPointsByDate(
+      const simulation = await getSimulatedPointsByDate(
         metric,
         fromDate,
         toDate,
         selectedCity,
         selectedAdditionalMetrics,
+        'standard',
+        { city, date, messages },
       );
-      framesByDate = simulatedPointsByDate;
+      framesByDate = simulation.pointsByDate;
+
+      console.log("Simlation messages returns " + JSON.stringify(simulation.messages))
+      if (simulation.messages) setMessages(simulation.messages);
 
       // Krige every frame before playback starts, so the timeline advances the
       // date, the points and the surface together the way it did when points
@@ -614,7 +636,7 @@ useEffect(() => {
 // ======================================================
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-[#020817] text-white">
+    <div className="app-shell flex h-screen w-full overflow-hidden text-[var(--text-primary)]">
       <div className="shrink-0">
         <NavigationBar />
       </div>
@@ -624,9 +646,9 @@ useEffect(() => {
         isMapLoading={isPOIAreasLoading || isHeatmapPointsLoading}
       />
 
-      <main className="flex-1 overflow-hidden p-3">
-        <div className="grid h-full grid-cols-[minmax(0,1fr)_360px] grid-rows-[minmax(0,1fr)_minmax(180px,24vh)] gap-3">
-          <section className="min-h-0 overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+      <main className="flex-1 overflow-hidden p-4 lg:p-5">
+        <div className="grid h-full grid-cols-[minmax(0,1fr)_360px] grid-rows-[minmax(0,1fr)_minmax(180px,24vh)] gap-4">
+          <section className="app-panel min-h-0 overflow-hidden rounded-2xl">
             <Heatmap
               viewState={viewState}
               setViewState={setViewState}
@@ -679,22 +701,22 @@ useEffect(() => {
 
           <div className="min-h-0 flex h-full flex-col gap-3">
             <section
-              className="flex shrink-0 items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/80 p-3"
+              className="app-panel flex shrink-0 items-center justify-between gap-3 rounded-xl p-3"
               aria-labelledby="simulation-map-overview-title"
             >
               <div className="min-w-0">
                 <h2
                   id="simulation-map-overview-title"
-                  className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400"
+                  className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]"
                 >
                   Map overview
                 </h2>
-                <p className="mt-1 text-xs text-slate-500">2D · synced</p>
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">2D · synced</p>
               </div>
               <div
                 ref={minimapContainerRef}
                 aria-hidden="true"
-                className="h-24 w-40 shrink-0 overflow-hidden rounded-lg border border-slate-700 bg-slate-950 pointer-events-none"
+                className="h-24 w-40 shrink-0 overflow-hidden rounded-lg border border-[var(--border-strong)] bg-slate-950 pointer-events-none"
               />
             </section>
 
@@ -714,14 +736,17 @@ useEffect(() => {
                   onStopSimulation={onStopSimulation}
                   isRunning={isRunning}
                   loadingSimulation={loadingSimulation}
+                  simulationDisabled={isSimulationDisabledForMetric}
+                  simulationDisabledReason="Simulation isn't available for Heat Risk or Average Daily Visits"
                 />
               </SimulationProgressProvider>
             </section>
           </div>
 
-          <section className="col-span-2 min-h-0 overflow-auto">
+          <section className="col-span-2 min-h-0 overflow-auto rounded-2xl">
             <OverallStatistics
               {...summaryHeader}
+              selectedDate={selectedDate}
               topDestinations={topDestinations}
               distribution={distribution}
               statCardsInfo={statCardsInfo}

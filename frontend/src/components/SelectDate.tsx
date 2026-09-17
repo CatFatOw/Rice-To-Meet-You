@@ -32,11 +32,11 @@ const MONTHS = Array.from({ length: 12 }, (_, month) =>
 );
 
 const panelStyle: React.CSSProperties = {
-  border: '1px solid rgba(148, 163, 184, 0.45)',
-  backgroundColor: 'rgba(2, 8, 23, 0.88)',
+  border: '1px solid var(--border-strong)',
+  backgroundColor: 'var(--surface-panel)',
   borderRadius: 10,
   padding: '10px 12px',
-  boxShadow: '0 4px 14px rgba(0, 0, 0, 0.35)',
+  boxShadow: 'var(--shadow-panel)',
 };
 
 const selectStyle: React.CSSProperties = {
@@ -44,9 +44,9 @@ const selectStyle: React.CSSProperties = {
   minWidth: 0,
   height: 34,
   borderRadius: 6,
-  border: '1px solid rgba(148, 163, 184, 0.45)',
-  backgroundColor: 'rgba(15, 23, 42, 0.9)',
-  color: '#e2e8f0',
+  border: '1px solid var(--border-strong)',
+  backgroundColor: 'var(--surface-muted)',
+  color: 'var(--text-primary)',
   fontSize: 13,
   padding: '0 8px',
 };
@@ -136,7 +136,7 @@ const SelectDate: React.FC<SelectDateProps> = ({
   const containerStyle: React.CSSProperties = {
     position: 'relative',
     width: 240,
-    color: '#f1f5f9',
+    color: 'var(--text-primary)',
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
@@ -155,6 +155,7 @@ const SelectDate: React.FC<SelectDateProps> = ({
         disabled={disabled}
         aria-haspopup="dialog"
         aria-expanded={open}
+        className="transition-colors hover:border-sky-400/60 focus-visible:border-sky-400"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -163,9 +164,9 @@ const SelectDate: React.FC<SelectDateProps> = ({
           width: '100%',
           padding: '8px 10px',
           borderRadius: 8,
-          border: '1px solid rgba(148, 163, 184, 0.45)',
-          backgroundColor: 'rgba(15, 23, 42, 0.9)',
-          color: selectedDate ? '#f1f5f9' : '#94a3b8',
+          border: '1px solid var(--border-strong)',
+          backgroundColor: 'var(--surface-muted)',
+          color: selectedDate ? 'var(--text-primary)' : 'var(--text-muted)',
           fontSize: 13,
           fontWeight: 600,
           cursor: disabled ? 'not-allowed' : 'pointer',
@@ -192,8 +193,8 @@ const SelectDate: React.FC<SelectDateProps> = ({
             width: 260,
             padding: 12,
             borderRadius: 10,
-            border: '1px solid rgba(148, 163, 184, 0.45)',
-            backgroundColor: 'rgba(2, 8, 23, 0.97)',
+            border: '1px solid var(--border-strong)',
+            backgroundColor: 'var(--surface-panel)',
             boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
           }}
         >
@@ -202,6 +203,7 @@ const SelectDate: React.FC<SelectDateProps> = ({
               aria-label="Month"
               value={draftMonth}
               onChange={(event) => setDraftMonth(Number(event.target.value))}
+              className="transition-colors focus-visible:border-sky-400"
               style={selectStyle}
             >
               {MONTHS.map((month, index) => <option key={month} value={index}>{month}</option>)}
@@ -210,6 +212,7 @@ const SelectDate: React.FC<SelectDateProps> = ({
               aria-label="Day"
               value={Math.min(draftDay, daysInMonth)}
               onChange={(event) => setDraftDay(Number(event.target.value))}
+              className="transition-colors focus-visible:border-sky-400"
               style={selectStyle}
             >
               {days.map((day) => <option key={day} value={day}>{day}</option>)}
@@ -218,6 +221,7 @@ const SelectDate: React.FC<SelectDateProps> = ({
               aria-label="Year"
               value={draftYear}
               onChange={(event) => setDraftYear(Number(event.target.value))}
+              className="transition-colors focus-visible:border-sky-400"
               style={selectStyle}
             >
               {years.map((year) => <option key={year} value={year}>{year}</option>)}
@@ -227,6 +231,7 @@ const SelectDate: React.FC<SelectDateProps> = ({
             type="button"
             onClick={applyDate}
             disabled={isDisabledDate(toISODate(new Date(draftYear, draftMonth, Math.min(draftDay, daysInMonth))))}
+            className="transition-colors hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-60"
             style={{
               width: '100%',
               height: 34,

@@ -6,19 +6,22 @@
 ``get_pois_by_city`` lives in the same module but no frontend call reaches it,
 so it is out of scope.
 
-Both handlers open their own session with ``SessionLocal()`` rather than taking
-``Depends(get_db)``, so the tests swap that module-level name for a session
-bound to SQLite. Calling the handler function directly is what makes these unit
-tests: the input is the argument, the assertion is on the returned value.
+Both handlers depend on ``Depends(get_db)`` rather than opening their own
+session, so the tests pass a SQLite-bound session in through the ``db``
+argument directly. Calling the handler function directly is what makes these
+unit tests: the input is the argument, the assertion is on the returned value.
 """
 
 from __future__ import annotations
 
+import inspect
 from datetime import date
 
 import pytest
+from fastapi.params import Depends as DependsMarker
 from sqlalchemy import text
 
+from database import get_db
 from routers import core_poi
 from schemas.core_poi_geometry import CorePOICreate, GeometryType
 
@@ -38,9 +41,8 @@ VALID_BODY = {
 
 
 @pytest.fixture
-def wired_router(monkeypatch, poi_session):
-    """Point the module's ``SessionLocal`` at the SQLite test session."""
-    monkeypatch.setattr(core_poi, "SessionLocal", lambda: poi_session)
+def wired_router(poi_session):
+    """The SQLite-bound session to pass as the handler's ``db`` argument."""
     return poi_session
 
 
@@ -57,7 +59,7 @@ def test_get_all_pois_returns_a_list_of_row_dicts(wired_router, insert_pois):
         ]
     )
 
-    result = core_poi.get_all_pois()
+    result = core_poi.get_all_pois(db=wired_router)
 
     assert isinstance(result, list)
     assert len(result) == 2
@@ -66,7 +68,7 @@ def test_get_all_pois_returns_a_list_of_row_dicts(wired_router, insert_pois):
 
 
 def test_get_all_pois_returns_an_empty_list_when_there_are_no_pois(wired_router):
-    assert core_poi.get_all_pois() == []
+    assert core_poi.get_all_pois(db=wired_router) == []
 
 
 def test_get_all_pois_includes_the_uhi_aggregate_the_frontend_reads(
@@ -81,7 +83,7 @@ def test_get_all_pois_includes_the_uhi_aggregate_the_frontend_reads(
         ],
     )
 
-    row = core_poi.get_all_pois()[0]
+    row = core_poi.get_all_pois(db=wired_router)[0]
 
     assert row["average_uhi"] == 5.0
     assert row["matched_uhi_count"] == 2
@@ -96,7 +98,7 @@ def test_get_all_pois_spans_every_market(wired_router, insert_pois):
         ]
     )
 
-    result = core_poi.get_all_pois()
+    result = core_poi.get_all_pois(db=wired_router)
 
     assert [row["market_code"] for row in result] == ["houston", "dallas", None]
 
@@ -107,7 +109,7 @@ def test_get_all_pois_spans_every_market(wired_router, insert_pois):
 
 
 def test_create_poi_returns_the_persisted_row(wired_router):
-    result = core_poi.create_poi(CorePOICreate(**VALID_BODY))
+    result = core_poi.create_poi(CorePOICreate(**VALID_BODY), db=wired_router)
 
     assert isinstance(result, dict)
     assert result["location_name"] == "Klyde Warren Park"
@@ -124,7 +126,7 @@ def test_create_poi_writes_the_normalized_values_not_the_raw_body(wired_router):
     # the website; the row must carry those, not what the client typed.
     body = {**VALID_BODY, "region": "tx", "market": "Kansas City", "website": "rice.edu"}
 
-    result = core_poi.create_poi(CorePOICreate(**body))
+    result = core_poi.create_poi(CorePOICreate(**body), db=wired_router)
 
     assert result["region"] == "TX"
     assert result["market"] == "kansas_city"
@@ -133,14 +135,14 @@ def test_create_poi_writes_the_normalized_values_not_the_raw_body(wired_router):
 
 
 def test_create_poi_stores_the_polygon_geometry(wired_router):
-    result = core_poi.create_poi(CorePOICreate(**VALID_BODY))
+    result = core_poi.create_poi(CorePOICreate(**VALID_BODY), db=wired_router)
 
     assert result["polygon_wkt"] == POLYGON_WKT
     assert result["polygon_geom"] == POLYGON_WKT
 
 
 def test_create_poi_applies_the_schema_defaults(wired_router):
-    result = core_poi.create_poi(CorePOICreate(**VALID_BODY))
+    result = core_poi.create_poi(CorePOICreate(**VALID_BODY), db=wired_router)
 
     assert result["iso_country_code"] == "US"
     assert result["polygon_class"] == "OWNED_POLYGON"
@@ -161,7 +163,7 @@ def test_create_poi_round_trips_the_optional_fields(wired_router):
         "phone_number": "+1 (214) 716-4500",
     }
 
-    result = core_poi.create_poi(CorePOICreate(**body))
+    result = core_poi.create_poi(CorePOICreate(**body), db=wired_router)
 
     assert result["brands"] == ["Chipotle", "Panera"]
     assert result["top_category"] == "Restaurants"
@@ -173,15 +175,15 @@ def test_create_poi_round_trips_the_optional_fields(wired_router):
 
 
 def test_a_created_poi_is_visible_to_the_next_get_all(wired_router):
-    core_poi.create_poi(CorePOICreate(**VALID_BODY))
+    core_poi.create_poi(CorePOICreate(**VALID_BODY), db=wired_router)
 
-    names = [row["location_name"] for row in core_poi.get_all_pois()]
+    names = [row["location_name"] for row in core_poi.get_all_pois(db=wired_router)]
 
     assert names == ["Klyde Warren Park"]
 
 
 def test_create_poi_commits_so_the_row_survives_the_session(wired_router, poi_engine):
-    core_poi.create_poi(CorePOICreate(**VALID_BODY))
+    core_poi.create_poi(CorePOICreate(**VALID_BODY), db=wired_router)
 
     with poi_engine.connect() as connection:
         stored = connection.execute(
@@ -192,7 +194,7 @@ def test_create_poi_commits_so_the_row_survives_the_session(wired_router, poi_en
 
 def test_create_poi_reports_the_new_poi_as_unmeasured(wired_router):
     # Nothing maps a fresh POI to a heat reading yet.
-    result = core_poi.create_poi(CorePOICreate(**VALID_BODY))
+    result = core_poi.create_poi(CorePOICreate(**VALID_BODY), db=wired_router)
 
     assert result["average_uhi"] is None
     assert result["matched_uhi_count"] == 0
@@ -233,10 +235,9 @@ class _StubRepository:
 
 def test_create_poi_hands_the_repository_the_dumped_body(monkeypatch):
     session = _RecordingSession()
-    monkeypatch.setattr(core_poi, "SessionLocal", lambda: session)
     monkeypatch.setattr(core_poi, "CorePoiGeometryRepository", _StubRepository)
 
-    core_poi.create_poi(CorePOICreate(**VALID_BODY))
+    core_poi.create_poi(CorePOICreate(**VALID_BODY), db=session)
 
     payload = _StubRepository.last_payload
     assert payload["location_name"] == "Klyde Warren Park"
@@ -252,44 +253,31 @@ def test_create_poi_hands_the_repository_the_dumped_body(monkeypatch):
 
 def test_create_poi_commits_exactly_once(monkeypatch):
     session = _RecordingSession()
-    monkeypatch.setattr(core_poi, "SessionLocal", lambda: session)
     monkeypatch.setattr(core_poi, "CorePoiGeometryRepository", _StubRepository)
 
-    core_poi.create_poi(CorePOICreate(**VALID_BODY))
+    core_poi.create_poi(CorePOICreate(**VALID_BODY), db=session)
 
     assert session.committed == 1
 
 
 def test_get_all_pois_does_not_commit(monkeypatch):
     session = _RecordingSession()
-    monkeypatch.setattr(core_poi, "SessionLocal", lambda: session)
     monkeypatch.setattr(core_poi, "CorePoiGeometryRepository", _StubRepository)
 
-    core_poi.get_all_pois()
+    core_poi.get_all_pois(db=session)
 
     assert session.committed == 0
 
 
-@pytest.mark.parametrize("handler", ["create_poi", "get_all_pois"])
-def test_handlers_never_close_the_session_they_open(monkeypatch, handler):
-    """Pins a leak rather than endorsing it.
-
-    Both handlers call ``SessionLocal()`` directly instead of depending on
-    ``get_db``, whose ``finally: db.close()`` is the only thing that returns a
-    connection to the pool. Nothing here closes, so every request holds one
-    until garbage collection gets to it. Should these move to
-    ``Depends(get_db)``, this test is the one that should fail.
+@pytest.mark.parametrize("handler", [core_poi.create_poi, core_poi.get_all_pois])
+def test_handlers_depend_on_the_shared_get_db_session(handler):
+    """``get_db``'s ``finally: db.close()`` is what returns a connection to the
+    pool, so both handlers must depend on it rather than opening their own
+    ``SessionLocal()`` session that nothing ever closes.
     """
-    session = _RecordingSession()
-    monkeypatch.setattr(core_poi, "SessionLocal", lambda: session)
-    monkeypatch.setattr(core_poi, "CorePoiGeometryRepository", _StubRepository)
-
-    if handler == "create_poi":
-        core_poi.create_poi(CorePOICreate(**VALID_BODY))
-    else:
-        core_poi.get_all_pois()
-
-    assert session.closed == 0
+    default = inspect.signature(handler).parameters["db"].default
+    assert isinstance(default, DependsMarker)
+    assert default.dependency is get_db
 
 
 # --------------------------------------------------------------------------- #
