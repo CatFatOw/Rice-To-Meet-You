@@ -85,6 +85,11 @@ const US_STATE_CODES = [
 ];
 
 
+// Seeded active window for a newly staged intervention. They have to be two
+// different days -- see the note at the call site.
+const DEFAULT_ACTIVE_FROM = '2020-01-01';
+const DEFAULT_ACTIVE_TO = '2020-01-02';
+
 function normalizePolygonWkt(value: string): string {
   const text = value.trim();
   if (/^(POLYGON|MULTIPOLYGON)\s*\(/i.test(text)) return text;
@@ -405,12 +410,12 @@ const Toolbox: React.FC<ToolboxProps> = ({
         color: item.color,
         market_code: selectedCity ? toMarketCode(selectedCity) : undefined,
         params: { ...item.params },
-        // Left unset on purpose. These used to default to the same hard-coded
-        // '2020-01-01' for both bounds, which is the one window the database
-        // refuses outright -- every save that kept the defaults died on
-        // urban_interventions_active_period_valid as a 500.
-        activeFrom: pendingPlacedObject?.activeFrom,
-        activeTo: pendingPlacedObject?.activeTo,
+        // The two bounds must differ: urban_interventions_active_period_valid
+        // requires active_to strictly after active_from, so seeding both with
+        // the same day (what this used to do) made every save that kept the
+        // defaults fail with a 500.
+        activeFrom: pendingPlacedObject?.activeFrom || DEFAULT_ACTIVE_FROM,
+        activeTo: pendingPlacedObject?.activeTo || DEFAULT_ACTIVE_TO,
         geometry:
           item.kind === 'polygon' && !isWaterArchetype
             ? { kind: 'polygon', ring: [] }
@@ -457,10 +462,6 @@ const handleDrawIntervention = React.useCallback(
     return () => window.clearTimeout(timeoutId);
   }, [commitSuccess]);
 
-  // Save gate for the selected intervention: a city, an intervention, both
-  // dates, and — for polygons only — a color plus a valid (simple, 3+ point)
-  // ring. Point interventions need a coordinate picked on the map instead --
-  // without that check the staged (0, 0) default saves a source in the Atlantic.
   // The active window has to satisfy the table's check constraint before the
   // request is worth sending: active_to strictly after active_from.
   const hasValidActivePeriod =
@@ -468,6 +469,22 @@ const handleDrawIntervention = React.useCallback(
     (toolActiveTo ?? '').trim() !== '' &&
     (toolActiveTo as string) > (toolActiveFrom as string);
 
+  // Both bounds set but unusable. Kept separate from "not filled in yet", which
+  // is not something to warn about -- the user simply hasn't got there.
+  const activePeriodWarning =
+    (toolActiveFrom ?? '').trim() === '' || (toolActiveTo ?? '').trim() === ''
+      ? null
+      : toolActiveTo === toolActiveFrom
+        ? 'The start and end date are the same. An intervention has to end at least a day after it starts, so pick a later end date before saving.'
+        : (toolActiveTo as string) < (toolActiveFrom as string)
+          ? 'The end date falls before the start date. Pick an end date after the start date before saving.'
+          : null;
+
+  // Save gate for the selected intervention: a city, an intervention, a usable
+  // active window, and — for polygons only — a color plus a valid (simple, 3+
+  // point) ring. Point interventions need a coordinate picked on the map
+  // instead: without that check the staged (0, 0) default saves a source in the
+  // Atlantic. Anything false here also greys the button out and disables it.
   const canSaveTool =
     citySelected &&
     Boolean(selectedTool) &&
@@ -801,6 +818,23 @@ const handleDrawIntervention = React.useCallback(
                     variant="bare"
                     style={{ width: '100%' }}
                   />
+
+                  {activePeriodWarning && (
+                    <div
+                      role="alert"
+                      style={{
+                        padding: '8px 10px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(245, 158, 11, 0.5)',
+                        backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                        color: '#fbbf24',
+                        fontSize: 12,
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      {activePeriodWarning}
+                    </div>
+                  )}
                 </div>
 
                 {/* Polygon coordinates. draftPoints are stored [lng, lat] and
