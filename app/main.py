@@ -11,6 +11,7 @@ from sqlalchemy.exc import OperationalError
 import database
 import asyncio
 import models
+import os
 from database import engine, SessionLocal
 from routers import (
     chatbot,
@@ -117,20 +118,46 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# Allow the local Vite frontend to call the API while you are developing.
+# The local Vite dev server is always allowed; deployed frontends are added per
+# environment via ALLOWED_ORIGINS (comma-separated) so a new deploy is a config
+# change rather than a code change.
+DEV_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+# Trailing slashes are stripped because the CORS spec compares origins exactly,
+# and "https://example.com/" would silently never match a browser's Origin header.
+configured_origins = [
+    origin.strip().rstrip("/")
+    for origin in os.getenv("ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "https://rice-to-meet-you-five.vercel.app",
-        "https://rice-to-meet-you-git-main-the-phat-nghiems-projects.vercel.app",
-        "https://rice-to-meet-kpk7dmt28-the-phat-nghiems-projects.vercel.app",
-    ],
+    allow_origins=DEV_ORIGINS + configured_origins,
+    # Vercel mints a fresh hostname for every preview deployment, so match them by
+    # pattern instead of pinning each one and watching it go stale.
+    allow_origin_regex=r"https://[\w.-]+\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/health", tags=["health"])
+async def health():
+    """Liveness probe for the platform healthcheck."""
+    return {"status": "ok"}
+
+
+@app.get("/", tags=["health"])
+async def root():
+    """Keeps the bare domain from returning a 404."""
+    return {"service": "rice-to-meet-you", "docs": "/docs"}
+
+
 app.include_router(dataset.router)
 app.include_router(chatbot.router)
 app.include_router(users.router)

@@ -7,6 +7,7 @@ import type {
   ToolboxItemDef,
   ToolboxItemsByArchetype,
 } from '../types/toolbox';
+import { API_BASE_URL } from './config';
 
 // date (ISO day) -> city name -> the tools placed for that city on that day.
 export type PlacedObjectsByDateCity = Record<string, Record<string, BasePlacedObject[]>>;
@@ -135,9 +136,6 @@ const LATENCY_MS = 300;
 const TOOLBOX_LATENCY_MS = 150;
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-// const API_BASE_URL = 'http://localhost:8000';
-const API_BASE_URL = 'https://rice-to-meet-you-production.up.railway.app';
 
 /** Full map: every date -> every city -> tools. */
 export async function fetchPlacedObjects(): Promise<PlacedObjectsByDateCity> {

@@ -1,0 +1,5 @@
+# Test-only dependencies. Kept out of requirements.txt so they are not baked into
+# the production container image.
+-r requirements.txt
+
+pytest

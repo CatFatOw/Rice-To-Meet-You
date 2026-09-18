@@ -11,9 +11,10 @@ geopandas
 shapely
 pykrige
 passlib
+bcrypt<4.1
 python-jose
 python-multipart
+python-dotenv
 redis>=5.0
 tqdm
-pytest
 anthropic

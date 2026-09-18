@@ -13,3 +13,5 @@ venv/
 .DS_Store
 state_geojson/
 Kansas_Houston_Geo.json
+.vercel
+.env*
