@@ -168,14 +168,25 @@ const Toolbox: React.FC<ToolboxProps> = ({
   const toolColor = pendingPlacedObject?.color ?? '';
   const toolActiveFrom = pendingPlacedObject?.activeFrom ?? null;
   const toolActiveTo = pendingPlacedObject?.activeTo ?? null;
+  // urban_interventions_active_period_valid requires active_to STRICTLY after
+  // active_from, so an end date that is merely >= the new start is not enough:
+  // pushing it to the start date (what this used to do) builds the exact window
+  // the constraint rejects. Move it to the next selectable day instead, and drop
+  // it when there is none so the gate below blocks the save.
+  const nextDateAfter = React.useCallback(
+    (isoDate: string): string | undefined =>
+      (availableDates ?? []).filter((date) => date > isoDate).sort()[0],
+    [availableDates],
+  );
+
   const handleToolStartDateChange = React.useCallback(
     (isoDate: string) => {
       updatePendingPlacedObject?.({ activeFrom: isoDate });
-      if (toolActiveTo && isoDate > toolActiveTo) {
-        updatePendingPlacedObject?.({ activeTo: isoDate });
+      if (toolActiveTo && toolActiveTo <= isoDate) {
+        updatePendingPlacedObject?.({ activeTo: nextDateAfter(isoDate) });
       }
     },
-    [toolActiveTo, updatePendingPlacedObject],
+    [toolActiveTo, updatePendingPlacedObject, nextDateAfter],
   );
 
 
@@ -394,8 +405,12 @@ const Toolbox: React.FC<ToolboxProps> = ({
         color: item.color,
         market_code: selectedCity ? toMarketCode(selectedCity) : undefined,
         params: { ...item.params },
-        activeFrom: pendingPlacedObject?.activeFrom || '2020-01-01',
-        activeTo: pendingPlacedObject?.activeTo || '2020-01-01',
+        // Left unset on purpose. These used to default to the same hard-coded
+        // '2020-01-01' for both bounds, which is the one window the database
+        // refuses outright -- every save that kept the defaults died on
+        // urban_interventions_active_period_valid as a 500.
+        activeFrom: pendingPlacedObject?.activeFrom,
+        activeTo: pendingPlacedObject?.activeTo,
         geometry:
           item.kind === 'polygon' && !isWaterArchetype
             ? { kind: 'polygon', ring: [] }
@@ -446,11 +461,17 @@ const handleDrawIntervention = React.useCallback(
   // dates, and — for polygons only — a color plus a valid (simple, 3+ point)
   // ring. Point interventions need a coordinate picked on the map instead --
   // without that check the staged (0, 0) default saves a source in the Atlantic.
+  // The active window has to satisfy the table's check constraint before the
+  // request is worth sending: active_to strictly after active_from.
+  const hasValidActivePeriod =
+    (toolActiveFrom ?? '').trim() !== '' &&
+    (toolActiveTo ?? '').trim() !== '' &&
+    (toolActiveTo as string) > (toolActiveFrom as string);
+
   const canSaveTool =
     citySelected &&
     Boolean(selectedTool) &&
-    (toolActiveFrom ?? '').trim() !== '' &&
-    (toolActiveTo ?? '').trim() !== '' &&
+    hasValidActivePeriod &&
     (isPolygonTool
       ? toolColor.trim() !== '' && pointCount >= 3 && draftIsSimple
       : hasPointCoordinates);
@@ -968,9 +989,11 @@ const handleDrawIntervention = React.useCallback(
                         ? 'Fix the self-intersecting polygon before saving'
                         : !isPolygonTool && !hasPointCoordinates
                         ? 'Choose a coordinate on the map before saving'
-                        : !canSaveTool
-                          ? 'Fill in the dates (and color/polygon for POIs) before saving'
-                          : undefined
+                        : !hasValidActivePeriod
+                          ? 'Pick an end date later than the start date'
+                          : !canSaveTool
+                            ? 'Fill in the dates (and color/polygon for POIs) before saving'
+                            : undefined
                   }
                 >
                   <Check size={15} /> Save Changes

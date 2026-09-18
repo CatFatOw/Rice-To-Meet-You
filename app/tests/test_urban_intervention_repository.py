@@ -22,6 +22,7 @@ from uuid import UUID
 import pytest
 
 from repository.urban_internvetion_repository import (
+    InvalidActivePeriodError,
     InvalidGeometryError,
     InvalidParametersError,
     UrbanInterventionRecord,
@@ -556,6 +557,74 @@ class TestCreateValidation:
             )
 
         assert str(excinfo.value).count(";") == 2
+
+    # urban_interventions_active_period_valid wants active_to strictly after
+    # active_from. Reaching it produces a CheckViolation -- a 500 whose only
+    # description of the problem is the constraint's name -- so the window is
+    # checked here and reported as a 400 instead.
+    def test_an_active_period_of_zero_length_is_rejected_before_the_insert(self):
+        session = _FakeSession([db_row()])
+
+        with pytest.raises(InvalidActivePeriodError, match="strictly after"):
+            UrbanInterventionRepository(session).create(
+                {
+                    **CREATE_BODY,
+                    "active_from": datetime(2020, 1, 1),
+                    "active_to": datetime(2020, 1, 1),
+                }
+            )
+
+        assert session.executed == []
+
+    def test_a_reversed_active_period_is_rejected(self):
+        session = _FakeSession([db_row()])
+
+        with pytest.raises(InvalidActivePeriodError, match="strictly after"):
+            UrbanInterventionRepository(session).create(
+                {
+                    **CREATE_BODY,
+                    "active_from": datetime(2020, 7, 17),
+                    "active_to": datetime(2020, 7, 12),
+                }
+            )
+
+        assert session.executed == []
+
+    def test_date_bounds_are_compared_without_a_type_error(self):
+        # The TypedDict says datetime, but a Python caller can pass a plain
+        # date; comparing the two directly raises TypeError.
+        session = _FakeSession([db_row()])
+
+        with pytest.raises(InvalidActivePeriodError):
+            UrbanInterventionRepository(session).create(
+                {
+                    **CREATE_BODY,
+                    "active_from": datetime(2020, 1, 1),
+                    "active_to": date(2020, 1, 1),
+                }
+            )
+
+    def test_an_open_ended_window_is_always_valid(self):
+        session = _FakeSession([db_row()])
+
+        UrbanInterventionRepository(session).create(
+            {**CREATE_BODY, "active_from": datetime(2020, 1, 1), "active_to": None}
+        )
+
+        assert session.only.bindings["active_to"] is None
+
+    def test_a_one_day_window_is_accepted(self):
+        session = _FakeSession([db_row()])
+
+        UrbanInterventionRepository(session).create(
+            {
+                **CREATE_BODY,
+                "active_from": datetime(2020, 7, 12),
+                "active_to": datetime(2020, 7, 13),
+            }
+        )
+
+        assert session.only.bindings["active_to"] == datetime(2020, 7, 13)
 
     def test_an_unusable_geometry_is_rejected_before_the_insert(self):
         session = _FakeSession([db_row()])

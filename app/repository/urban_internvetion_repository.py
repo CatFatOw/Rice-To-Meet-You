@@ -61,6 +61,10 @@ class InvalidMarketCodeError(ValueError):
     """Raised when ``market_code`` isn't one of the seeded ``markets`` rows."""
 
 
+class InvalidActivePeriodError(ValueError):
+    """Raised when ``active_to`` does not fall strictly after ``active_from``."""
+
+
 # Mirrors the rows seeded in the ``markets`` table (FK target of
 # urban_interventions.market_code). Kept here so a bad code fails fast with a
 # clear 400 instead of surfacing as a psycopg2 ForeignKeyViolation / 500.
@@ -151,6 +155,42 @@ def geometry_to_wkt(geometry: Geometry) -> tuple[GeometryKind, str]:
         return "polygon", f"POLYGON(({body}))"
 
     raise InvalidGeometryError(f"Unsupported geometry kind: {kind!r}")
+
+
+def _as_datetime(value: datetime | date) -> datetime:
+    """Normalize so a ``date`` bound can be compared with a ``datetime`` one."""
+    if isinstance(value, datetime):
+        return value
+    return datetime(value.year, value.month, value.day)
+
+
+def _validate_active_period(
+    active_from: datetime | date | None,
+    active_to: datetime | date | None,
+) -> None:
+    """Reject an active window the table's check constraint would refuse.
+
+    ``urban_interventions_active_period_valid`` requires ``active_to`` to fall
+    STRICTLY after ``active_from``, so equal bounds are rejected — and equal
+    bounds are the easy mistake to make, since a planner picking a single day
+    for an intervention sends the same date twice. Without this check that
+    arrives as a psycopg2 CheckViolation, i.e. a 500 whose only description of
+    the problem is a constraint name. Fail fast with a 400 instead, the same way
+    VALID_MARKET_CODES does for the market FK.
+
+    A NULL bound is an open-ended window and always valid.
+    """
+    if active_from is None or active_to is None:
+        return
+
+    if _as_datetime(active_to) > _as_datetime(active_from):
+        return
+
+    raise InvalidActivePeriodError(
+        f"active_to ({active_to!r}) must be strictly after active_from "
+        f"({active_from!r}); an intervention covering a single day needs an "
+        "active_to on the following day."
+    )
 
 
 def _validate_parameters(
@@ -299,6 +339,7 @@ class UrbanInterventionRepository:
             InvalidGeometryError: the geometry cannot be rendered as WKT.
             InvalidParametersError: ``parameters`` don't match the type.
             InvalidMarketCodeError: ``market_code`` isn't a known market.
+            InvalidActivePeriodError: ``active_to`` isn't after ``active_from``.
         """
         market_code = data["market_code"]
         if market_code not in VALID_MARKET_CODES:
@@ -306,6 +347,8 @@ class UrbanInterventionRepository:
                 f"{market_code!r} is not a known market_code; expected one of "
                 f"{sorted(VALID_MARKET_CODES)}"
             )
+
+        _validate_active_period(data.get("active_from"), data.get("active_to"))
 
         intervention_type: InterventionType = data["intervention_type"]
         parameters = data["parameters"]
