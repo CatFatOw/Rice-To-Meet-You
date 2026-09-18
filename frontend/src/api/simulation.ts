@@ -1101,9 +1101,7 @@
 import type { HeatmapPointsByDate } from '../types/heatmap';
 import type { ChatSessionState } from './chat';
 import { toMarketCode } from './map';
-
-// const BASE_URL = 'http://127.0.0.1:8000';
-const BASE_URL = 'https://rice-to-meet-you-production.up.railway.app';
+import { API_BASE_URL as BASE_URL } from './config';
 
 export interface SimulatedPointsResponse {
   pointsByDate: HeatmapPointsByDate;

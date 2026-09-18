@@ -1,4 +1,5 @@
-name: continuous-integration-checks
+name: ci-cd
+
 on:
   push:
     branches:
@@ -6,6 +7,13 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      run_migrations:
+        description: "Run `alembic upgrade head` against the production database"
+        type: boolean
+        default: false
+
 jobs:
   run-tests:
     runs-on: ubuntu-latest
@@ -19,8 +27,74 @@ jobs:
         with:
           check-latest: true
       - run: python -m pip install --upgrade pip
-      - run: if [ -f app/requirements.txt ]; then pip install -r app/requirements.txt; fi
+      - run: if [ -f app/requirements-dev.txt ]; then pip install -r app/requirements-dev.txt; fi
       - run: python3 -m compileall -q app
       - run: python3 -m json.tool postman_dataset_routes_collection.json >/dev/null
       - run: python3 -c "import sys; sys.path.insert(0, 'app'); import main"
       - run: pytest
+
+  deploy-backend:
+    needs: run-tests
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Never let two uploads race; a cancelled deploy can leave the service mid-swap.
+    concurrency:
+      group: deploy-backend
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+      - run: npm i -g @railway/cli
+      - name: Deploy to Railway
+        # The CLI reads RAILWAY_TOKEN from the environment; there is no login step.
+        # A project token does not imply a service, hence --service.
+        run: railway up --service "${{ vars.RAILWAY_SERVICE }}" --ci
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+  deploy-frontend:
+    needs: run-tests
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-frontend
+      cancel-in-progress: false
+    env:
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm i -g vercel@latest
+      # Run from the repo root: the Vercel project's Root Directory is "frontend",
+      # so the uploaded tree must contain frontend/ rather than be it.
+      #
+      # `vercel pull` fetches the project's environment variables, which is where
+      # VITE_API_BASE_URL comes from. Do not pass it here as well -- an unset
+      # workflow variable would override the pulled value with an empty string and
+      # silently bake the localhost fallback into the bundle.
+      - run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+      - run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+      - run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+  migrate:
+    # Manual only. The database is shared with another deployment, so migrations
+    # are never part of the push-to-main path.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_migrations
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v3
+        with:
+          python-version: "3.11"
+      - run: pip install -r app/requirements.txt
+      # alembic.ini sets `prepend_sys_path = .` and env.py does `from database import
+      # Base`, so this only resolves with app/ as the working directory.
+      - run: alembic upgrade head
+        working-directory: app
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}

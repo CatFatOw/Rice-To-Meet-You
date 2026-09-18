@@ -1,0 +1,21 @@
+# The image is backend-only; without this the whole frontend tree ships as build context.
+frontend/
+node_modules/
+
+.git/
+.github/
+.devcontainer/
+.vscode/
+
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+.env
+*.sqlite3
+
+app/tests/
+app/requirements-dev.txt

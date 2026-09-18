@@ -125,14 +125,21 @@ npm run dev --prefix frontend
 
 The frontend is served at <http://localhost:5173>, which is already allowed by the backend's CORS settings.
 
-By default the frontend talks to the deployed backend. To point it at your local API, edit the `API_BASE_URL` constant in the files under [frontend/src/api/](../frontend/src/api/) and switch to the commented-out localhost line:
+By default the frontend talks to your local API at <http://127.0.0.1:8000>, so no
+configuration is needed for local work. The origin comes from a single constant in
+[frontend/src/api/config.ts](../frontend/src/api/config.ts), which reads the
+`VITE_API_BASE_URL` environment variable and falls back to localhost.
 
-```ts
-const API_BASE_URL = 'http://localhost:8000';
-// const API_BASE_URL = 'https://rice-to-meet-you-production.up.railway.app';
+To point the dev server at a deployed backend instead, create `frontend/.env`
+(gitignored; see [frontend/.env.example](../frontend/.env.example)):
+
+```bash
+VITE_API_BASE_URL=https://your-service.up.railway.app
 ```
 
-Do not commit that switch.
+Vite only reads env files at startup, so restart `npm run dev` after changing it.
+Never edit the constant in source to switch backends — that is what this variable
+replaced.
 
 ### Run The Tests
 

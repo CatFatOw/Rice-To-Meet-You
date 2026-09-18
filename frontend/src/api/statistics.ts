@@ -8,6 +8,7 @@ import type {
 export type { CityStatisticsResponse };
 
 import type { Polygon } from './map';
+import { API_BASE_URL } from './config';
 
 const CITY_STATISTICS_SEED: Record<string, CitySeedData> = {
     Nationally: {
@@ -497,9 +498,6 @@ export async function createCorePoi(input: CreateCorePoiInput): Promise<void> {
 // ---------------------------------------------------------------------------
 // GET /final_visitor/query-visitor-rows-with-geometry-by-city-date
 // ---------------------------------------------------------------------------
-
-// const API_BASE_URL = 'http://localhost:8000';
-const API_BASE_URL = 'https://rice-to-meet-you-production.up.railway.app';
 
 export interface VisitorPOI {
   name: string;
