@@ -131,7 +131,7 @@ configuration is needed for local work. The origin comes from a single constant 
 `VITE_API_BASE_URL` environment variable and falls back to localhost.
 
 To point the dev server at a deployed backend instead, create `frontend/.env`
-(gitignored; see [frontend/.env.example](../frontend/.env.example)):
+(gitignored):
 
 ```bash
 VITE_API_BASE_URL=https://your-service.up.railway.app

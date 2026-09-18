@@ -24,5 +24,3 @@ dist-ssr
 *.sw?
 .vercel
 .env*
-# ...but the template is meant to be committed.
-!.env.example
