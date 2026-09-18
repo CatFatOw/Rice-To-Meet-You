@@ -234,8 +234,9 @@ const commitPendingPlacedObject = useCallback(async () => {
     const toCommit = pendingPlacedObject;
 
     if (!toCommit) {
-      console.warn("Commit stopped: pendingPlacedObject is null or undefined.");
-      return;
+      throw new Error(
+        "Nothing is staged to save. Re-select the intervention in the toolbox.",
+      );
     }
 
     const committed = {
@@ -265,64 +266,67 @@ const commitPendingPlacedObject = useCallback(async () => {
       isArchetypeType(pendingMeta.category),
     );
 
+    // These three used to log a warning and fall through to a resolved
+    // promise, so the caller showed "saved successfully" for an object that
+    // was never sent anywhere. They are real failures; report them as such.
     if (!interventionKey) {
-      console.warn(
-        "addPlacedObjects skipped: no intervention or type was provided.",
+      throw new Error(
+        "Nothing to save: the staged object has no intervention. Re-select the intervention in the toolbox.",
       );
-    } else if (!isArchetypeType(pendingMeta.category)) {
-      console.warn(
-        "addPlacedObjects skipped: invalid archetype category.",
-        pendingMeta.category,
+    }
+    if (!isArchetypeType(pendingMeta.category)) {
+      throw new Error(
+        `Nothing to save: ${JSON.stringify(pendingMeta.category)} is not a known archetype. ` +
+          "Re-select the archetype and the intervention in the toolbox.",
       );
-    } else {
-      console.log(
-        "Available toolbox items:",
-        TOOLBOX_ITEMS[pendingMeta.category],
-      );
+    }
 
-      const baseItem = TOOLBOX_ITEMS[pendingMeta.category].find(
-        (item) => item.intervention === interventionKey,
+    const baseItem = TOOLBOX_ITEMS[pendingMeta.category].find(
+      (item) => item.intervention === interventionKey,
+    );
+
+    console.log("Matching base toolbox item:", baseItem);
+
+    if (!baseItem) {
+      throw new Error(
+        `Nothing to save: no "${interventionKey}" intervention exists under ` +
+          `"${pendingMeta.category}".`,
       );
+    }
 
-      console.log("Matching base toolbox item:", baseItem);
+    const payload: ToolboxItemDef = {
+      ...baseItem,
+      color: pendingMeta.color ?? baseItem.color,
+      market_code: pendingMeta.market_code,
+      geometry: pendingMeta.geometry,
+      params: toCommit.params ?? baseItem.params,
+      activeFrom: toCommit.activeFrom,
+      activeTo: toCommit.activeTo,
+      kind: pendingMeta.geometry?.kind === "point" ? "point" : "polygon",
+    };
 
-      if (!baseItem) {
-        console.warn(
-          "addPlacedObjects skipped: no matching toolbox item.",
-          {
-            category: pendingMeta.category,
-            interventionKey,
-          },
+    console.log("Calling addPlacedObjects with payload:", payload);
+
+    await addPlacedObjects(payload);
+
+    console.log("addPlacedObjects completed successfully.");
+
+    // The write has landed. A failed read-back is a stale map, not a failed
+    // save, so it must not reject -- rejecting here reported a row that IS in
+    // the database as an error the user then tried to "fix" by saving again.
+    if (pendingMeta.market_code && toCommit.activeFrom) {
+      try {
+        const refreshedObjects = await fetchPlacedObjectsByCityDate(
+          toCommit.activeFrom,
+          pendingMeta.market_code,
         );
-      } else {
-        const payload: ToolboxItemDef = {
-          ...baseItem,
-          color: pendingMeta.color ?? baseItem.color,
-          market_code: pendingMeta.market_code,
-          geometry: pendingMeta.geometry,
-          params: toCommit.params ?? baseItem.params,
-          activeFrom: toCommit.activeFrom,
-          activeTo: toCommit.activeTo,
-          kind:
-            pendingMeta.geometry?.kind === "point"
-              ? "point"
-              : "polygon",
-        };
-
-        console.log("Calling addPlacedObjects with payload:", payload);
-
-        await addPlacedObjects(payload);
-
-        console.log("addPlacedObjects completed successfully.");
-
-        if (pendingMeta.market_code && toCommit.activeFrom) {
-          const refreshedObjects = await fetchPlacedObjectsByCityDate(
-            toCommit.activeFrom,
-            pendingMeta.market_code,
-          );
-          setPlacedObjects(refreshedObjects as TPlacedObject[]);
-          console.log("Placed objects refreshed from API:", refreshedObjects);
-        }
+        setPlacedObjects(refreshedObjects as TPlacedObject[]);
+        console.log("Placed objects refreshed from API:", refreshedObjects);
+      } catch (error) {
+        console.error(
+          "[commitPendingPlacedObject] Saved, but reloading the city's interventions failed:",
+          error,
+        );
       }
     }
 

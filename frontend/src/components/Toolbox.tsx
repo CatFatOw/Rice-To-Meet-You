@@ -199,6 +199,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
   const [customParams, setCustomParams] = React.useState<Record<string, number>>({});
   const [customColor, setCustomColor] = React.useState<string>('#22c55e');
   const [commitSuccess, setCommitSuccess] = React.useState(false);
+  const [commitError, setCommitError] = React.useState<string | null>(null);
   const [isPOIDraw, setIsPOIDraw] = React.useState(false);
   const [poi, setPoi] = React.useState<CreatePOIInput>({
     polygon: '',
@@ -384,6 +385,7 @@ const Toolbox: React.FC<ToolboxProps> = ({
     (item: ToolboxItemDef) => {
       if (!citySelected || !selectedArchetype) return;
       setSelectedIntervention(item.intervention);
+      setCommitError(null);
       
       setPendingPlacedObject?.({
         intervention: item.intervention,
@@ -442,13 +444,16 @@ const handleDrawIntervention = React.useCallback(
 
   // Save gate for the selected intervention: a city, an intervention, both
   // dates, and — for polygons only — a color plus a valid (simple, 3+ point)
-  // ring. Point interventions have no color/ring requirement.
+  // ring. Point interventions need a coordinate picked on the map instead --
+  // without that check the staged (0, 0) default saves a source in the Atlantic.
   const canSaveTool =
     citySelected &&
     Boolean(selectedTool) &&
     (toolActiveFrom ?? '').trim() !== '' &&
     (toolActiveTo ?? '').trim() !== '' &&
-    (isPolygonTool ? toolColor.trim() !== '' && pointCount >= 3 && draftIsSimple : true);
+    (isPolygonTool
+      ? toolColor.trim() !== '' && pointCount >= 3 && draftIsSimple
+      : hasPointCoordinates);
 
   const normalizedPoiPolygonWkt = normalizePolygonWkt(poi.polygon);
   const canCreateCorePoi =
@@ -655,6 +660,7 @@ const handleDrawIntervention = React.useCallback(
                 onChange={(e) => {
                   setSelectedArchetype((e.target.value || '') as ArchetypeKey | '');
                   setSelectedIntervention(null);
+                  setCommitError(null);
                   placedObjectsControls?.clearPendingPlacedObject?.();
                 }}
                 style={{
@@ -929,10 +935,30 @@ const handleDrawIntervention = React.useCallback(
                   }}
                   onClick={() => {
                     if (!canSaveTool) return;
-                    void placedObjectsControls?.commitPendingPlacedObject?.().then(() => {
-                      setCommitSuccess(true);
-                      onCancelDrawing(); // creation succeeded -- exit draw mode
-                    });
+                    setCommitError(null);
+
+                    const commit = placedObjectsControls?.commitPendingPlacedObject?.();
+                    if (!commit) {
+                      // No controls wired, or nothing staged: either way the
+                      // click would otherwise look like a no-op.
+                      setCommitError('Nothing is staged to save. Re-select the intervention and try again.');
+                      return;
+                    }
+
+                    void commit
+                      .then(() => {
+                        setCommitSuccess(true);
+                        onCancelDrawing(); // creation succeeded -- exit draw mode
+                      })
+                      .catch((error: unknown) => {
+                        // Every failure below this button used to end in an
+                        // unhandled rejection, which is why a rejected save
+                        // looked identical to no click at all.
+                        console.error('Failed to save urban intervention', error);
+                        setCommitError(
+                          error instanceof Error ? error.message : String(error),
+                        );
+                      });
                   }}
                   disabled={!canSaveTool}
                   title={
@@ -940,6 +966,8 @@ const handleDrawIntervention = React.useCallback(
                       ? 'Select a city on the map first'
                       : isPolygonTool && !draftIsSimple
                         ? 'Fix the self-intersecting polygon before saving'
+                        : !isPolygonTool && !hasPointCoordinates
+                        ? 'Choose a coordinate on the map before saving'
                         : !canSaveTool
                           ? 'Fill in the dates (and color/polygon for POIs) before saving'
                           : undefined
@@ -947,6 +975,24 @@ const handleDrawIntervention = React.useCallback(
                 >
                   <Check size={15} /> Save Changes
                 </button>
+
+                {commitError && (
+                  <div
+                    role="alert"
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(248, 113, 113, 0.5)',
+                      backgroundColor: 'rgba(127, 29, 29, 0.2)',
+                      color: '#fca5a5',
+                      fontSize: 12,
+                      lineHeight: 1.4,
+                      overflowWrap: 'anywhere',
+                    }}
+                  >
+                    Could not save this intervention: {commitError}
+                  </div>
+                )}
 
                 {commitSuccess && (
                   <div
