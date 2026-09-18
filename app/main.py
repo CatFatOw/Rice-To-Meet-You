@@ -94,11 +94,14 @@ async def lifespan(app: FastAPI):
             # directly (queryVisitorRowsWithGeometryByCityDate) while empty.
             logger.exception("Visitor preload failed; cached lookups return empty")
 
-    # Backgrounded like preload_core_poi so millions of rows don't block
-    # startup and stall every other route. Cache-backed visitor endpoints
-    # (e.g. getVisitorDataByCityDate) return {} / 404 until this finishes.
+    # Core POI preload must finish before requests are accepted: otherwise an
+    # early /core_poi request falls back to a schema-dependent lazy query while
+    # the shared cache is still warming.
+    await preload_core_poi()
+
+    # Visitor data remains backgrounded because its cache is independent of the
+    # core map and can safely fall back while it warms.
     tasks = [
-        asyncio.create_task(preload_core_poi(), name="preload-core-poi"),
         asyncio.create_task(preload_visitors(), name="preload-visitors"),
     ]
 
